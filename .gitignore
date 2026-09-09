@@ -13,8 +13,15 @@ env/
 
 # Environment variables / secrets
 .env
-.env.*
+
+# Logs and temp files
+*.log
+~$*
+.pytest_cache/
 
 # OS
 .DS_Store
 Thumbs.db
+
+build/
+dist/

@@ -9,7 +9,10 @@ from datetime import datetime
 
 from pypdf import PdfReader
 
-import config
+try:
+    from . import config
+except ImportError:
+    import config
 
 
 class FlattenedPdfError(Exception):

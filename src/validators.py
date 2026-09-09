@@ -3,7 +3,10 @@
 Every rule returns a sentence a grad student can act on. If the list comes back
 empty, the row is safe to write.
 """
-import config
+try:
+    from . import config
+except ImportError:
+    import config
 
 
 def validate(parsed: dict, requester_name=None) -> list:
