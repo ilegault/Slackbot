@@ -295,11 +295,31 @@ def get_tail_logs(n: int = 30, log_path: Optional[str] = None) -> str:
     return masked_text
 
 
+def _get_current_branch() -> str:
+    """Detect the current git branch name."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=config.BASE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res.returncode == 0:
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "master"
+
+
 def execute_git_update() -> Tuple[bool, str]:
     """Pull latest changes from git repository and optionally update dependencies."""
     try:
+        branch = _get_current_branch()
+        log.info("Detected current git branch: %s", branch)
+
         git_res = subprocess.run(
-            ["git", "pull", "origin", "main"],
+            ["git", "pull", "origin", branch],
             cwd=config.BASE_DIR,
             capture_output=True,
             text=True,

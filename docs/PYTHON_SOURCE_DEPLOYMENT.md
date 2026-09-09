@@ -109,7 +109,7 @@ Once running, administrators (defined in `ADMIN_SLACK_USER_IDS`) can manage the 
 ```
 @p-bot update
 ```
-- Performs a `git pull origin main`.
+- Detects the current branch and performs a `git pull origin <branch>`.
 - If `requirements.txt` was modified, automatically runs `pip install -r requirements.txt`.
 - Automatically reboots the bot process with the latest code applied.
 

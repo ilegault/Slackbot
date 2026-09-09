@@ -398,12 +398,21 @@ def download_file(file_obj) -> bytes:
     """Download any file attachment (PDF, screenshot/PNG, image, quote, etc.) from Slack."""
     url = file_obj.get("url_private_download") or file_obj.get("url_private")
     token = os.environ.get("SLACK_BOT_TOKEN")
-    response = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        response.raise_for_status()
+    except requests.exceptions.HTTPError:
+        if response.status_code == 403:
+            raise RuntimeError(
+                "Slack returned 403 Forbidden while downloading the file. "
+                "Ensure 'files:read' is added under OAuth & Permissions -> Bot Token Scopes, "
+                "and click 'Reinstall to Workspace' in api.slack.com."
+            )
+        raise
     return response.content
 
 
@@ -928,7 +937,7 @@ def handle_update(client, say, channel: str, thread_ts: str, user_id: str):
     success, msg = admin.execute_git_update()
     say(text=msg, thread_ts=thread_ts)
 
-    if success and "Already up to date." not in msg:
+    if success and "already up to date" not in msg.lower():
         say(text="🚀 Code updated! Restarting P-Bot process in 2 seconds...", thread_ts=thread_ts)
         admin.execute_restart(delay=2.0)
 
@@ -980,7 +989,7 @@ def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event
         handle_confirmation(client, say, channel, thread_ts, user, event_ts, text, files)
     elif any(kw in text_lower for kw in config.DELIVERED_KEYWORDS):
         handle_delivery(client, say, channel, thread_ts, user, event_ts, text)
-    elif config.TRIGGER_KEYWORD in text_lower or direct_file or any(w in text_lower for w in ("check", "test", "log")):
+    elif config.TRIGGER_KEYWORD in text_lower or direct_file or any(w in text_lower for w in ("check", "test")):
         handle_epif_processing(
             client, say, channel, thread_ts, user, event_ts,
             direct_file=direct_file, direct_poster=user if direct_file else None

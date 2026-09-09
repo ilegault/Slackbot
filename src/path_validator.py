@@ -35,6 +35,12 @@ STORAGE_PATHS = {
         "description": "Order-Confirmations directory",
         "example": r"C:\Users\USERNAME\OneDrive\Purchasing\Order-Confirmations",
     },
+    "QUOTES_DIR": {
+        "env": "QUOTES_DIR",
+        "config_attr": "QUOTES_DIR",
+        "description": "Quotes directory (vendor quotes)",
+        "example": r"C:\Users\USERNAME\OneDrive\Purchasing\Quotes",
+    },
 }
 
 
@@ -145,6 +151,15 @@ def validate_and_configure() -> bool:
     else:
         print(f"✅ Order-Confirmations directory found")
 
+    # Check Quotes directory
+    if not path_exists(config.QUOTES_DIR):
+        all_valid = False
+        missing_paths["QUOTES_DIR"] = ("directory", "Quotes directory")
+        print(f"❌ Quotes directory not found at:")
+        print(f"   {config.QUOTES_DIR}")
+    else:
+        print(f"✅ Quotes directory found")
+
     if all_valid:
         print("\n✅ All storage paths are accessible!")
         print("="*70 + "\n")
@@ -183,24 +198,38 @@ def validate_and_configure() -> bool:
         env_file = os.path.join(config.BASE_DIR, ".env")
         print(f"\n💾 Saving configuration to .env...")
 
-        # Read existing .env
-        existing = {}
+        # Read existing .env preserving all lines (comments, blanks, etc.)
+        original_lines = []
+        existing_keys = set()
         if os.path.exists(env_file):
             with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and "=" in line and not line.startswith("#"):
-                        k, v = line.split("=", 1)
-                        existing[k.strip()] = v.strip().strip("'\"")
+                original_lines = f.readlines()
+            for line in original_lines:
+                stripped = line.strip()
+                if stripped and "=" in stripped and not stripped.startswith("#"):
+                    k = stripped.split("=", 1)[0].strip()
+                    existing_keys.add(k)
 
-        # Merge updates
-        existing.update(env_updates)
+        # Update existing keys in-place, preserving file structure
+        updated_keys = set()
+        new_lines = []
+        for line in original_lines:
+            stripped = line.strip()
+            if stripped and "=" in stripped and not stripped.startswith("#"):
+                k = stripped.split("=", 1)[0].strip()
+                if k in env_updates:
+                    new_lines.append(f'{k}="{env_updates[k]}"\n')
+                    updated_keys.add(k)
+                    continue
+            new_lines.append(line)
 
-        # Write back
+        # Append any new keys that weren't already in the file
+        for k, v in env_updates.items():
+            if k not in updated_keys:
+                new_lines.append(f'{k}="{v}"\n')
+
         with open(env_file, "w", encoding="utf-8") as f:
-            f.write("# Auto-configured storage paths for p-bot\n")
-            for k, v in existing.items():
-                f.write(f'{k}="{v}"\n')
+            f.writelines(new_lines)
 
         print(f"✅ Configuration saved to .env\n")
 
