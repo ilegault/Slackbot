@@ -4,6 +4,7 @@ Everything in this file was read off the real EPIF_TEMPLATE_blank.pdf and the re
 Purchasing-Log.xlsx, so if either of those changes, this is the only file to edit.
 """
 import os
+import subprocess
 import sys
 
 def get_base_dir() -> str:
@@ -43,7 +44,25 @@ for _cand in _env_candidates:
                         os.environ[_k] = _v
         break
 
-BOT_VERSION = "1.2.0"
+_BASE_VERSION = "1.3.0"
+
+def _get_git_hash() -> str:
+    """Read the short git commit hash, or return 'unknown' if not in a repo."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if res.returncode == 0:
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+BOT_VERSION = f"{_BASE_VERSION}-{_get_git_hash()}"
 
 # --- Admin & Notification Settings --------------------------------------------
 # Comma-separated list of Slack User IDs allowed to run admin commands
