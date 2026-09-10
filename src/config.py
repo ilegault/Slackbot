@@ -44,8 +44,6 @@ for _cand in _env_candidates:
                         os.environ[_k] = _v
         break
 
-_BASE_VERSION = "1.3.0"
-
 def _get_git_hash() -> str:
     """Read the short git commit hash, or return 'unknown' if not in a repo."""
     try:
@@ -62,7 +60,7 @@ def _get_git_hash() -> str:
         pass
     return "unknown"
 
-BOT_VERSION = f"{_BASE_VERSION}-{_get_git_hash()}"
+BOT_VERSION = _get_git_hash()
 
 # --- Admin & Notification Settings --------------------------------------------
 # Comma-separated list of Slack User IDs allowed to run admin commands
