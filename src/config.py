@@ -70,6 +70,9 @@ ADMIN_SLACK_USER_IDS = [
     if uid.strip()
 ]
 
+# Phase 2 (roster.py) replaces this with an admin-manageable list — delete this constant once that ships.
+APPROVER_SLACK_USER_IDS = {"U07L2RFEPJ9"}
+
 # Channel ID or Admin User ID where startup, crash, and system health alerts should be sent
 ADMIN_ALERT_CHANNEL = os.environ.get("ADMIN_ALERT_CHANNEL", "").strip()
 
@@ -118,6 +121,12 @@ CONFIRMATIONS_DIR = os.environ.get(
 QUOTES_DIR = os.environ.get(
     "QUOTES_DIR",
     os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\Quotes"),
+)
+
+# Point this at the OneDrive-synced _TEMPLATE directory for blank EPIFs and instructions.
+TEMPLATE_DIR = os.environ.get(
+    "TEMPLATE_DIR",
+    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\_TEMPLATE"),
 )
 
 SHEET_XML = "xl/worksheets/sheet1.xml"  # 'Order Log' is the first sheet
@@ -199,6 +208,20 @@ SLACK_USER_TO_REQUESTER = {
     # "U01ABCDEF": "Isaac",
 }
 
+# Phase 2 (roster.py) replaces this with a self-service list — delete this constant once that ships.
+WORKDAY_VENDORS = {
+    "Abcam", "Airgas", "Apple", "B&H Photo", "Bio Rad", "CDWG", "Dell",
+    "Dot Scientific", "Eppendorf", "Fastenal", "First Supply", "Fisher Scientific",
+    "Grainger", "IDT", "Life Technologies", "McKesson", "Medline", "MIDSCI",
+    "MSC", "Neta Scientific", "Newark", "New England BioLabs", "Promega",
+    "Qiagen", "Rainin", "Santa Cruz", "Sigma Aldrich", "Staples", "USA Scientific",
+    "Vanguard", "VWR-AVANTOR", "Anixter", "Kranz", "NASSCO",
+}
+
+VENDOR_SUGGEST_OPTION = "Suggest a new vendor"
+VENDOR_OTHER_OPTION = "Not listed / other"
+WORKDAY_PAYMENT_METHOD = "Workday"
+
 TRIGGER_KEYWORD = "approved"
 CLAIM_KEYWORDS = ("claim", "i will order", "i'll order", "take", "claiming")
 SUBMIT_KEYWORDS = ("submitted", "submit", "processed", "processing", "ordered")
@@ -211,4 +234,9 @@ QUEUE_KEYWORDS = ("queue", "lock queue", "writes")
 LOGS_KEYWORDS = ("logs", "log")
 UPDATE_KEYWORDS = ("update", "git pull")
 RESTART_KEYWORDS = ("restart", "reboot")
+TEMPLATE_KEYWORDS = ("template", "blank epif", "blank form")
+REMOVE_VENDOR_KEYWORDS = ("remove vendor", "delete vendor")
+PROMOTE_ADMIN_KEYWORDS = ("promote-admin", "promote admin", "add-admin", "add admin")
+ADD_APPROVER_KEYWORDS = ("add-approver", "add approver")
+REMOVE_APPROVER_KEYWORDS = ("remove-approver", "remove approver")
 

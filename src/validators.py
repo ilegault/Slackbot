@@ -5,8 +5,10 @@ empty, the row is safe to write.
 """
 try:
     from . import config
+    from . import roster
 except ImportError:
     import config
+    import roster
 
 
 def validate(parsed: dict, requester_name=None) -> list:
@@ -72,12 +74,13 @@ def validate(parsed: dict, requester_name=None) -> list:
         problems.append("Tick either the P-card box or the Req/PO box (exactly one).")
 
     # --- the Slack side --------------------------------------------------------
+    valid_requesters = roster.get_valid_requesters() if hasattr(roster, "get_valid_requesters") else getattr(config, "VALID_REQUESTERS", set())
     if requester_name is None:
         problems.append(
             "I don't know which lab member you are - your Slack ID isn't in the "
             "requester map yet. Ask Isaac to add it."
         )
-    elif requester_name not in config.VALID_REQUESTERS:
+    elif requester_name not in valid_requesters:
         problems.append(
             f"'{requester_name}' is not in the Requester Name dropdown list."
         )

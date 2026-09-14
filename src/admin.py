@@ -22,9 +22,11 @@ from typing import Any, Dict, List, Optional, Tuple
 try:
     from . import config
     from . import queue_worker
+    from . import roster
 except ImportError:
     import config
     import queue_worker
+    import roster
 
 log = logging.getLogger("p-bot.admin")
 
@@ -36,7 +38,18 @@ def is_admin_user(user_id: Optional[str]) -> bool:
     """Check if the given Slack user ID is authorized as an administrator."""
     if not user_id:
         return False
-    return user_id in config.ADMIN_SLACK_USER_IDS
+    if hasattr(roster, "get_admins"):
+        return user_id in roster.get_admins()
+    return user_id in getattr(config, "ADMIN_SLACK_USER_IDS", [])
+
+
+def is_approved_reviewer(user_id: Optional[str]) -> bool:
+    """Check if the given Slack user ID is authorized to approve purchase requests."""
+    if not user_id:
+        return False
+    if hasattr(roster, "get_approvers"):
+        return user_id in roster.get_approvers()
+    return user_id in getattr(config, "APPROVER_SLACK_USER_IDS", set())
 
 
 def format_uptime(start: datetime) -> str:
