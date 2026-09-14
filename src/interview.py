@@ -38,30 +38,37 @@ def route_vendor(vendor_choice: str) -> str:
     return "epif"
 
 
-def build_parsed_from_modal(values: Dict[str, Any], vendor_choice: str) -> Dict[str, Any]:
-    """Convert extracted modal state values into a dict matching epif_parser.parse_epif().
+def needs_asset_details(category: Optional[str]) -> bool:
+    """Return True if category requires Asset ID and Name of System (Screen 3)."""
+    if not category:
+        return False
+    required_cats = getattr(config, "ASSET_REQUIRED_CATEGORIES", {"Fabrication Component (4670) > $200"})
+    return category in required_cats
 
-    Expects values dict with keys:
-    - item_description (str)
-    - purpose (str)
-    - link (optional str, or extracted from purpose)
-    - total_price (str or float/int)
-    - vendor_contact_name (optional str)
-    - vendor_contact_email (str)
-    - date_of_purchase (str YYYY-MM-DD, MM/DD/YY or date object)
-    - name_of_system (optional str)
-    - delivery_room (str)
-    - project_id (str)
-    - fund (str)
-    - asset_id (optional str)
-    - category (str)
-    - payment_method (optional str, required if non-workday)
-    - suggested_vendor / other_vendor (optional str if vendor_choice was suggest/other)
+
+def validate_stage1(vendor_choice: str, vendor_custom: str) -> Dict[str, str]:
+    """Validate Stage 1 inputs. Returns {block_id: error_message} dict (empty if valid)."""
+    errors: Dict[str, str] = {}
+    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor")
+    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
+    if vendor_choice in (suggest_opt, other_opt) and not str(vendor_custom or "").strip():
+        errors["block_vendor_custom"] = "Please enter the vendor name."
+    return errors
+
+
+def build_parsed_from_stages(
+    stage1: Dict[str, Any],
+    stage2: Dict[str, Any],
+    stage3: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Convert accumulated stage answers into a dict matching epif_parser.parse_epif().
+
+    Returns exactly 19 keys matching the AcroForm parser.
     """
-    purpose = str(values.get("purpose") or "").strip()
-    link = values.get("link") or epif_parser.first_url(purpose)
+    purpose = str(stage2.get("purpose") or "").strip()
+    link = stage2.get("link") or epif_parser.first_url(purpose)
 
-    raw_price = values.get("total_price")
+    raw_price = stage2.get("total_price")
     if raw_price is None:
         price_num = None
         price_raw = ""
@@ -72,59 +79,64 @@ def build_parsed_from_modal(values: Dict[str, Any], vendor_choice: str) -> Dict[
         price_raw = str(raw_price).strip()
         price_num = epif_parser.parse_money(price_raw)
 
-    raw_date = values.get("date_of_purchase")
+    raw_date = stage2.get("date_of_purchase")
     if isinstance(raw_date, str):
         parsed_date = epif_parser.parse_date(raw_date)
     else:
         parsed_date = raw_date
 
-    # Determine final vendor string
+    # Determine final vendor name
+    vendor_choice = str(stage1.get("vendor_choice") or "").strip()
     suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor")
     other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
-    if vendor_choice == suggest_opt:
-        custom_v = str(values.get("suggested_vendor") or values.get("custom_vendor") or "").strip()
-        final_vendor = custom_v if custom_v else suggest_opt
-    elif vendor_choice == other_opt:
-        custom_v = str(values.get("other_vendor") or values.get("custom_vendor") or "").strip()
-        final_vendor = custom_v if custom_v else other_opt
+    if vendor_choice in (suggest_opt, other_opt):
+        custom_v = str(stage1.get("vendor_custom") or "").strip()
+        final_vendor = custom_v if custom_v else vendor_choice
     else:
-        final_vendor = vendor_choice.strip()
+        final_vendor = vendor_choice
 
     # Determine payment method based on routing
-    routing = route_vendor(vendor_choice)
+    routing = stage1.get("route") or route_vendor(vendor_choice)
     if routing == "workday":
         payment_method = getattr(config, "WORKDAY_PAYMENT_METHOD", "Workday")
     else:
-        payment_method = values.get("payment_method") or None
+        payment_method = stage2.get("payment_method") or None
 
-    category = values.get("category")
+    category = stage2.get("category")
     category_error = None if category else "no EPIF category box is ticked"
 
+    asset_id = str(stage3.get("asset_id") or "").strip() if stage3 else ""
+    name_of_system = str(stage3.get("name_of_system") or "").strip() if stage3 else ""
+
     return {
-        "raw_fields": values.get("raw_fields", {}),
-        "item_description": str(values.get("item_description") or "").strip(),
+        "raw_fields": {},
+        "item_description": str(stage2.get("item_description") or "").strip(),
         "purpose": purpose,
         "link": link,
         "total_price": price_num,
         "total_price_raw": price_raw,
         "vendor": final_vendor,
-        "vendor_contact_name": str(values.get("vendor_contact_name") or "").strip(),
-        "vendor_contact_email": str(values.get("vendor_contact_email") or "").strip(),
+        "vendor_contact_name": str(stage2.get("vendor_contact_name") or "").strip(),
+        "vendor_contact_email": str(stage2.get("vendor_contact_email") or "").strip(),
         "date_of_purchase": parsed_date,
-        "name_of_system": str(values.get("name_of_system") or "").strip(),
-        "delivery_room": str(values.get("delivery_room") or "").strip(),
-        "project_id": str(values.get("project_id") or "").strip(),
-        "fund": str(values.get("fund") or "").strip(),
-        "asset_id": str(values.get("asset_id") or "").strip(),
-        "pi_of_funding": str(values.get("pi_of_funding") or "").strip(),
-        "end_user": str(values.get("end_user") or "").strip(),
+        "name_of_system": name_of_system,
+        "delivery_room": str(stage2.get("delivery_room") or "").strip(),
+        "project_id": str(stage2.get("project_id") or "").strip(),
+        "fund": str(stage2.get("fund") or "").strip(),
+        "asset_id": asset_id,
+        "pi_of_funding": "",
+        "end_user": "",
         "category": category,
         "category_error": category_error,
         "payment_method": payment_method,
     }
 
-
 FAQ_ANSWERS: Dict[str, str] = {
+    "workday": (
+        "Workday punch-out vendors (like Fisher Scientific, Dell, Apple) are pre-approved campus suppliers "
+        "where orders skip manual EPIF paperwork. Non-catalog vendors require a standard EPIF form and "
+        "P-card or Purchase Order (Req/PO)."
+    ),
     "project id": (
         "A Project ID (like `PG000025831`) specifies the UW-Madison accounting project that funds "
         "your purchase. Check with your lab mentor or Charlie if you are unsure which one to select."
@@ -182,3 +194,4 @@ def match_faq(text: str) -> Optional[str]:
         if topic in text_lower:
             return answer
     return None
+

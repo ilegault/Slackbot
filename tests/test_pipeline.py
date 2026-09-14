@@ -40,12 +40,16 @@ WORKBOOK = os.path.join(SAMPLES, "Purchasing-Log.xlsx")
 
 @pytest.fixture
 def filled():
+    if not os.path.exists(FILLED):
+        pytest.skip(f"Sample PDF not found at {FILLED}")
     with open(FILLED, "rb") as handle:
         return epif_parser.parse_epif(handle.read())
 
 
 @pytest.fixture
 def workbook(tmp_path):
+    if not os.path.exists(WORKBOOK):
+        pytest.skip(f"Sample workbook not found at {WORKBOOK}")
     copy = tmp_path / "Purchasing-Log.xlsx"
     shutil.copy(WORKBOOK, copy)
     return str(copy)
@@ -80,6 +84,8 @@ def test_ticked_checkbox_maps_to_the_dropdown_wording(filled):
 
 
 def test_blank_template_reports_no_category_ticked():
+    if not os.path.exists(BLANK):
+        pytest.skip(f"Sample blank PDF not found at {BLANK}")
     with open(BLANK, "rb") as handle:
         parsed = epif_parser.parse_epif(handle.read())
     assert parsed["category"] is None
@@ -87,6 +93,8 @@ def test_blank_template_reports_no_category_ticked():
 
 
 def test_a_pdf_with_no_form_fields_is_rejected_loudly(tmp_path):
+    if not os.path.exists(FILLED):
+        pytest.skip(f"Sample PDF not found at {FILLED}")
     from pypdf import PdfReader, PdfWriter
     flat = tmp_path / "flat.pdf"
     writer = PdfWriter()
@@ -97,6 +105,7 @@ def test_a_pdf_with_no_form_fields_is_rejected_loudly(tmp_path):
         writer.write(handle)
     with pytest.raises(epif_parser.FlattenedPdfError):
         epif_parser.parse_epif(flat.read_bytes())
+
 
 
 # --- validation ---------------------------------------------------------------
@@ -244,6 +253,8 @@ def test_open_in_excel_blocks_the_write(workbook, filled):
 # --- epif file saving ---------------------------------------------------------
 
 def test_save_epif_writes_pdf_correctly(tmp_path):
+    if not os.path.exists(FILLED):
+        pytest.skip(f"Sample PDF not found at {FILLED}")
     with open(FILLED, "rb") as f:
         pdf_bytes = f.read()
 
@@ -254,6 +265,7 @@ def test_save_epif_writes_pdf_correctly(tmp_path):
     assert os.path.basename(dest) == "Sample_EPIF.pdf"
     with open(dest, "rb") as f:
         assert f.read() == pdf_bytes
+
 
 
 def test_save_epif_handles_missing_extension_and_traversal(tmp_path):

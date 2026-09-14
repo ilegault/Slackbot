@@ -240,3 +240,31 @@ PROMOTE_ADMIN_KEYWORDS = ("promote-admin", "promote admin", "add-admin", "add ad
 ADD_APPROVER_KEYWORDS = ("add-approver", "add approver")
 REMOVE_APPROVER_KEYWORDS = ("remove-approver", "remove approver")
 
+# --- Phase 4 Staged Purchasing Interview Constants ----------------------------
+# The categories for which Asset ID and Name of System are required (Screen 3)
+ASSET_REQUIRED_CATEGORIES = {"Fabrication Component (4670) > $200"}
+
+# Ordered list of (value, display_text) pairs covering every category in CHECKBOX_TO_CATEGORY
+# Display text is plain language for first-time users; value must strictly match CHECKBOX_TO_CATEGORY values.
+CATEGORY_DISPLAY_ORDER = [
+    ("Research/Lab Supplies (3105)", "Research / Lab Supplies (3105) — most consumables and small parts"),
+    ("Computer Peripherals/Cables", "Computer Peripherals / Cables — monitors, adapters, cables"),
+    ("Software", "Software — licenses, subscriptions, toolboxes"),
+    ("Machining / Prof Services", "Machining / Professional Services — custom fab, testing services"),
+    ("Repair & Maintenance", "Repair & Maintenance — equipment service, replacement parts"),
+    ("Fabrication Component (4670) > $200", "Fabrication Component (4670) > $200 — parts built into an active system"),
+    ("Standalone Equipment >$5k (4602)", "Standalone Equipment > $5k (4602) — major standalone capital gear"),
+    ("Membership", "Membership — professional societies, journal access"),
+    ("Other", "Other — anything not covered above"),
+]
+
+# Callback IDs for the 3 modal stages
+STAGE1_CALLBACK_ID = "purchase_stage1_submit"
+STAGE2_CALLBACK_ID = "purchase_stage2_submit"
+STAGE3_CALLBACK_ID = "purchase_stage3_submit"
+
+# Field length limits to keep accumulated private_metadata well under Slack's 3000-char limit
+MAX_ITEM_DESCRIPTION_LEN = 150
+MAX_PURPOSE_LEN = 900
+
+

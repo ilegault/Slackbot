@@ -285,10 +285,14 @@ def resolve_requester(client, user_id: str | None) -> str | None:
     """Resolve Slack user ID to the exact name in the Requester Name dropdown."""
     if not user_id:
         return None
-    # 1. Check explicit map in roster
-    requesters_map = roster.get_requesters() if hasattr(roster, "get_requesters") else getattr(config, "SLACK_USER_TO_REQUESTER", {})
+    # 1. Check explicit map in roster and config fallback
+    requesters_map = roster.get_requesters() if hasattr(roster, "get_requesters") else {}
     if user_id in requesters_map:
         return requesters_map[user_id]
+    cfg_map = getattr(config, "SLACK_USER_TO_REQUESTER", {})
+    if user_id in cfg_map:
+        return cfg_map[user_id]
+
 
     # 2. Lookup user profile via Slack API and match against valid requesters
     try:
@@ -1113,34 +1117,17 @@ def handle_restart(client, say, channel: str, thread_ts: str, user_id: str):
     admin.execute_restart(delay=1.5)
 
 
-# --- Purchasing Interview Modal & Actions (Phase 1 & 2) -----------------------
+# --- Purchasing Interview Staged Modals & Actions (Phase 4) ------------------
 
-def build_interview_modal(prefill_name_field: bool = False, resolved_name: str | None = None, user_id: str | None = None) -> dict:
-    """Generate Block Kit modal for purchasing interview."""
+def build_stage1_view(prefill_name_field: bool = False, resolved_name: str | None = None, user_id: str | None = None) -> dict:
+    """Generate Screen 1 (Which path?) Block Kit modal."""
     vendors = sorted(roster.get_vendors() if hasattr(roster, "get_vendors") else config.WORKDAY_VENDORS)
     vendor_options = [
-        {"text": {"type": "plain_text", "text": v[:75]}, "value": v[:75]}
+        {"text": {"type": "plain_text", "text": v[:75]}, "value": v}
         for v in vendors
     ]
-    vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_SUGGEST_OPTION}, "value": config.VENDOR_SUGGEST_OPTION})
-    vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_OTHER_OPTION}, "value": config.VENDOR_OTHER_OPTION})
-
-    room_options = [
-        {"text": {"type": "plain_text", "text": r}, "value": r}
-        for r in sorted(config.VALID_DELIVERY_ROOMS)
-    ]
-    project_options = [
-        {"text": {"type": "plain_text", "text": p}, "value": p}
-        for p in sorted(config.VALID_PROJECT_IDS)
-    ]
-    fund_options = [
-        {"text": {"type": "plain_text", "text": f}, "value": f}
-        for f in sorted(config.VALID_FUNDS)
-    ]
-    category_options = [
-        {"text": {"type": "plain_text", "text": c[:75]}, "value": c[:75]}
-        for c in sorted(set(config.CHECKBOX_TO_CATEGORY.values()))
-    ]
+    vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_SUGGEST_OPTION[:75]}, "value": config.VENDOR_SUGGEST_OPTION})
+    vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_OTHER_OPTION[:75]}, "value": config.VENDOR_OTHER_OPTION})
 
     blocks = []
     if prefill_name_field:
@@ -1155,14 +1142,110 @@ def build_interview_modal(prefill_name_field: bool = False, resolved_name: str |
             "label": {"type": "plain_text", "text": "What would you like your name to appear as?"},
         })
 
-    blocks.extend([
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "💡 *Fast path vs Full EPIF:* Listed vendors are pre-approved UW Workday punch-out vendors (skips EPIF paperwork). For any other vendor, choose *Not listed / other*.",
+            }
+        ],
+    })
+
+    blocks.append({
+        "type": "input",
+        "block_id": "block_vendor",
+        "element": {
+            "type": "static_select",
+            "action_id": "vendor_select",
+            "placeholder": {"type": "plain_text", "text": "Select punchout vendor or option"},
+            "options": vendor_options,
+        },
+        "label": {"type": "plain_text", "text": "Who are you buying from?"},
+    })
+
+    blocks.append({
+        "type": "input",
+        "block_id": "block_vendor_custom",
+        "optional": True,
+        "element": {
+            "type": "plain_text_input",
+            "action_id": "vendor_custom",
+            "placeholder": {"type": "plain_text", "text": "Enter vendor name"},
+        },
+        "label": {"type": "plain_text", "text": "Vendor Name (if Other or Suggested)"},
+    })
+
+    return {
+        "type": "modal",
+        "callback_id": config.STAGE1_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "New Purchase"},
+        "submit": {"type": "plain_text", "text": "Next"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps({"resolved_name": resolved_name, "user_id": user_id}),
+        "blocks": blocks,
+    }
+
+
+def build_stage2_view(meta: dict) -> dict:
+    """Generate Screen 2 (Details) Block Kit modal shaped by Screen 1 route."""
+    v_choice = meta.get("vendor_choice") or ""
+    v_custom = meta.get("vendor_custom") or ""
+    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor")
+    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
+    if v_choice in (suggest_opt, other_opt) and v_custom:
+        vendor_display = v_custom
+    else:
+        vendor_display = v_choice
+
+    route = meta.get("route") or interview.route_vendor(v_choice)
+    path_title = "Workday" if route == "workday" else "Full EPIF"
+    header_context = f"📋 *Path:* {path_title} — {vendor_display}"
+
+    room_options = [
+        {"text": {"type": "plain_text", "text": r}, "value": r}
+        for r in sorted(config.VALID_DELIVERY_ROOMS)
+    ]
+    project_options = [
+        {"text": {"type": "plain_text", "text": p}, "value": p}
+        for p in sorted(config.VALID_PROJECT_IDS)
+    ]
+    fund_options = [
+        {"text": {"type": "plain_text", "text": f}, "value": f}
+        for f in sorted(config.VALID_FUNDS)
+    ]
+
+    category_display_list = getattr(config, "CATEGORY_DISPLAY_ORDER", [])
+    if category_display_list:
+        category_options = [
+            {"text": {"type": "plain_text", "text": disp[:75]}, "value": val}
+            for val, disp in category_display_list
+        ]
+    else:
+        category_options = [
+            {"text": {"type": "plain_text", "text": c[:75]}, "value": c}
+            for c in sorted(set(config.CHECKBOX_TO_CATEGORY.values()))
+        ]
+
+    blocks = [
+        {
+            "type": "context",
+            "block_id": "block_path_context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": header_context,
+                }
+            ],
+        },
         {
             "type": "input",
             "block_id": "block_item_description",
             "element": {
                 "type": "plain_text_input",
                 "action_id": "item_description",
-                "placeholder": {"type": "plain_text", "text": "e.g. Box of Nitrile Gloves (Medium), 10pk"},
+                "max_length": getattr(config, "MAX_ITEM_DESCRIPTION_LEN", 150),
+                "placeholder": {"type": "plain_text", "text": "e.g. Box of Nitrile Gloves (Medium)"},
             },
             "label": {"type": "plain_text", "text": "Item Description (What is being purchased)"},
         },
@@ -1173,31 +1256,10 @@ def build_interview_modal(prefill_name_field: bool = False, resolved_name: str |
                 "type": "plain_text_input",
                 "multiline": True,
                 "action_id": "purpose",
+                "max_length": getattr(config, "MAX_PURPOSE_LEN", 900),
                 "placeholder": {"type": "plain_text", "text": "Why needed for research, and product URL (https://...)"},
             },
             "label": {"type": "plain_text", "text": "Purpose / Why Necessary & Link"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_vendor",
-            "element": {
-                "type": "static_select",
-                "action_id": "vendor_select",
-                "placeholder": {"type": "plain_text", "text": "Select punchout vendor or option"},
-                "options": vendor_options,
-            },
-            "label": {"type": "plain_text", "text": "Vendor (Workday Punch-Out / Other)"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_vendor_custom",
-            "optional": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "vendor_custom",
-                "placeholder": {"type": "plain_text", "text": "Vendor name (if Suggest a new vendor or Not listed chosen)"},
-            },
-            "label": {"type": "plain_text", "text": "Custom / Proposed Vendor Name"},
         },
         {
             "type": "input",
@@ -1212,13 +1274,12 @@ def build_interview_modal(prefill_name_field: bool = False, resolved_name: str |
         {
             "type": "input",
             "block_id": "block_vendor_contact_name",
-            "optional": True,
             "element": {
                 "type": "plain_text_input",
                 "action_id": "vendor_contact_name",
-                "placeholder": {"type": "plain_text", "text": "Vendor contact name or rep (optional)"},
+                "placeholder": {"type": "plain_text", "text": "Vendor contact name or rep"},
             },
-            "label": {"type": "plain_text", "text": "Vendor Contact Name (Optional)"},
+            "label": {"type": "plain_text", "text": "Vendor Contact Name"},
         },
         {
             "type": "input",
@@ -1240,17 +1301,6 @@ def build_interview_modal(prefill_name_field: bool = False, resolved_name: str |
                 "placeholder": {"type": "plain_text", "text": "Select date"},
             },
             "label": {"type": "plain_text", "text": "Date of Request / Purchase"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_name_of_system",
-            "optional": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "name_of_system",
-                "placeholder": {"type": "plain_text", "text": "e.g. Target Chamber, Laser System"},
-            },
-            "label": {"type": "plain_text", "text": "Name of System (Optional)"},
         },
         {
             "type": "input",
@@ -1287,17 +1337,6 @@ def build_interview_modal(prefill_name_field: bool = False, resolved_name: str |
         },
         {
             "type": "input",
-            "block_id": "block_asset_id",
-            "optional": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "asset_id",
-                "placeholder": {"type": "plain_text", "text": "UW Asset Tag (if upgrading existing equipment)"},
-            },
-            "label": {"type": "plain_text", "text": "Asset ID (Optional)"},
-        },
-        {
-            "type": "input",
             "block_id": "block_category",
             "element": {
                 "type": "static_select",
@@ -1307,41 +1346,86 @@ def build_interview_modal(prefill_name_field: bool = False, resolved_name: str |
             },
             "label": {"type": "plain_text", "text": "Accounting Category"},
         },
-        {
+    ]
+
+    if route == "epif":
+        blocks.append({
             "type": "input",
             "block_id": "block_payment_method",
-            "optional": True,
             "element": {
                 "type": "static_select",
                 "action_id": "payment_method",
-                "placeholder": {"type": "plain_text", "text": "Select payment method if not Workday"},
+                "placeholder": {"type": "plain_text", "text": "Select payment method"},
                 "options": [
                     {"text": {"type": "plain_text", "text": "P-card"}, "value": "P-card"},
                     {"text": {"type": "plain_text", "text": "Req/PO"}, "value": "Req/PO"},
                 ],
             },
-            "label": {"type": "plain_text", "text": "Payment Method (Required if non-Workday)"},
-        },
-    ])
+            "label": {"type": "plain_text", "text": "Payment Method"},
+        })
 
     return {
         "type": "modal",
-        "callback_id": "purchase_interview_submit",
-        "title": {"type": "plain_text", "text": "New Purchase Request"},
+        "callback_id": config.STAGE2_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Purchase Details"},
+        "submit": {"type": "plain_text", "text": "Continue"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(meta),
+        "blocks": blocks,
+    }
+
+
+def build_stage3_view(meta: dict) -> dict:
+    """Generate Screen 3 (Fabrication details) Block Kit modal for category 4670."""
+    return {
+        "type": "modal",
+        "callback_id": config.STAGE3_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Fabrication Info"},
         "submit": {"type": "plain_text", "text": "Submit Request"},
         "close": {"type": "plain_text", "text": "Cancel"},
-        "private_metadata": json.dumps({"resolved_name": resolved_name, "user_id": user_id}),
-        "blocks": blocks,
+        "private_metadata": json.dumps(meta),
+        "blocks": [
+            {
+                "type": "context",
+                "block_id": "block_fab_context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "🔬 *Fabrication Component:* This is the asset/fabrication number of the system the part belongs to — ask Charlie or check the fabrication paperwork.",
+                    }
+                ],
+            },
+            {
+                "type": "input",
+                "block_id": "block_asset_id",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "asset_id",
+                    "placeholder": {"type": "plain_text", "text": "e.g. TAG-12345 or Fab #4670"},
+                },
+                "label": {"type": "plain_text", "text": "Asset ID / Fabrication #"},
+            },
+            {
+                "type": "input",
+                "block_id": "block_name_of_system",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "name_of_system",
+                    "placeholder": {"type": "plain_text", "text": "e.g. Target Chamber, Laser System"},
+                },
+                "label": {"type": "plain_text", "text": "Name of System"},
+            },
+        ],
     }
 
 
 @app.action("start_purchase_interview")
 def handle_start_purchase_interview(ack, body, client):
-    """Open modal when user clicks 'New Purchase Request' in App Home."""
+    """Open Screen 1 when user clicks 'New Purchase Request' in App Home."""
     ack()
     user_id = body.get("user", {}).get("id")
     requester = resolve_requester(client, user_id)
-    modal = build_interview_modal(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
+    modal = build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
     try:
         client.views_open(trigger_id=body["trigger_id"], view=modal)
     except Exception as e:
@@ -1350,11 +1434,11 @@ def handle_start_purchase_interview(ack, body, client):
 
 @app.command("/new-purchase")
 def handle_new_purchase_command(ack, body, client):
-    """Open modal when user runs /new-purchase slash command."""
+    """Open Screen 1 when user runs /new-purchase slash command."""
     ack()
     user_id = body.get("user_id")
     requester = resolve_requester(client, user_id)
-    modal = build_interview_modal(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
+    modal = build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
     try:
         client.views_open(trigger_id=body["trigger_id"], view=modal)
     except Exception as e:
@@ -1378,9 +1462,9 @@ def _extract_modal_field(values: dict, block_id: str, action_id: str, field_type
     return action
 
 
-@app.view("purchase_interview_submit")
-def handle_interview_submission(ack, body, client, view):
-    """Validate and process purchase request modal submission."""
+@app.view(config.STAGE1_CALLBACK_ID)
+def handle_stage1_submit(ack, body, client, view):
+    """Validate Screen 1 (Which path?) and advance to Screen 2."""
     values = view.get("state", {}).get("values", {})
     metadata = json.loads(view.get("private_metadata") or "{}")
     user_id = metadata.get("user_id") or body.get("user", {}).get("id")
@@ -1395,50 +1479,120 @@ def handle_interview_submission(ack, body, client, view):
         is_pending_name = False
 
     vendor_choice = _extract_modal_field(values, "block_vendor", "vendor_select", field_type="selected_option") or ""
-    custom_vendor = str(_extract_modal_field(values, "block_vendor_custom", "vendor_custom") or "").strip()
+    vendor_custom = str(_extract_modal_field(values, "block_vendor_custom", "vendor_custom") or "").strip()
 
-    modal_dict = {
+    errors = interview.validate_stage1(vendor_choice, vendor_custom)
+    if not vendor_choice:
+        errors["block_vendor"] = "Please select a vendor."
+
+    if errors:
+        ack(response_action="errors", errors=errors)
+        return
+
+    route = interview.route_vendor(vendor_choice)
+    meta = {
+        "resolved_name": requester,
+        "user_id": user_id,
+        "vendor_choice": vendor_choice,
+        "vendor_custom": vendor_custom,
+        "route": route,
+        "is_pending_name": is_pending_name,
+    }
+    stage2_view = build_stage2_view(meta)
+    ack(response_action="update", view=stage2_view)
+
+
+@app.view(config.STAGE2_CALLBACK_ID)
+def handle_stage2_submit(ack, body, client, view):
+    """Process Screen 2 (Details) and either advance to Screen 3 or finalize."""
+    values = view.get("state", {}).get("values", {})
+    meta = json.loads(view.get("private_metadata") or "{}")
+    route = meta.get("route", "workday")
+
+    payment_method_val = (
+        _extract_modal_field(values, "block_payment_method", "payment_method", field_type="selected_option")
+        if route == "epif"
+        else config.WORKDAY_PAYMENT_METHOD
+    )
+
+    stage2 = {
         "item_description": _extract_modal_field(values, "block_item_description", "item_description"),
         "purpose": _extract_modal_field(values, "block_purpose", "purpose"),
         "total_price": _extract_modal_field(values, "block_total_price", "total_price"),
         "vendor_contact_name": _extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
         "vendor_contact_email": _extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),
         "date_of_purchase": _extract_modal_field(values, "block_date_of_purchase", "date_of_purchase", field_type="selected_date"),
-        "name_of_system": _extract_modal_field(values, "block_name_of_system", "name_of_system"),
         "delivery_room": _extract_modal_field(values, "block_delivery_room", "delivery_room", field_type="selected_option"),
         "project_id": _extract_modal_field(values, "block_project_id", "project_id", field_type="selected_option"),
         "fund": _extract_modal_field(values, "block_fund", "fund", field_type="selected_option"),
-        "asset_id": _extract_modal_field(values, "block_asset_id", "asset_id"),
         "category": _extract_modal_field(values, "block_category", "category", field_type="selected_option"),
-        "payment_method": _extract_modal_field(values, "block_payment_method", "payment_method", field_type="selected_option"),
-        "suggested_vendor": custom_vendor,
-        "other_vendor": custom_vendor,
+        "payment_method": payment_method_val,
     }
 
-    route = interview.route_vendor(vendor_choice)
-    errors = {}
-    if not vendor_choice:
-        errors["block_vendor"] = "Please select a vendor or option."
-    elif vendor_choice in (config.VENDOR_SUGGEST_OPTION, config.VENDOR_OTHER_OPTION) and not custom_vendor:
-        errors["block_vendor_custom"] = "Please enter the vendor name."
+    category = stage2.get("category")
+    if interview.needs_asset_details(category):
+        meta["stage2"] = stage2
+        stage3_view = build_stage3_view(meta)
+        ack(response_action="update", view=stage3_view)
+    else:
+        _process_interview_completion(ack, client, body, meta, stage2, stage3=None)
 
-    if route != "workday" and not modal_dict["payment_method"]:
-        errors["block_payment_method"] = "Payment method (P-card or Req/PO) is required for non-Workday vendors."
 
-    parsed = interview.build_parsed_from_modal(modal_dict, vendor_choice=vendor_choice)
+@app.view(config.STAGE3_CALLBACK_ID)
+def handle_stage3_submit(ack, body, client, view):
+    """Process Screen 3 (Fabrication details) and finalize purchase request."""
+    values = view.get("state", {}).get("values", {})
+    meta = json.loads(view.get("private_metadata") or "{}")
+    stage2 = meta.get("stage2", {})
 
-    # Validate form fields
+    stage3 = {
+        "asset_id": _extract_modal_field(values, "block_asset_id", "asset_id"),
+        "name_of_system": _extract_modal_field(values, "block_name_of_system", "name_of_system"),
+    }
+    _process_interview_completion(ack, client, body, meta, stage2, stage3=stage3)
+
+
+def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, stage3: dict | None = None):
+    """Validate staged inputs, report errors or finalize and post to purchasing channel."""
+    stage1 = {
+        "resolved_name": meta.get("resolved_name"),
+        "user_id": meta.get("user_id"),
+        "vendor_choice": meta.get("vendor_choice"),
+        "vendor_custom": meta.get("vendor_custom"),
+        "route": meta.get("route"),
+    }
+    parsed = interview.build_parsed_from_stages(stage1, stage2, stage3)
+    requester = meta.get("resolved_name")
+    is_pending_name = meta.get("is_pending_name", False)
+    user_id = meta.get("user_id") or body.get("user", {}).get("id")
+    vendor_choice = meta.get("vendor_choice")
+    custom_vendor = meta.get("vendor_custom")
+
     dummy_valid_name = list(roster.get_valid_requesters())[0] if (hasattr(roster, "get_valid_requesters") and roster.get_valid_requesters()) else "Isaac"
     problems = validators.validate(parsed, requester_name=requester if not is_pending_name else dummy_valid_name)
+
+    if stage3 is not None:
+        if not str(stage3.get("asset_id") or "").strip():
+            problems.append("Asset ID is required for fabrication components")
+        if not str(stage3.get("name_of_system") or "").strip():
+            problems.append("Name of System is required for fabrication components")
+
     if problems:
+        errors = {}
         for p in problems:
             p_lower = p.lower()
-            if "what" in p_lower or "item" in p_lower:
+            if "asset" in p_lower:
+                errors["block_asset_id"] = p
+            elif "system" in p_lower or "name of system" in p_lower:
+                errors["block_name_of_system"] = p
+            elif "what" in p_lower or "item" in p_lower:
                 errors["block_item_description"] = p
             elif "purpose" in p_lower or "why" in p_lower:
                 errors["block_purpose"] = p
-            elif "amt" in p_lower or "price" in p_lower or "number" in p_lower:
+            elif "amt" in p_lower or "price" in p_lower or "number" in p_lower or "amount" in p_lower:
                 errors["block_total_price"] = p
+            elif "contact" in p_lower:
+                errors["block_vendor_contact_name"] = p
             elif "email" in p_lower:
                 errors["block_vendor_contact_email"] = p
             elif "vendor" in p_lower:
@@ -1458,7 +1612,6 @@ def handle_interview_submission(ack, body, client, view):
             else:
                 errors.setdefault("block_item_description", p)
 
-    if errors:
         ack(response_action="errors", errors=errors)
         return
 
@@ -1579,6 +1732,7 @@ def handle_interview_submission(ack, body, client, view):
             )
         except Exception as e:
             log.warning("Could not post new vendor alert to admin channel: %s", e)
+
 
 
 # --- Alerts-Channel Interactive Action Handlers (Phase 2) --------------------

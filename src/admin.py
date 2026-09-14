@@ -39,8 +39,11 @@ def is_admin_user(user_id: Optional[str]) -> bool:
     if not user_id:
         return False
     if hasattr(roster, "get_admins"):
-        return user_id in roster.get_admins()
+        admins = roster.get_admins()
+        if user_id in admins:
+            return True
     return user_id in getattr(config, "ADMIN_SLACK_USER_IDS", [])
+
 
 
 def is_approved_reviewer(user_id: Optional[str]) -> bool:

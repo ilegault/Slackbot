@@ -142,56 +142,165 @@ def test_template_command(tmp_path, monkeypatch):
     assert client.files_upload_v2.call_count == 2
 
 
-def test_build_interview_modal():
-    # Known user modal
-    modal_known = app.build_interview_modal(prefill_name_field=False, resolved_name="Dylan", user_id="U123")
-    block_ids_known = [b["block_id"] for b in modal_known["blocks"]]
-    assert "block_proposed_name" not in block_ids_known
-    assert "block_item_description" in block_ids_known
-    assert "block_vendor" in block_ids_known
-    assert modal_known["callback_id"] == "purchase_interview_submit"
-
-    # Unknown user modal (has name field at top)
-    modal_unknown = app.build_interview_modal(prefill_name_field=True, resolved_name=None, user_id="U456")
-    block_ids_unknown = [b["block_id"] for b in modal_unknown["blocks"]]
-    assert block_ids_unknown[0] == "block_proposed_name"
+def test_command_registration():
+    """Verify /new-purchase command listener is registered on Bolt app."""
+    registered_commands = []
+    for listener in app.app._listeners:
+        for matcher in listener.matchers:
+            if matcher.func.__closure__:
+                for cell in matcher.func.__closure__:
+                    if cell.cell_contents == "/new-purchase":
+                        registered_commands.append(cell.cell_contents)
+    assert "/new-purchase" in registered_commands
 
 
-def test_handle_interview_submission_validation_error():
-    ack = MagicMock()
-    body = {"user": {"id": "U123"}}
-    client = MagicMock()
-
-    # Incomplete modal state (missing required fields)
-    view = {
-        "state": {"values": {}},
-        "private_metadata": json.dumps({"resolved_name": "Isaac", "user_id": "U123"}),
+def test_screen1_to_screen2_routing():
+    """Workday vendor omits payment_method block; EPIF route renders required payment_method block."""
+    # 1. Workday vendor route
+    meta_workday = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": "Fisher Scientific",
+        "vendor_custom": "",
+        "route": "workday",
     }
+    view_workday = app.build_stage2_view(meta_workday)
+    block_ids_workday = [b["block_id"] for b in view_workday["blocks"]]
+    assert "block_payment_method" not in block_ids_workday
+    assert "block_item_description" in block_ids_workday
+    assert view_workday["callback_id"] == config.STAGE2_CALLBACK_ID
 
-    app.handle_interview_submission(ack, body, client, view)
-    ack.assert_called_once()
-    call_kwargs = ack.call_args[1]
-    assert call_kwargs["response_action"] == "errors"
-    assert "block_vendor" in call_kwargs["errors"]
-    assert "block_item_description" in call_kwargs["errors"]
+    # 2. EPIF / Other vendor route
+    meta_epif = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": config.VENDOR_OTHER_OPTION,
+        "vendor_custom": "Acme Widgets",
+        "route": "epif",
+    }
+    view_epif = app.build_stage2_view(meta_epif)
+    block_ids_epif = [b["block_id"] for b in view_epif["blocks"]]
+    assert "block_payment_method" in block_ids_epif
+    pm_block = next(b for b in view_epif["blocks"] if b["block_id"] == "block_payment_method")
+    assert pm_block.get("optional") is not True
 
 
-def test_handle_interview_submission_success(monkeypatch):
+def test_screen1_validation():
+    """Screen 1 validates vendor choice and requires custom name when Other or Suggest is chosen."""
     ack = MagicMock()
     body = {"user": {"id": "U123"}}
     client = MagicMock()
-    client.chat_postMessage.return_value = {"ts": "1234.56"}
 
-    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
-
-    view = {
+    # 1. Other vendor with blank custom name -> validation error
+    view_blank_custom = {
         "state": {
             "values": {
-                "block_item_description": {"item_description": {"value": "Box of Pipettes"}},
-                "block_purpose": {"purpose": "Cell culture https://fishersci.com/pipettes"},
+                "block_vendor": {"vendor_select": {"selected_option": {"value": config.VENDOR_OTHER_OPTION}}},
+                "block_vendor_custom": {"vendor_custom": {"value": ""}},
+            }
+        },
+        "private_metadata": json.dumps({"resolved_name": "Isaac", "user_id": "U123"}),
+    }
+    app.handle_stage1_submit(ack, body, client, view_blank_custom)
+    ack.assert_called_once()
+    assert ack.call_args[1]["response_action"] == "errors"
+    assert "block_vendor_custom" in ack.call_args[1]["errors"]
+
+    # 2. Suggest vendor with whitespace custom name -> validation error
+    ack.reset_mock()
+    view_ws_custom = {
+        "state": {
+            "values": {
+                "block_vendor": {"vendor_select": {"selected_option": {"value": config.VENDOR_SUGGEST_OPTION}}},
+                "block_vendor_custom": {"vendor_custom": {"value": "   "}},
+            }
+        },
+        "private_metadata": json.dumps({"resolved_name": "Isaac", "user_id": "U123"}),
+    }
+    app.handle_stage1_submit(ack, body, client, view_ws_custom)
+    ack.assert_called_once()
+    assert ack.call_args[1]["response_action"] == "errors"
+    assert "block_vendor_custom" in ack.call_args[1]["errors"]
+
+    # 3. Workday vendor without custom name -> updates to stage 2 view
+    ack.reset_mock()
+    view_valid = {
+        "state": {
+            "values": {
                 "block_vendor": {"vendor_select": {"selected_option": {"value": "Fisher Scientific"}}},
+                "block_vendor_custom": {"vendor_custom": {"value": ""}},
+            }
+        },
+        "private_metadata": json.dumps({"resolved_name": "Isaac", "user_id": "U123"}),
+    }
+    app.handle_stage1_submit(ack, body, client, view_valid)
+    ack.assert_called_once()
+    assert ack.call_args[1]["response_action"] == "update"
+    assert ack.call_args[1]["view"]["callback_id"] == config.STAGE2_CALLBACK_ID
+
+
+def test_vendor_contact_name_required_on_screen2():
+    """Vendor Contact Name must not be marked optional on screen 2."""
+    meta = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": "Fisher Scientific",
+        "vendor_custom": "",
+        "route": "workday",
+    }
+    view = app.build_stage2_view(meta)
+    name_block = next(b for b in view["blocks"] if b["block_id"] == "block_vendor_contact_name")
+    assert name_block.get("optional") is not True
+
+
+def test_screen2_to_screen3_or_finalize(monkeypatch):
+    """Fabrication category advances to screen 3; non-fabrication finalizes immediately."""
+    ack = MagicMock()
+    body = {"user": {"id": "U123"}}
+    client = MagicMock()
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
+
+    # 1. Fabrication category -> updates view to Screen 3
+    view_fab = {
+        "state": {
+            "values": {
+                "block_item_description": {"item_description": {"value": "Flange Part"}},
+                "block_purpose": {"purpose": "Vacuum chamber upgrade"},
+                "block_total_price": {"total_price": {"value": "250.00"}},
+                "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
+                "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
+                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
+                "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
+                "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
+                "block_fund": {"fund": {"selected_option": {"value": "133"}}},
+                "block_category": {"category": {"selected_option": {"value": "Fabrication Component (4670) > $200"}}},
+            }
+        },
+        "private_metadata": json.dumps({
+            "resolved_name": "Isaac",
+            "user_id": "U123",
+            "vendor_choice": "Fisher Scientific",
+            "vendor_custom": "",
+            "route": "workday",
+        }),
+    }
+    app.handle_stage2_submit(ack, body, client, view_fab)
+    ack.assert_called_once()
+    assert ack.call_args[1]["response_action"] == "update"
+    assert ack.call_args[1]["view"]["callback_id"] == config.STAGE3_CALLBACK_ID
+    client.chat_postMessage.assert_not_called()
+
+    # 2. Non-fabrication category -> finalizes and posts directly
+    ack.reset_mock()
+    client.reset_mock()
+    view_non_fab = {
+        "state": {
+            "values": {
+                "block_item_description": {"item_description": {"value": "Box of Gloves"}},
+                "block_purpose": {"purpose": "General lab use"},
                 "block_total_price": {"total_price": {"value": "120.00"}},
-                "block_vendor_contact_email": {"vendor_contact_email": {"value": "orders@fishersci.com"}},
+                "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
+                "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
                 "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
                 "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
                 "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
@@ -199,14 +308,99 @@ def test_handle_interview_submission_success(monkeypatch):
                 "block_category": {"category": {"selected_option": {"value": "Research/Lab Supplies (3105)"}}},
             }
         },
-        "private_metadata": json.dumps({"resolved_name": "Isaac", "user_id": "U123"}),
+        "private_metadata": json.dumps({
+            "resolved_name": "Isaac",
+            "user_id": "U123",
+            "vendor_choice": "Fisher Scientific",
+            "vendor_custom": "",
+            "route": "workday",
+        }),
     }
-
-    app.handle_interview_submission(ack, body, client, view)
+    app.handle_stage2_submit(ack, body, client, view_non_fab)
     ack.assert_called_once_with()
     client.chat_postMessage.assert_called()
-    post_calls = client.chat_postMessage.call_args_list
-    assert any("Box of Pipettes" in str(call) for call in post_calls)
+
+
+def test_screen3_to_finalize(monkeypatch):
+    """Submitting Screen 3 finalizes request with asset_id and name_of_system populated."""
+    ack = MagicMock()
+    body = {"user": {"id": "U123"}}
+    client = MagicMock()
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
+
+    view_stage3 = {
+        "state": {
+            "values": {
+                "block_asset_id": {"asset_id": {"value": "TAG-44556"}},
+                "block_name_of_system": {"name_of_system": {"value": "Target Chamber Alpha"}},
+            }
+        },
+        "private_metadata": json.dumps({
+            "resolved_name": "Isaac",
+            "user_id": "U123",
+            "vendor_choice": "Fisher Scientific",
+            "vendor_custom": "",
+            "route": "workday",
+            "stage2": {
+                "item_description": "Beamline Flange",
+                "purpose": "Laser line upgrade",
+                "total_price": "350.00",
+                "vendor_contact_name": "Rep",
+                "vendor_contact_email": "rep@vendor.com",
+                "date_of_purchase": "2026-09-14",
+                "delivery_room": "ERB 212",
+                "project_id": "PG000025831",
+                "fund": "133",
+                "category": "Fabrication Component (4670) > $200",
+                "payment_method": "Workday",
+            }
+        }),
+    }
+
+    app.handle_stage3_submit(ack, body, client, view_stage3)
+    ack.assert_called_once_with()
+    client.chat_postMessage.assert_called()
+
+    # Check that channel post payload contains asset details
+    channel_call = next(c for c in client.chat_postMessage.call_args_list if "metadata" in c[1])
+    parsed = channel_call[1]["metadata"]["event_payload"]["parsed"]
+    assert parsed["asset_id"] == "TAG-44556"
+    assert parsed["name_of_system"] == "Target Chamber Alpha"
+    assert parsed["payment_method"] == "Workday"
+    assert len(parsed) == 20  # 19 keys + date_of_purchase string format in payload
+
+
+def test_private_metadata_budget():
+    """Worst-case metadata with max field lengths stays comfortably under Slack's 3000-char limit."""
+    max_desc = "x" * config.MAX_ITEM_DESCRIPTION_LEN
+    max_purpose = "y" * config.MAX_PURPOSE_LEN
+
+    worst_case_meta = {
+        "resolved_name": "Alexander Longname-Student",
+        "user_id": "U0123456789ABCDEF",
+        "vendor_choice": config.VENDOR_OTHER_OPTION,
+        "vendor_custom": "A Very Long Custom Vendor Name Incorporated LLC",
+        "route": "epif",
+        "is_pending_name": False,
+        "stage2": {
+            "item_description": max_desc,
+            "purpose": max_purpose,
+            "total_price": "999,999.99",
+            "vendor_contact_name": "Long Contact Representative Name",
+            "vendor_contact_email": "long.contact.representative@verylongcompanydomainname.com",
+            "date_of_purchase": "2026-12-31",
+            "delivery_room": "Engineering Research Building Room 839",
+            "project_id": "PG000025831",
+            "fund": "133",
+            "category": "Fabrication Component (4670) > $200",
+            "payment_method": "P-card",
+        },
+    }
+
+    view_stage3 = app.build_stage3_view(worst_case_meta)
+    meta_json = view_stage3["private_metadata"]
+    assert len(meta_json) < 3000
+    assert len(meta_json) < 2000  # Should even be comfortably under 2000 chars
 
 
 def test_faq_routing_in_dm():
@@ -237,3 +431,4 @@ def test_faq_routing_in_dm():
     app.on_direct_message(event_cmd, client, say)
     say.assert_called_once()
     assert "Hirst Lab Purchasing Bot (P-Bot) Commands" in say.call_args[1]["text"]
+

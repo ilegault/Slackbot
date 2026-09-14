@@ -43,6 +43,8 @@ WORKBOOK = os.path.join(SAMPLES, "Purchasing-Log.xlsx")
 
 @pytest.fixture
 def workbook_copy(tmp_path):
+    if not os.path.exists(WORKBOOK):
+        pytest.skip(f"Sample workbook not found at {WORKBOOK}")
     copy = tmp_path / "Purchasing-Log.xlsx"
     shutil.copy(WORKBOOK, copy)
     return str(copy)
@@ -50,8 +52,11 @@ def workbook_copy(tmp_path):
 
 @pytest.fixture
 def filled_data():
+    if not os.path.exists(FILLED):
+        pytest.skip(f"Sample PDF not found at {FILLED}")
     with open(FILLED, "rb") as f:
         return epif_parser.parse_epif(f.read())
+
 
 
 # ==============================================================================
