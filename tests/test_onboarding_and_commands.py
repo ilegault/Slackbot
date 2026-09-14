@@ -457,7 +457,8 @@ def test_every_command_acks_before_client_calls():
 
     # 2. /purchasing-help
     ack.reset_mock()
-    app.handle_purchasing_help_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+    respond = MagicMock()
+    app.handle_purchasing_help_command(ack, respond)
     ack.assert_called_once()
 
     # 3. /blank-template
@@ -469,13 +470,79 @@ def test_every_command_acks_before_client_calls():
 
     # 4. /roster-list
     ack.reset_mock()
-    app.handle_roster_list_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+    respond.reset_mock()
+    app.handle_roster_list_command(ack, {"channel_id": "C1", "user_id": "U1"}, respond)
     ack.assert_called_once()
 
     # 5. /roster-set-name
     ack.reset_mock()
     app.handle_roster_set_name_command(ack, {"trigger_id": "trig2", "user_id": "U1", "channel_id": "C1"}, client)
     ack.assert_called_once()
+
+
+def test_no_slash_command_calls_chat_post_ephemeral():
+    """Assert no slash command handler invokes client.chat_postEphemeral (regression guard for T1)."""
+    client = MagicMock()
+    ack = MagicMock()
+    respond = MagicMock()
+
+    # 1. /new-purchase
+    app.handle_new_purchase_command(ack, {"trigger_id": "trig", "user_id": "U1"}, client)
+    # 2. /purchasing-help
+    app.handle_purchasing_help_command(ack, respond)
+    # 3. /blank-template
+    with patch.object(app, "handle_template_command"):
+        app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+    # 4. /roster-list
+    app.handle_roster_list_command(ack, {"user_id": "U1"}, respond)
+    # 5. /roster-set-name
+    app.handle_roster_set_name_command(ack, {"trigger_id": "trig", "user_id": "U1", "channel_id": "C1"}, client)
+
+    client.chat_postEphemeral.assert_not_called()
+
+
+def test_middleware_logging_start_and_completion(caplog):
+    """Assert Bolt middleware logs both incoming request and completion with duration."""
+    body = {
+        "command": "/roster-list",
+        "user_id": "UTESTUSER",
+        "channel_id": "CTESTCHAN",
+    }
+    next_called = False
+
+    def fake_next():
+        nonlocal next_called
+        next_called = True
+
+    with caplog.at_level("INFO"):
+        app.log_request(body, fake_next)
+
+    assert next_called is True
+    records = [r.message for r in caplog.records]
+    assert any("Incoming command [/roster-list] from UTESTUSER in CTESTCHAN" in msg for msg in records)
+    assert any("Completed command [/roster-list] from UTESTUSER" in msg for msg in records)
+
+
+def test_middleware_logging_on_exception(caplog):
+    """Assert Bolt middleware logs incoming request, exception, and completion even if handler raises."""
+    body = {
+        "type": "block_actions",
+        "actions": [{"action_id": "req_claim"}],
+        "user": {"id": "UERRUSER"},
+        "channel": {"id": "CERRCHAN"},
+    }
+
+    def failing_next():
+        raise RuntimeError("Something blew up in handler")
+
+    with pytest.raises(RuntimeError):
+        with caplog.at_level("INFO"):
+            app.log_request(body, failing_next)
+
+    records = [r.message for r in caplog.records]
+    assert any("Incoming block_actions [req_claim] from UERRUSER in CERRCHAN" in msg for msg in records)
+    assert any("Handler raised exception for block_actions [req_claim]" in msg for msg in records)
+    assert any("Completed block_actions [req_claim] from UERRUSER" in msg for msg in records)
 
 
 def test_build_request_blocks_buttons_per_state():
@@ -519,6 +586,7 @@ def test_build_request_blocks_buttons_per_state():
 def test_req_approve_non_approver_denial():
     """A req_approve click from a non-approver responds ephemerally, does not process EPIF, does not update message."""
     ack = MagicMock()
+    respond = MagicMock()
     client = MagicMock()
     body = {
         "user": {"id": "UNONAPPROVER"},
@@ -528,10 +596,10 @@ def test_req_approve_non_approver_denial():
         "actions": [{"value": json.dumps({"request": {}, "history": []})}],
     }
     with patch.object(app, "handle_epif_processing") as mock_epif:
-        app.handle_req_approve_action(ack, body, client)
+        app.handle_req_approve_action(ack, body, respond, client)
         ack.assert_called_once()
-        client.chat_postEphemeral.assert_called_once()
-        assert "Only authorized approvers" in client.chat_postEphemeral.call_args[1]["text"]
+        respond.assert_called_once()
+        assert "Only authorized approvers" in respond.call_args[1]["text"]
         mock_epif.assert_not_called()
         client.chat_update.assert_not_called()
 
@@ -539,6 +607,7 @@ def test_req_approve_non_approver_denial():
 def test_req_claim_and_keyword_dispatch_same_args():
     """A req_claim click and an @p-bot claim mention call handle_claim with matching channel and thread_ts."""
     ack = MagicMock()
+    respond = MagicMock()
     client = MagicMock()
     say = MagicMock()
     roster.add_requester("UGRADBUYER", "Dylan")
@@ -552,7 +621,7 @@ def test_req_claim_and_keyword_dispatch_same_args():
         "actions": [{"value": json.dumps({"request": {"item_description": "Bolts"}, "history": []})}],
     }
     with patch.object(app, "handle_claim") as mock_claim:
-        app.handle_req_claim_action(ack, button_body, client)
+        app.handle_req_claim_action(ack, button_body, respond, client)
         ack.assert_called_once()
         mock_claim.assert_called_once()
         btn_channel = mock_claim.call_args[1]["channel"]

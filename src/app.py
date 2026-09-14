@@ -44,6 +44,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import re
 import sys
+import time
 import traceback
 
 import json
@@ -196,7 +197,7 @@ APP_HOME_VIEW = {
                 "text": (
                     "• *Excel Locked:* If `Purchasing-Log.xlsx` is open in Excel, P-Bot automatically queues your update and writes it immediately once closed.\n"
                     "• *Validation Rejections:* Make sure all required fields in the EPIF form are filled.\n"
-                    "• *Price Mismatch:* If the final invoice or checkout total differs from the initial estimate, mention the exact price with `@p-bot submitted $XX.XX`.\n"
+                    "• *Price Mismatch:* If the final invoice or checkout total differs from the initial estimate, contact your purchase approver or lab buyer.\n"
                     "• *File Attachments:* For confirmations and quotes, ensure you attach the file in the request thread."
                 ),
             },
@@ -272,6 +273,90 @@ def setup_logging():
 
 log = setup_logging()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
+
+
+def extract_request_info(body: dict) -> tuple[str, str, str | None, str | None, bool]:
+    """Extract (kind, identifier, user_id, channel_id, is_verbose_msg) from Slack Bolt request body."""
+    if not isinstance(body, dict):
+        return "unknown", "unknown", None, None, False
+
+    # 1. Slash commands
+    if "command" in body:
+        return "command", body.get("command", ""), body.get("user_id"), body.get("channel_id"), False
+
+    # 2. Block actions (interactive button clicks, select menus)
+    if body.get("type") == "block_actions":
+        actions = body.get("actions", [])
+        act_id = actions[0].get("action_id", "unknown_action") if actions else "no_action"
+        user_id = body.get("user", {}).get("id")
+        channel_id = body.get("channel", {}).get("id")
+        return "block_actions", act_id, user_id, channel_id, False
+
+    # 3. View submission (modal submit)
+    if body.get("type") == "view_submission":
+        cb_id = body.get("view", {}).get("callback_id", "unknown_callback")
+        user_id = body.get("user", {}).get("id")
+        return "view_submission", cb_id, user_id, None, False
+
+    # 4. View closed (modal cancel)
+    if body.get("type") == "view_closed":
+        cb_id = body.get("view", {}).get("callback_id", "unknown_callback")
+        user_id = body.get("user", {}).get("id")
+        return "view_closed", cb_id, user_id, None, False
+
+    # 5. Events (app_mention, message, app_home_opened, etc.)
+    if body.get("type") == "event_callback":
+        ev = body.get("event", {})
+        ev_type = ev.get("type", "unknown_event")
+        user_id = ev.get("user")
+        channel_id = ev.get("channel")
+        is_verbose = (ev_type == "message" and (ev.get("channel_type") != "im" or ev.get("subtype") == "bot_message"))
+        return "event", ev_type, user_id, channel_id, is_verbose
+
+    # 6. Shortcuts
+    if body.get("type") in ("shortcut", "message_action"):
+        cb_id = body.get("callback_id", "unknown_shortcut")
+        user_id = body.get("user", {}).get("id")
+        channel_id = body.get("channel", {}).get("id")
+        return "shortcut", cb_id, user_id, channel_id, False
+
+    # Fallback
+    b_type = body.get("type", "unknown")
+    user_id = body.get("user_id") or body.get("user", {}).get("id")
+    channel_id = body.get("channel_id") or body.get("channel", {}).get("id")
+    return b_type, b_type, user_id, channel_id, False
+
+
+@app.middleware
+def log_request(body, next):
+    """Global Bolt middleware to log incoming requests and execution outcomes/timings."""
+    kind, ident, user_id, channel_id, is_verbose = extract_request_info(body)
+    user_name = None
+    if user_id and hasattr(roster, "get_requesters"):
+        user_name = roster.get_requesters().get(user_id)
+    user_str = f"{user_id} ({user_name})" if user_name else (user_id or "unknown_user")
+    chan_str = f" in {channel_id}" if channel_id else ""
+
+    if is_verbose:
+        log.debug("Incoming %s [%s] from %s%s", kind, ident, user_str, chan_str)
+    else:
+        log.info("Incoming %s [%s] from %s%s", kind, ident, user_str, chan_str)
+
+    start = time.monotonic()
+    try:
+        return next()
+    except Exception as e:
+        log.exception("Handler raised exception for %s [%s] from %s: %s", kind, ident, user_str, e)
+        raise
+    finally:
+        elapsed_ms = (time.monotonic() - start) * 1000
+        if elapsed_ms > 2000:
+            log.warning("Completed %s [%s] from %s in %.1f ms (> 2000 ms threshold)", kind, ident, user_str, elapsed_ms)
+        else:
+            if is_verbose:
+                log.debug("Completed %s [%s] from %s in %.1f ms", kind, ident, user_str, elapsed_ms)
+            else:
+                log.info("Completed %s [%s] from %s in %.1f ms", kind, ident, user_str, elapsed_ms)
 
 
 def resolve_requester(client, user_id: str | None) -> str | None:
@@ -1520,6 +1605,7 @@ def handle_start_purchase_interview(ack, body, client):
     modal = build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
     try:
         client.views_open(trigger_id=body["trigger_id"], view=modal)
+        log.info("Opened interview modal (Screen 1) from App Home button for user %s", user_id)
     except Exception as e:
         log.error("Failed to open interview modal from button: %s", e)
 
@@ -1533,22 +1619,18 @@ def handle_new_purchase_command(ack, body, client):
     modal = build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
     try:
         client.views_open(trigger_id=body["trigger_id"], view=modal)
+        log.info("Opened interview modal (Screen 1) from /new-purchase for user %s", user_id)
     except Exception as e:
         log.error("Failed to open interview modal from /new-purchase: %s", e)
 
 
 @app.command("/purchasing-help")
-def handle_purchasing_help_command(ack, body, client):
+def handle_purchasing_help_command(ack, respond):
     """Display help and command reference ephemerally."""
     ack()
-    channel_id = body.get("channel_id")
-    user_id = body.get("user_id")
     try:
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text=get_help_message(),
-        )
+        respond(text=get_help_message())
+        log.info("Responded with help message for /purchasing-help")
     except Exception as e:
         log.error("Failed to respond to /purchasing-help: %s", e)
 
@@ -1568,15 +1650,15 @@ def handle_blank_template_command(ack, body, client):
 
     try:
         handle_template_command(client, say, channel=channel_id, thread_ts=None, user_id=user_id)
+        log.info("Dispatched /blank-template command for user %s in channel %s", user_id, channel_id)
     except Exception as e:
         log.error("Failed to process /blank-template: %s", e)
 
 
 @app.command("/roster-list")
-def handle_roster_list_command(ack, body, client):
+def handle_roster_list_command(ack, body, respond):
     """Display registered members and vendor catalog list ephemerally."""
     ack()
-    channel_id = body.get("channel_id")
     user_id = body.get("user_id")
 
     requesters_dict = roster.get_requesters() if hasattr(roster, "get_requesters") else {}
@@ -1609,11 +1691,8 @@ def handle_roster_list_command(ack, body, client):
 
     msg_text = "\n".join(lines)
     try:
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text=msg_text,
-        )
+        respond(text=msg_text)
+        log.info("Responded to /roster-list for user %s", user_id)
     except Exception as e:
         log.error("Failed to respond to /roster-list: %s", e)
 
@@ -2039,7 +2118,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
 # --- Alerts-Channel Interactive Action Handlers (Phase 2) --------------------
 
 @app.action("approve_new_requester")
-def handle_approve_new_requester_action(ack, body, client):
+def handle_approve_new_requester_action(ack, body, respond, client):
     """Handle admin clicking 'Approve New Member' in the alerts channel."""
     ack()
     approver_id = body.get("user", {}).get("id")
@@ -2048,11 +2127,7 @@ def handle_approve_new_requester_action(ack, body, client):
 
     if not admin.is_admin_user(approver_id):
         log.warning("Non-admin %s attempted to approve new requester", approver_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=approver_id,
-            text="🔒 Only bot administrators can approve new lab members.",
-        )
+        respond(text="🔒 Only bot administrators can approve new lab members.")
         return
 
     val_str = body.get("actions", [{}])[0].get("value", "{}")
@@ -2077,12 +2152,13 @@ def handle_approve_new_requester_action(ack, body, client):
             ],
         )
         tell(client, slack_id, f"🎉 You're approved as '{name}'! The next `@p-bot restart` will pick this up.")
+        log.info("Admin %s approved new requester %s (%s)", approver_id, slack_id, name)
     except Exception as e:
         log.error("Failed to approve new requester: %s", e)
 
 
 @app.action("approve_new_admin")
-def handle_approve_new_admin_action(ack, body, client):
+def handle_approve_new_admin_action(ack, body, respond, client):
     """Handle admin clicking 'Approve Admin Promotion' in the alerts channel."""
     ack()
     approver_id = body.get("user", {}).get("id")
@@ -2091,11 +2167,7 @@ def handle_approve_new_admin_action(ack, body, client):
 
     if not admin.is_admin_user(approver_id):
         log.warning("Non-admin %s attempted to approve admin promotion", approver_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=approver_id,
-            text="🔒 Only bot administrators can approve admin promotions.",
-        )
+        respond(text="🔒 Only bot administrators can approve admin promotions.")
         return
 
     val_str = body.get("actions", [{}])[0].get("value", "{}")
@@ -2119,12 +2191,13 @@ def handle_approve_new_admin_action(ack, body, client):
             ],
         )
         tell(client, slack_id, "🎉 You have been added as a P-Bot administrator! The next `@p-bot restart` will pick this up.")
+        log.info("Admin %s approved admin promotion for %s", approver_id, slack_id)
     except Exception as e:
         log.error("Failed to approve admin promotion: %s", e)
 
 
 @app.action("approve_new_vendor")
-def handle_approve_new_vendor_action(ack, body, client):
+def handle_approve_new_vendor_action(ack, body, respond, client):
     """Handle admin clicking 'Approve Vendor' in the alerts channel."""
     ack()
     approver_id = body.get("user", {}).get("id")
@@ -2133,11 +2206,7 @@ def handle_approve_new_vendor_action(ack, body, client):
 
     if not admin.is_admin_user(approver_id):
         log.warning("Non-admin %s attempted to approve new vendor", approver_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=approver_id,
-            text="🔒 Only bot administrators can approve vendors.",
-        )
+        respond(text="🔒 Only bot administrators can approve vendors.")
         return
 
     val_str = body.get("actions", [{}])[0].get("value", "{}")
@@ -2160,6 +2229,7 @@ def handle_approve_new_vendor_action(ack, body, client):
                 }
             ],
         )
+        log.info("Admin %s approved new vendor '%s'", approver_id, vendor_name)
     except Exception as e:
         log.error("Failed to approve vendor: %s", e)
 
@@ -2167,7 +2237,7 @@ def handle_approve_new_vendor_action(ack, body, client):
 # --- Lifecycle Interactive Action Handlers (T2) -------------------------------
 
 @app.action("req_approve")
-def handle_req_approve_action(ack, body, client):
+def handle_req_approve_action(ack, body, respond, client):
     """Handle clicking 'Approve' button on purchase request message."""
     ack()
     user_id = body.get("user", {}).get("id")
@@ -2177,11 +2247,7 @@ def handle_req_approve_action(ack, body, client):
 
     if not admin.is_approved_reviewer(user_id):
         log.warning("Unauthorized user %s attempted to approve purchase request", user_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text="🔒 Only authorized approvers can approve purchase requests.",
-        )
+        respond(text="🔒 Only authorized approvers can approve purchase requests.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -2213,12 +2279,13 @@ def handle_req_approve_action(ack, body, client):
             text="🛒 Purchase Request (Approved)",
             blocks=next_blocks,
         )
+        log.info("Purchase request message updated to 'approved' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
     except Exception as e:
         log.error("Failed to update message on req_approve: %s", e)
 
 
 @app.action("req_claim")
-def handle_req_claim_action(ack, body, client):
+def handle_req_claim_action(ack, body, respond, client):
     """Handle clicking 'Claim' button on purchase request message."""
     ack()
     user_id = body.get("user", {}).get("id")
@@ -2229,11 +2296,7 @@ def handle_req_claim_action(ack, body, client):
     requester_name = resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_claim", user_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text="🔒 You must be registered in the lab roster to claim requests. Use `/roster-set-name` first.",
-        )
+        respond(text="🔒 You must be registered in the lab roster to claim requests. Use `/roster-set-name` first.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -2264,12 +2327,13 @@ def handle_req_claim_action(ack, body, client):
             text="🛒 Purchase Request (Claimed)",
             blocks=next_blocks,
         )
+        log.info("Purchase request message updated to 'claimed' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
     except Exception as e:
         log.error("Failed to update message on req_claim: %s", e)
 
 
 @app.action("req_submitted")
-def handle_req_submitted_action(ack, body, client):
+def handle_req_submitted_action(ack, body, respond, client):
     """Handle clicking 'Mark Submitted' button on purchase request message."""
     ack()
     user_id = body.get("user", {}).get("id")
@@ -2280,11 +2344,7 @@ def handle_req_submitted_action(ack, body, client):
     requester_name = resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_submitted", user_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.",
-        )
+        respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -2316,12 +2376,13 @@ def handle_req_submitted_action(ack, body, client):
             text="🛒 Purchase Request (Submitted)",
             blocks=next_blocks,
         )
+        log.info("Purchase request message updated to 'submitted' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
     except Exception as e:
         log.error("Failed to update message on req_submitted: %s", e)
 
 
 @app.action("req_confirmed")
-def handle_req_confirmed_action(ack, body, client):
+def handle_req_confirmed_action(ack, body, respond, client):
     """Handle clicking 'Mark Confirmed' button on purchase request message."""
     ack()
     user_id = body.get("user", {}).get("id")
@@ -2332,11 +2393,7 @@ def handle_req_confirmed_action(ack, body, client):
     requester_name = resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_confirmed", user_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.",
-        )
+        respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -2369,12 +2426,13 @@ def handle_req_confirmed_action(ack, body, client):
             text="🛒 Purchase Request (Confirmed)",
             blocks=next_blocks,
         )
+        log.info("Purchase request message updated to 'confirmed' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
     except Exception as e:
         log.error("Failed to update message on req_confirmed: %s", e)
 
 
 @app.action("req_delivered")
-def handle_req_delivered_action(ack, body, client):
+def handle_req_delivered_action(ack, body, respond, client):
     """Handle clicking 'Mark Delivered' button on purchase request message."""
     ack()
     user_id = body.get("user", {}).get("id")
@@ -2385,11 +2443,7 @@ def handle_req_delivered_action(ack, body, client):
     requester_name = resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_delivered", user_id)
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.",
-        )
+        respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -2421,6 +2475,7 @@ def handle_req_delivered_action(ack, body, client):
             text="🛒 Purchase Request (Delivered)",
             blocks=next_blocks,
         )
+        log.info("Purchase request message updated to 'delivered' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
     except Exception as e:
         log.error("Failed to update message on req_delivered: %s", e)
 
