@@ -371,12 +371,13 @@ def test_save_quote_file(tmp_path):
 
 def test_help_message_returns_command_list():
     help_text = app.get_help_message()
-    assert "@p-bot approved" in help_text
-    assert "@p-bot claim" in help_text
-    assert "@p-bot submitted" in help_text
-    assert "@p-bot confirmed" in help_text
-    assert "@p-bot delivered" in help_text
-    assert "@p-bot quote" in help_text
+    assert "/new-purchase" in help_text
+    assert "/purchasing-help" in help_text
+    assert "/blank-template" in help_text
+    assert "/roster-list" in help_text
+    assert "/roster-set-name" in help_text
+    assert "@p-bot health" in help_text
+    assert "@p-bot restart" in help_text
 
 
 def test_app_home_opened_publishes_view():

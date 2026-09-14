@@ -258,10 +258,11 @@ CATEGORY_DISPLAY_ORDER = [
     ("Other", "Other — anything not covered above"),
 ]
 
-# Callback IDs for the 3 modal stages
+# Callback IDs for modals
 STAGE1_CALLBACK_ID = "purchase_stage1_submit"
 STAGE2_CALLBACK_ID = "purchase_stage2_submit"
 STAGE3_CALLBACK_ID = "purchase_stage3_submit"
+ROSTER_SET_NAME_CALLBACK_ID = "roster_set_name_submit"
 
 # Field length limits to keep accumulated private_metadata well under Slack's 3000-char limit
 MAX_ITEM_DESCRIPTION_LEN = 150

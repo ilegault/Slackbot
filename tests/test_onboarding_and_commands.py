@@ -143,15 +143,16 @@ def test_template_command(tmp_path, monkeypatch):
 
 
 def test_command_registration():
-    """Verify /new-purchase command listener is registered on Bolt app."""
-    registered_commands = []
+    """Verify all 5 slash command listeners are registered on Bolt app."""
+    expected = {"/new-purchase", "/purchasing-help", "/blank-template", "/roster-set-name", "/roster-list"}
+    registered_commands = set()
     for listener in app.app._listeners:
         for matcher in listener.matchers:
             if matcher.func.__closure__:
                 for cell in matcher.func.__closure__:
-                    if cell.cell_contents == "/new-purchase":
-                        registered_commands.append(cell.cell_contents)
-    assert "/new-purchase" in registered_commands
+                    if isinstance(cell.cell_contents, str) and cell.cell_contents in expected:
+                        registered_commands.add(cell.cell_contents)
+    assert expected.issubset(registered_commands)
 
 
 def test_screen1_to_screen2_routing():
@@ -419,6 +420,19 @@ def test_faq_routing_in_dm():
     say.assert_called_once()
     assert "PG000025831" in say.call_args[1]["text"]
 
+    # FAQ Question about slash vs @p-bot
+    say.reset_mock()
+    event_faq_slash = {
+        "channel_type": "im",
+        "user": "U123",
+        "channel": "D123",
+        "ts": "1234.565",
+        "text": "Should I use slash command or @p-bot?",
+    }
+    app.on_direct_message(event_faq_slash, client, say)
+    say.assert_called_once()
+    assert "If the action needs a target" in say.call_args[1]["text"]
+
     # Command (not a question) -> should route to dispatch_command (e.g. @p-bot help)
     say.reset_mock()
     event_cmd = {
@@ -430,5 +444,186 @@ def test_faq_routing_in_dm():
     }
     app.on_direct_message(event_cmd, client, say)
     say.assert_called_once()
-    assert "Hirst Lab Purchasing Bot (P-Bot) Commands" in say.call_args[1]["text"]
+    assert "Hirst Lab Purchasing Bot (P-Bot)" in say.call_args[1]["text"]
+
+
+def test_every_command_acks_before_client_calls():
+    """Assert every slash command handler acks before calling any client method."""
+    # 1. /new-purchase
+    ack = MagicMock()
+    client = MagicMock()
+    app.handle_new_purchase_command(ack, {"trigger_id": "trig1", "user_id": "U1"}, client)
+    ack.assert_called_once()
+
+    # 2. /purchasing-help
+    ack.reset_mock()
+    app.handle_purchasing_help_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+    ack.assert_called_once()
+
+    # 3. /blank-template
+    ack.reset_mock()
+    with patch.object(app, "handle_template_command") as mock_tmpl:
+        app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+        ack.assert_called_once()
+        mock_tmpl.assert_called_once()
+
+    # 4. /roster-list
+    ack.reset_mock()
+    app.handle_roster_list_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+    ack.assert_called_once()
+
+    # 5. /roster-set-name
+    ack.reset_mock()
+    app.handle_roster_set_name_command(ack, {"trigger_id": "trig2", "user_id": "U1", "channel_id": "C1"}, client)
+    ack.assert_called_once()
+
+
+def test_build_request_blocks_buttons_per_state():
+    """Verify build_request_blocks returns 1 button per non-final state and 0 for delivered."""
+    sample_req = {
+        "item_description": "Resistors",
+        "total_price": 45.00,
+        "vendor": "DigiKey",
+        "payment_method": "P-card",
+        "category": "Research/Lab Supplies (3105)",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "delivery_room": "ERB 212",
+        "purpose": "Circuit testing",
+        "requester": "Isaac",
+        "user_id": "U123",
+    }
+
+    state_expected_action = {
+        "posted": "req_approve",
+        "approved": "req_claim",
+        "claimed": "req_submitted",
+        "submitted": "req_confirmed",
+        "confirmed": "req_delivered",
+    }
+
+    for state, expected_action in state_expected_action.items():
+        blocks = app.build_request_blocks(state, sample_req)
+        action_blocks = [b for b in blocks if b.get("type") == "actions"]
+        assert len(action_blocks) == 1
+        elements = action_blocks[0].get("elements", [])
+        assert len(elements) == 1
+        assert elements[0].get("action_id") == expected_action
+
+    # delivered state -> 0 buttons
+    blocks_deliv = app.build_request_blocks("delivered", sample_req)
+    action_blocks_deliv = [b for b in blocks_deliv if b.get("type") == "actions"]
+    assert len(action_blocks_deliv) == 0
+
+
+def test_req_approve_non_approver_denial():
+    """A req_approve click from a non-approver responds ephemerally, does not process EPIF, does not update message."""
+    ack = MagicMock()
+    client = MagicMock()
+    body = {
+        "user": {"id": "UNONAPPROVER"},
+        "channel": {"id": "C123"},
+        "message": {"ts": "1111.22"},
+        "container": {"message_ts": "1111.22", "thread_ts": "1111.22"},
+        "actions": [{"value": json.dumps({"request": {}, "history": []})}],
+    }
+    with patch.object(app, "handle_epif_processing") as mock_epif:
+        app.handle_req_approve_action(ack, body, client)
+        ack.assert_called_once()
+        client.chat_postEphemeral.assert_called_once()
+        assert "Only authorized approvers" in client.chat_postEphemeral.call_args[1]["text"]
+        mock_epif.assert_not_called()
+        client.chat_update.assert_not_called()
+
+
+def test_req_claim_and_keyword_dispatch_same_args():
+    """A req_claim click and an @p-bot claim mention call handle_claim with matching channel and thread_ts."""
+    ack = MagicMock()
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("UGRADBUYER", "Dylan")
+
+    # 1. Button click req_claim
+    button_body = {
+        "user": {"id": "UGRADBUYER"},
+        "channel": {"id": "C_TEST"},
+        "message": {"ts": "5555.66"},
+        "container": {"message_ts": "5555.66", "thread_ts": "5555.66"},
+        "actions": [{"value": json.dumps({"request": {"item_description": "Bolts"}, "history": []})}],
+    }
+    with patch.object(app, "handle_claim") as mock_claim:
+        app.handle_req_claim_action(ack, button_body, client)
+        ack.assert_called_once()
+        mock_claim.assert_called_once()
+        btn_channel = mock_claim.call_args[1]["channel"]
+        btn_thread = mock_claim.call_args[1]["thread_ts"]
+
+    # 2. Keyword mention @p-bot claim
+    with patch.object(app, "handle_claim") as mock_claim_kw:
+        app.dispatch_command(
+            client=client,
+            say=say,
+            channel="C_TEST",
+            thread_ts="5555.66",
+            user="UGRADBUYER",
+            event_ts="5555.67",
+            text="@p-bot claim",
+        )
+        mock_claim_kw.assert_called_once()
+        kw_channel = mock_claim_kw.call_args[0][2]
+        kw_thread = mock_claim_kw.call_args[0][3]
+
+    assert btn_channel == kw_channel == "C_TEST"
+    assert btn_thread == kw_thread == "5555.66"
+
+
+def test_roster_set_name_modal_submission(monkeypatch):
+    """Verify /roster-set-name validation, existing member handling, and alert creation."""
+    ack = MagicMock()
+    client = MagicMock()
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
+
+    # 1. Name outside VALID_REQUESTERS -> modal error, no alert
+    view_invalid = {
+        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "InvalidNonExistentName"}}}},
+        "private_metadata": json.dumps({"user_id": "U_NEW", "channel_id": "C_MAIN"}),
+    }
+    app.handle_roster_set_name_submit(ack, {"user": {"id": "U_NEW"}}, client, view_invalid)
+    ack.assert_called_once()
+    assert ack.call_args[1]["response_action"] == "errors"
+    client.chat_postMessage.assert_not_called()
+
+    # 2. User already in roster -> responds ephemerally/DM, no alert
+    roster.add_requester("U_EXISTING", "Isaac")
+    ack.reset_mock()
+    client.reset_mock()
+    view_existing = {
+        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "Isaac"}}}},
+        "private_metadata": json.dumps({"user_id": "U_EXISTING", "channel_id": "C_MAIN"}),
+    }
+    app.handle_roster_set_name_submit(ack, {"user": {"id": "U_EXISTING"}}, client, view_existing)
+    ack.assert_called_once_with()
+    client.chat_postMessage.assert_not_called()
+    client.chat_postEphemeral.assert_called_once()
+    assert "already registered" in client.chat_postEphemeral.call_args[1]["text"]
+
+    # 3. Valid new user -> posts alert to ADMIN_ALERT_CHANNEL with approve_new_requester button
+    ack.reset_mock()
+    client.reset_mock()
+    view_valid_new = {
+        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "Dylan"}}}},
+        "private_metadata": json.dumps({"user_id": "U_BRAND_NEW", "channel_id": "C_MAIN"}),
+    }
+    app.handle_roster_set_name_submit(ack, {"user": {"id": "U_BRAND_NEW"}}, client, view_valid_new)
+    ack.assert_called_once_with()
+    alert_call = next(c for c in client.chat_postMessage.call_args_list if c[1].get("channel") == "C_ALERTS")
+    alert_args = alert_call[1]
+    assert alert_args["channel"] == "C_ALERTS"
+    actions_block = next(b for b in alert_args["blocks"] if b["type"] == "actions")
+    btn = actions_block["elements"][0]
+    assert btn["action_id"] == "approve_new_requester"
+    val = json.loads(btn["value"])
+    assert val["slack_id"] == "U_BRAND_NEW"
+    assert val["name"] == "Dylan"
+
 

@@ -174,6 +174,14 @@ FAQ_ANSWERS: Dict[str, str] = {
         "Once approved, it is logged to `Purchasing-Log.xlsx`, and a grad student buyer (or you) "
         "will place the order in Workday/ShopUW+."
     ),
+    "slash": (
+        "If the action needs a target (like approving or updating a specific request), use the buttons on that message. "
+        "If it doesn't (like starting a purchase or viewing help), use a slash command (`/`); `@p-bot` mentions are reserved for admin operations."
+    ),
+    "@p-bot": (
+        "If the action needs a target (like approving or updating a specific request), use the buttons on that message. "
+        "If it doesn't (like starting a purchase or viewing help), use a slash command (`/`); `@p-bot` mentions are reserved for admin operations."
+    ),
 }
 
 QUESTION_MARKERS = ("?", "what is", "what's", "explain")
