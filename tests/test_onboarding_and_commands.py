@@ -696,3 +696,439 @@ def test_roster_set_name_modal_submission(monkeypatch):
     assert val["name"] == "Dylan"
 
 
+# ==============================================================================
+# PHASE 1 FOLLOW-UP TESTS
+# ==============================================================================
+
+def test_approver_gate_allowed_for_approvers():
+    """Verify Charlie or an approved reviewer from roster passes the gate in dispatch_command."""
+    client = MagicMock()
+    say = MagicMock()
+
+    # Charlie (hardcoded approver in roster)
+    with patch.object(app, "handle_epif_processing") as mock_epif:
+        app.dispatch_command(
+            client=client,
+            say=say,
+            channel="C123",
+            thread_ts="1234.56",
+            user="U07L2RFEPJ9",
+            event_ts="1234.57",
+            text="@p-bot approved",
+        )
+        mock_epif.assert_called_once()
+
+    # Added approver in roster
+    roster.add_approver("U_CUSTOM_APPROVER")
+    say.reset_mock()
+    with patch.object(app, "handle_epif_processing") as mock_epif:
+        app.dispatch_command(
+            client=client,
+            say=say,
+            channel="C123",
+            thread_ts="1234.56",
+            user="U_CUSTOM_APPROVER",
+            event_ts="1234.57",
+            text="@p-bot approved",
+        )
+        mock_epif.assert_called_once()
+
+
+def test_finalize_purchase_request_without_pdf(monkeypatch):
+    """Verify finalize_purchase_request handles modal-derived requests (pdf_bytes=None) cleanly."""
+    client = MagicMock()
+    say = MagicMock()
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
+
+    stage1 = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": config.VENDOR_OTHER_OPTION,
+        "vendor_custom": "Thorlabs",
+        "route": "epif",
+    }
+    stage2 = {
+        "item_description": "Laser Diode 532nm",
+        "purpose": "Optical alignment",
+        "total_price": "$85.00",
+        "vendor_contact_name": "Sales",
+        "vendor_contact_email": "sales@thorlabs.com",
+        "date_of_purchase": "09/15/26",
+        "delivery_room": "ERB 212",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "category": "Research/Lab Supplies (3105)",
+        "payment_method": "P-card",
+    }
+    parsed = interview.build_parsed_from_stages(stage1, stage2, stage3=None)
+
+    with patch.object(app.log_writer, "save_epif") as mock_save_epif:
+        with patch.object(app.log_writer, "append_row", return_value=17) as mock_append:
+            with patch.object(app.queue_worker, "submit_write_task") as mock_submit:
+                app.finalize_purchase_request(
+                    client=client,
+                    say=say,
+                    channel="C_PURCHASING",
+                    thread_ts="1234.56",
+                    event_ts="1234.56",
+                    parsed=parsed,
+                    requester="Isaac",
+                    notify_target="U123",
+                    pdf_bytes=None,
+                    file_name=None,
+                )
+                mock_submit.assert_called_once()
+                # Run the action_fn and verify save_epif was skipped
+                action_fn = mock_submit.call_args[1]["action_fn"]
+                row_num, saved_path = action_fn()
+                assert saved_path is None
+                mock_save_epif.assert_not_called()
+                mock_append.assert_called_once()
+
+                # Trigger success_callback and verify channel notification
+                success_cb = mock_submit.call_args[1]["success_callback"]
+                success_cb((row_num, saved_path))
+                say.assert_called_once()
+                assert "Logged to row 17" in say.call_args[1]["text"]
+
+
+# ==============================================================================
+# PHASE 2 FOLLOW-UP TESTS
+# ==============================================================================
+
+def test_approve_new_requester_action_admin_vs_non_admin():
+    """Non-admin gets denied; admin adds requester, updates alert message, and DMs user."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+
+    body_non_admin = {
+        "user": {"id": "U_NON_ADMIN"},
+        "channel": {"id": "C_ALERTS"},
+        "message": {"ts": "9999.01"},
+        "actions": [{"value": json.dumps({"slack_id": "U_TARGET", "name": "Dylan"})}],
+    }
+
+    # 1. Non-admin attempt
+    app.handle_approve_new_requester_action(ack, body_non_admin, respond, client)
+    ack.assert_called_once()
+    respond.assert_called_once()
+    assert "Only bot administrators" in respond.call_args[1]["text"]
+    assert "U_TARGET" not in roster.get_requesters()
+
+    # 2. Admin attempt
+    roster.add_admin("U_ADMIN_ACTOR")
+    ack.reset_mock()
+    respond.reset_mock()
+    body_admin = {
+        "user": {"id": "U_ADMIN_ACTOR"},
+        "channel": {"id": "C_ALERTS"},
+        "message": {"ts": "9999.01"},
+        "actions": [{"value": json.dumps({"slack_id": "U_TARGET", "name": "Dylan"})}],
+    }
+    app.handle_approve_new_requester_action(ack, body_admin, respond, client)
+    ack.assert_called_once()
+    assert roster.get_requesters().get("U_TARGET") == "Dylan"
+    client.chat_update.assert_called_once()
+    client.chat_postMessage.assert_called()  # tell() DM to user
+
+
+def test_approve_new_admin_action_admin_vs_non_admin():
+    """Non-admin gets denied; admin promotes user, updates alert message, and DMs target."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+
+    body_non_admin = {
+        "user": {"id": "U_NON_ADMIN"},
+        "channel": {"id": "C_ALERTS"},
+        "message": {"ts": "9999.02"},
+        "actions": [{"value": json.dumps({"slack_id": "U_PROMOTEE"})}],
+    }
+
+    # Non-admin
+    app.handle_approve_new_admin_action(ack, body_non_admin, respond, client)
+    assert "U_PROMOTEE" not in roster.get_admins()
+
+    # Admin
+    roster.add_admin("U_ADMIN_ACTOR")
+    body_admin = {
+        "user": {"id": "U_ADMIN_ACTOR"},
+        "channel": {"id": "C_ALERTS"},
+        "message": {"ts": "9999.02"},
+        "actions": [{"value": json.dumps({"slack_id": "U_PROMOTEE"})}],
+    }
+    app.handle_approve_new_admin_action(ack, body_admin, respond, client)
+    assert "U_PROMOTEE" in roster.get_admins()
+    client.chat_update.assert_called_once()
+
+
+def test_approve_new_vendor_action_admin_vs_non_admin():
+    """Non-admin gets denied; admin adds vendor and updates alert message."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+
+    body_non_admin = {
+        "user": {"id": "U_NON_ADMIN"},
+        "channel": {"id": "C_ALERTS"},
+        "message": {"ts": "9999.03"},
+        "actions": [{"value": json.dumps({"vendor": "Acme Laser Labs"})}],
+    }
+
+    # Non-admin
+    app.handle_approve_new_vendor_action(ack, body_non_admin, respond, client)
+    assert "Acme Laser Labs" not in roster.get_vendors()
+
+    # Admin
+    roster.add_admin("U_ADMIN_ACTOR")
+    body_admin = {
+        "user": {"id": "U_ADMIN_ACTOR"},
+        "channel": {"id": "C_ALERTS"},
+        "message": {"ts": "9999.03"},
+        "actions": [{"value": json.dumps({"vendor": "Acme Laser Labs"})}],
+    }
+    app.handle_approve_new_vendor_action(ack, body_admin, respond, client)
+    assert "Acme Laser Labs" in roster.get_vendors()
+    client.chat_update.assert_called_once()
+
+
+def test_remove_vendor_close_matches():
+    """When a vendor is not found, list close/partial matches rather than crashing or silent no-op."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_admin("U_ADMIN_ACTOR")
+    roster.add_vendor("Fisher Scientific")
+
+    # Non-existent vendor with partial match
+    app.dispatch_command(client, say, "C123", "ts", "U_ADMIN_ACTOR", "ts", "@p-bot remove vendor Fisher")
+    say.assert_called_once()
+    msg = say.call_args[1]["text"]
+    assert "not found" in msg
+    assert "Fisher Scientific" in msg
+
+
+# ==============================================================================
+# PHASE 3 FOLLOW-UP TESTS
+# ==============================================================================
+
+def test_template_command_single_file_missing(tmp_path, monkeypatch):
+    """Clear error message if only one template file is missing."""
+    client = MagicMock()
+    say = MagicMock()
+    fake_temp_dir = str(tmp_path / "templates_partial")
+    os.makedirs(fake_temp_dir, exist_ok=True)
+    monkeypatch.setattr(config, "TEMPLATE_DIR", fake_temp_dir)
+
+    # Only PDF exists, README missing
+    with open(os.path.join(fake_temp_dir, "EPIF_TEMPLATE_HIRST.pdf"), "w") as f:
+        f.write("pdf")
+
+    app.handle_template_command(client, say, "C123", "ts", "U123")
+    assert "Template files missing" in say.call_args[1]["text"]
+    assert "README.md" in say.call_args[1]["text"]
+
+
+# ==============================================================================
+# PHASE 4 FOLLOW-UP TESTS
+# ==============================================================================
+
+def test_screen1_unresolved_user_shows_name_input():
+    """Screen 1 shows name input only when prefill_name_field is True."""
+    # 1. Known user
+    view_known = app.build_stage1_view(prefill_name_field=False, resolved_name="Isaac", user_id="U123")
+    assert "block_proposed_name" not in [b.get("block_id") for b in view_known["blocks"]]
+
+    # 2. Unresolved user
+    view_unknown = app.build_stage1_view(prefill_name_field=True, resolved_name=None, user_id="UUNKNOWN")
+    assert "block_proposed_name" in [b.get("block_id") for b in view_unknown["blocks"]]
+
+
+def test_screen2_validation_errors():
+    """Screen 2 returns response_action: 'errors' when invalid money is entered."""
+    ack = MagicMock()
+    body = {"user": {"id": "U123"}}
+    client = MagicMock()
+
+    view_invalid_price = {
+        "state": {
+            "values": {
+                "block_item_description": {"item_description": {"value": "Box of Gloves"}},
+                "block_purpose": {"purpose": "General lab use"},
+                "block_total_price": {"total_price": {"value": "NOT_A_PRICE"}},
+                "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
+                "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
+                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
+                "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
+                "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
+                "block_fund": {"fund": {"selected_option": {"value": "133"}}},
+                "block_category": {"category": {"selected_option": {"value": "Research/Lab Supplies (3105)"}}},
+            }
+        },
+        "private_metadata": json.dumps({
+            "resolved_name": "Isaac",
+            "user_id": "U123",
+            "vendor_choice": "Fisher Scientific",
+            "vendor_custom": "",
+            "route": "workday",
+        }),
+    }
+    app.handle_stage2_submit(ack, body, client, view_invalid_price)
+    ack.assert_called_once()
+    assert ack.call_args[1]["response_action"] == "errors"
+
+
+# ==============================================================================
+# PHASE 5 FOLLOW-UP TESTS
+# ==============================================================================
+
+def test_roster_list_output_admin_vs_non_admin():
+    """Non-admin sees members and vendors, but approvers/admins are hidden; admin sees all."""
+    ack = MagicMock()
+    respond = MagicMock()
+
+    roster.add_requester("U_REQ1", "Isaac")
+    roster.add_admin("U_ADMIN1")
+    roster.add_approver("U07L2RFEPJ9")
+
+    # 1. Non-admin
+    app.handle_roster_list_command(ack, {"user_id": "U_REQ1"}, respond)
+    non_admin_text = respond.call_args[1]["text"]
+    assert "Lab Members" in non_admin_text
+    assert "Workday Punchout Vendors" in non_admin_text
+    assert "Administrators" not in non_admin_text
+    assert "Authorized Approvers" not in non_admin_text
+
+    # 2. Admin
+    respond.reset_mock()
+    app.handle_roster_list_command(ack, {"user_id": "U_ADMIN1"}, respond)
+    admin_text = respond.call_args[1]["text"]
+    assert "Administrators" in admin_text
+    assert "Purchase Approvers" in admin_text
+
+
+def test_roster_list_empty_requesters_prompt(monkeypatch, tmp_path):
+    """When requesters is empty, /roster-list points user to /roster-set-name."""
+    ack = MagicMock()
+    respond = MagicMock()
+
+    # Empty roster
+    test_empty_roster = str(tmp_path / "empty_roster.json")
+    with open(test_empty_roster, "w") as f:
+        json.dump({"requesters": {}, "admins": [], "approvers": [], "vendors": []}, f)
+    monkeypatch.setattr(roster, "ROSTER_PATH", test_empty_roster)
+
+    app.handle_roster_list_command(ack, {"user_id": "U123"}, respond)
+    msg = respond.call_args[1]["text"]
+    assert "No members registered yet" in msg
+    assert "/roster-set-name" in msg
+
+
+def test_all_lifecycle_buttons_state_machine(monkeypatch):
+    """Test full sequential lifecycle: posted -> approved -> claimed -> submitted -> confirmed -> delivered."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    roster.add_requester("U_CHARLIE", "Charlie H.")
+    roster.add_approver("U_CHARLIE")
+    roster.add_requester("U_BUYER", "Dylan")
+
+    base_req = {
+        "item_description": "Microcontroller Board",
+        "total_price": 25.00,
+        "vendor": "DigiKey",
+        "payment_method": "P-card",
+        "category": "Research/Lab Supplies (3105)",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "delivery_room": "ERB 212",
+        "purpose": "Sensor readout",
+        "requester": "Isaac",
+    }
+
+    # 1. Approve (by Charlie)
+    body_approve = {
+        "user": {"id": "U_CHARLIE"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.00"},
+        "container": {"message_ts": "100.00", "thread_ts": "100.00"},
+        "actions": [{"value": json.dumps({"request": base_req, "history": []})}],
+    }
+    with patch.object(app, "handle_epif_processing"):
+        app.handle_req_approve_action(ack, body_approve, respond, client)
+        update_call = client.chat_update.call_args[1]
+        blocks = update_call["blocks"]
+        # Next button must be req_claim
+        actions = next(b for b in blocks if b.get("type") == "actions")
+        assert actions["elements"][0]["action_id"] == "req_claim"
+
+    # 2. Claim (by Dylan)
+    ack.reset_mock()
+    client.reset_mock()
+    body_claim = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.00"},
+        "container": {"message_ts": "100.00", "thread_ts": "100.00"},
+        "actions": [{"value": actions["elements"][0]["value"]}],
+    }
+    with patch.object(app, "handle_claim"):
+        app.handle_req_claim_action(ack, body_claim, respond, client)
+        update_call = client.chat_update.call_args[1]
+        blocks = update_call["blocks"]
+        actions = next(b for b in blocks if b.get("type") == "actions")
+        assert actions["elements"][0]["action_id"] == "req_submitted"
+
+    # 3. Submitted (by Dylan)
+    ack.reset_mock()
+    client.reset_mock()
+    body_sub = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.00"},
+        "container": {"message_ts": "100.00", "thread_ts": "100.00"},
+        "actions": [{"value": actions["elements"][0]["value"]}],
+    }
+    with patch.object(app, "handle_submission"):
+        app.handle_req_submitted_action(ack, body_sub, respond, client)
+        update_call = client.chat_update.call_args[1]
+        blocks = update_call["blocks"]
+        actions = next(b for b in blocks if b.get("type") == "actions")
+        assert actions["elements"][0]["action_id"] == "req_confirmed"
+
+    # 4. Confirmed (by Dylan)
+    ack.reset_mock()
+    client.reset_mock()
+    body_conf = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.00"},
+        "container": {"message_ts": "100.00", "thread_ts": "100.00"},
+        "actions": [{"value": actions["elements"][0]["value"]}],
+    }
+    with patch.object(app, "handle_confirmation"):
+        app.handle_req_confirmed_action(ack, body_conf, respond, client)
+        update_call = client.chat_update.call_args[1]
+        blocks = update_call["blocks"]
+        actions = next(b for b in blocks if b.get("type") == "actions")
+        assert actions["elements"][0]["action_id"] == "req_delivered"
+
+    # 5. Delivered (by Dylan)
+    ack.reset_mock()
+    client.reset_mock()
+    body_deliv = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.00"},
+        "container": {"message_ts": "100.00", "thread_ts": "100.00"},
+        "actions": [{"value": actions["elements"][0]["value"]}],
+    }
+    with patch.object(app, "handle_delivery"):
+        app.handle_req_delivered_action(ack, body_deliv, respond, client)
+        update_call = client.chat_update.call_args[1]
+        blocks = update_call["blocks"]
+        # No more action buttons on delivered
+        assert not any(b.get("type") == "actions" for b in blocks)
+
+
+

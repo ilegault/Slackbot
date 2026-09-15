@@ -18,6 +18,9 @@ env/
 *.log
 ~$*
 .pytest_cache/
+roster.json
+requests.json
+*.bad
 
 # OS
 .DS_Store
