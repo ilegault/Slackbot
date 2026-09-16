@@ -612,6 +612,7 @@ def test_req_claim_and_keyword_dispatch_same_args():
     client = MagicMock()
     say = MagicMock()
     roster.add_requester("UGRADBUYER", "Dylan")
+    roster.add_buyer("UGRADBUYER")
 
     # 1. Button click req_claim
     button_body = {
@@ -1037,6 +1038,7 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
     roster.add_requester("U_CHARLIE", "Charlie H.")
     roster.add_approver("U_CHARLIE")
     roster.add_requester("U_BUYER", "Dylan")
+    roster.add_buyer("U_BUYER")
 
     base_req = {
         "item_description": "Microcontroller Board",
@@ -1233,6 +1235,236 @@ def test_dispatch_command_add_and_remove_buyer(monkeypatch):
     say.reset_mock()
     app.dispatch_command(client, say, channel="C1", thread_ts="T1", user="U_ADMIN", event_ts="E1", text="@p-bot remove-buyer <@U_NEW>")
     assert not roster.is_buyer("U_NEW")
+
+
+# ==============================================================================
+# TICKET 03: EVERY APPROVED REQUEST WAITS FOR A CLAIM
+# ==============================================================================
+
+def test_approved_request_from_buyer_broadcasts_and_sends_no_dm(monkeypatch):
+    """An approved request from a buyer still broadcasts for claim and sends NO email-draft DM."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_BUYER_REQ", "Isaac")
+    roster.add_buyer("U_BUYER_REQ")
+    roster.add_buyer("U_OTHER_BUYER")
+
+    stage1 = {
+        "resolved_name": "Isaac",
+        "user_id": "U_BUYER_REQ",
+        "vendor_choice": config.VENDOR_OTHER_OPTION,
+        "vendor_custom": "Thorlabs",
+        "route": "epif",
+    }
+    stage2 = {
+        "item_description": "Laser Optics Mount",
+        "purpose": "Optical alignment",
+        "total_price": "$149.99",
+        "vendor_contact_name": "Sales",
+        "vendor_contact_email": "sales@thorlabs.com",
+        "date_of_purchase": "09/15/26",
+        "delivery_room": "ERB 212",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "category": "Research/Lab Supplies (3105)",
+        "payment_method": "P-card",
+    }
+    parsed = interview.build_parsed_from_stages(stage1, stage2, stage3=None)
+
+    with patch.object(lifecycle.log_writer, "save_epif", return_value="/lab/EPIFs/epif.pdf"):
+        with patch.object(lifecycle.log_writer, "append_row", return_value=18):
+            with patch.object(lifecycle.queue_worker, "submit_write_task") as mock_submit:
+                lifecycle.finalize_purchase_request(
+                    client=client,
+                    say=say,
+                    channel="C_PURCHASE",
+                    thread_ts="100.00",
+                    event_ts="100.00",
+                    parsed=parsed,
+                    requester="Isaac",
+                    notify_target="U_BUYER_REQ",
+                    pdf_bytes=b"fake-pdf",
+                    file_name="epif.pdf",
+                )
+                success_cb = mock_submit.call_args[1]["success_callback"]
+                success_cb((18, "/lab/EPIFs/epif.pdf"))
+
+    say.assert_called_once()
+    broadcast_text = say.call_args[1]["text"]
+    assert "Logged to row 18" in broadcast_text
+    assert "Laser Optics Mount" in broadcast_text
+    assert "$149.99" in broadcast_text
+    assert "Thorlabs" in broadcast_text
+    assert "Research/Lab Supplies (3105)" in broadcast_text
+    assert "Saved EPIF to `/lab/EPIFs/epif.pdf`" in broadcast_text
+    assert "Needs a Grad Student Buyer to process in Workday / ShopUW." in broadcast_text
+    assert "<@U_BUYER_REQ>" in broadcast_text
+    assert "<@U_OTHER_BUYER>" in broadcast_text
+
+    # Assert NO DM was sent at approval time (client.chat_postMessage never called for DM)
+    dm_calls = [
+        call for call in client.chat_postMessage.call_args_list
+        if call[1].get("channel") == "U_BUYER_REQ"
+    ]
+    assert len(dm_calls) == 0, f"Expected no DM to be sent at approval time, but got: {dm_calls}"
+
+
+def test_req_claim_click_from_non_buyer():
+    """A non-buyer clicking req_claim gets ephemeral denial, no handle_claim call, no chat_update, no DM."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    roster.add_requester("U_NONBUYER", "Alice")
+    # Note: U_NONBUYER is not added to buyers
+
+    button_body = {
+        "user": {"id": "U_NONBUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.00", "thread_ts": "100.00"},
+        "actions": [{"value": json.dumps({"request": {"item_description": "Filters"}, "history": []})}],
+    }
+
+    with patch.object(lifecycle, "handle_claim") as mock_claim:
+        app.handle_req_claim_action(ack, button_body, respond, client)
+        ack.assert_called_once()
+        respond.assert_called_once()
+        deny_text = respond.call_args[1]["text"]
+        assert "Only purchase buyers can claim" in deny_text or "designated buyers" in deny_text
+        mock_claim.assert_not_called()
+        client.chat_update.assert_not_called()
+        client.chat_postMessage.assert_not_called()
+
+
+def test_req_claim_click_unregistered_user_runs_after_buyer_gate():
+    """A buyer who has not set their name in the roster gets the roster registration prompt."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    roster.add_buyer("U_UNREG_BUYER")
+    # Note: U_UNREG_BUYER is in buyers, but NOT in requesters
+
+    button_body = {
+        "user": {"id": "U_UNREG_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.00", "thread_ts": "100.00"},
+        "actions": [{"value": json.dumps({"request": {"item_description": "Filters"}, "history": []})}],
+    }
+
+    with patch.object(lifecycle, "handle_claim") as mock_claim:
+        with patch.object(lifecycle.slack_io, "resolve_requester", return_value=None):
+            app.handle_req_claim_action(ack, button_body, respond, client)
+            ack.assert_called_once()
+            respond.assert_called_once()
+            assert "registered in the lab roster" in respond.call_args[1]["text"]
+            mock_claim.assert_not_called()
+
+
+def test_at_pbot_claim_mention_from_non_buyer():
+    """An @p-bot claim mention from a non-buyer is denied and does not call handle_claim."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_NONBUYER", "Alice")
+
+    with patch.object(lifecycle, "handle_claim") as mock_claim:
+        app.dispatch_command(
+            client=client,
+            say=say,
+            channel="C_PURCHASE",
+            thread_ts="100.00",
+            user="U_NONBUYER",
+            event_ts="100.01",
+            text="@p-bot claim",
+        )
+        say.assert_called_once()
+        deny_text = say.call_args[1]["text"]
+        assert "Only purchase buyers can claim" in deny_text or "designated buyers" in deny_text
+        mock_claim.assert_not_called()
+
+
+def test_claim_as_different_user_than_requester():
+    """Claiming as a different user than requester sends the email draft to the claimer, signed by claimer."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_CLAIMER", "Dylan")
+    roster.add_buyer("U_CLAIMER")
+
+    req_data = {
+        "item_description": "Spectrometer Grating",
+        "total_price": 520.00,
+        "vendor": "Thorlabs",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "requester": "Alice",
+    }
+
+    with patch.object(lifecycle.slack_io, "find_row_in_thread", return_value=22):
+        with patch.object(lifecycle.log_writer, "get_row_info", return_value=req_data):
+            lifecycle.handle_claim(
+                client=client,
+                say=say,
+                channel="C_PURCHASE",
+                thread_ts="100.00",
+                user_id="U_CLAIMER",
+                event_ts="100.02",
+                req_data=req_data,
+            )
+
+    say.assert_called_once()
+    assert "✋ <@U_CLAIMER> (Dylan) has claimed order for *Spectrometer Grating* (Row 22)!" in say.call_args[1]["text"]
+
+    # Assert DM was sent to the claimer (U_CLAIMER)
+    dm_calls = [
+        call for call in client.chat_postMessage.call_args_list
+        if call[1].get("channel") == "U_CLAIMER"
+    ]
+    assert len(dm_calls) == 1, f"Expected 1 DM to claimer U_CLAIMER, got {len(dm_calls)}"
+    dm_text = dm_calls[0][1]["text"]
+    assert "Dylan" in dm_text
+    assert "All the best,\nDylan" in dm_text
+    assert "All the best,\nAlice" not in dm_text
+    assert "Spectrometer Grating" in dm_text
+
+
+def test_claim_draft_fields_fallback_to_get_row_info():
+    """When req_data is None, handle_claim reads fields from log_writer.get_row_info(row)."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_CLAIMER2", "Finn")
+    roster.add_buyer("U_CLAIMER2")
+
+    row_info = {
+        "row": 25,
+        "item_description": "Cryogenic Valve",
+        "total_price": 350.00,
+        "vendor": "Swagelok",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "requester": "Charlie",
+    }
+
+    with patch.object(lifecycle.slack_io, "find_row_in_thread", return_value=25):
+        with patch.object(lifecycle.log_writer, "get_row_info", return_value=row_info):
+            lifecycle.handle_claim(
+                client=client,
+                say=say,
+                channel="C_PURCHASE",
+                thread_ts="200.00",
+                user_id="U_CLAIMER2",
+                event_ts="200.02",
+                req_data=None,
+            )
+
+    dm_calls = [
+        call for call in client.chat_postMessage.call_args_list
+        if call[1].get("channel") == "U_CLAIMER2"
+    ]
+    assert len(dm_calls) == 1
+    dm_text = dm_calls[0][1]["text"]
+    assert "Finn" in dm_text
+    assert "All the best,\nFinn" in dm_text
+    assert "Cryogenic Valve" in dm_text
+    assert "Swagelok" in dm_text
+
 
 
 

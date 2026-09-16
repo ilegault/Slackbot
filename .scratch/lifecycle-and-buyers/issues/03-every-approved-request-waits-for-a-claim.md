@@ -6,7 +6,7 @@ on Claim. Move the email draft from approval to claim, addressed to the claimer.
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** done
 
 Read `docs/adr/0002-request-lifecycle-and-surfaces.md` decision 6 first.
 `docs/adr/0001-tests-first-and-no-muted-failures.md` is binding.
@@ -39,30 +39,40 @@ else claims.
 
 ## Acceptance criteria
 
-- [ ] The `is_grad_buyer` branch in `on_success` is gone; there is one path
-- [ ] The approval broadcast builds its mention list from `roster.get_buyers()` as
+- [x] The `is_grad_buyer` branch in `on_success` is gone; there is one path
+- [x] The approval broadcast builds its mention list from `roster.get_buyers()` as
       `<@ID>` mentions, and keeps the row number, item, price, vendor, category and
       saved-EPIF line both branches already posted
-- [ ] `handle_req_claim_action` is gated on `roster.is_buyer(user_id)`; a non-buyer
+- [x] `handle_req_claim_action` is gated on `roster.is_buyer(user_id)`; a non-buyer
       gets `respond(...)` explaining only purchase buyers can claim, the message is
       **not** updated, and nothing is written
-- [ ] The existing "must be registered in the roster" check for name resolution
+- [x] The existing "must be registered in the roster" check for name resolution
       still runs after the buyer gate
-- [ ] The `@p-bot claim` keyword branch has the same gate
-- [ ] The email draft is generated in `handle_claim` with the **claimer's** resolved
+- [x] The `@p-bot claim` keyword branch has the same gate
+- [x] The email draft is generated in `handle_claim` with the **claimer's** resolved
       name and DM'd to the claimer
-- [ ] No email draft is DM'd at approval time
-- [ ] The claim draft's fields come from the button `value` or
+- [x] No email draft is DM'd at approval time
+- [x] The claim draft's fields come from the button `value` or
       `log_writer.get_row_info(row)` — the PDF is not re-parsed
-- [ ] A test asserts an approved request **from a buyer** still broadcasts for a
+- [x] A test asserts an approved request **from a buyer** still broadcasts for a
       claim and sends **no** email-draft DM at approval — assert on the DM *not*
       being sent, not just on the broadcast text
-- [ ] A test asserts a `req_claim` click from a non-buyer responds ephemerally,
+- [x] A test asserts a `req_claim` click from a non-buyer responds ephemerally,
       does not call `handle_claim`, does not `chat_update`, and sends no DM
-- [ ] A test claims as a different user than the requester and asserts the DM
+- [x] A test claims as a different user than the requester and asserts the DM
       target is the claimer and the draft's signature line is the claimer's name
-- [ ] A test asserts a `req_claim` click and an `@p-bot claim` mention call
+- [x] A test asserts a `req_claim` click and an `@p-bot claim` mention call
       `handle_claim` with the same channel and `thread_ts`
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Comments
+
+### 2026-09-16 Implementation summary
+- Removed the `is_grad_buyer` conditional in `finalize_purchase_request`, establishing a single unified approval path that broadcasts to `roster.get_buyers()` via `<@ID>` mentions and waits for a claim.
+- Suppressed email-draft DM at approval time.
+- Gated `handle_req_claim_action` on `roster.is_buyer(user_id)` before roster name resolution; non-buyers receive an ephemeral response without updating card blocks, invoking `handle_claim`, or writing any state.
+- Gated `@p-bot claim` in `dispatch_command` on `roster.is_buyer(user)` and roster registration.
+- Updated `handle_claim` to accept `req_data`, construct draft data from button payload falling back to `log_writer.get_row_info(row)`, generate the email draft signed by the claimer, and DM the claimer.
+- Added tests for buyer approval broadcast with no DM, non-buyer claim button denial, non-buyer mention denial, unregistered buyer claim button handling, and claimer-addressed email draft generation.
+- Full local gate passed: `ruff check .` clean, `scripts/check_tests_first.py` OK, and `pytest -q` 89 passed (0 failures).
+

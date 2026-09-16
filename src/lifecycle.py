@@ -6,6 +6,11 @@ Encapsulates all stage transitions for a purchase request: approval, claiming,
 submission, confirmation, delivery, and quote archiving. Coordinates between
 Slack client I/O, domain validation, storage write queue, and Block Kit messages.
 
+Per ADR 0002 decision 6:
+- Approval always broadcasts to grad buyers and waits for a Claim — even for a buyer's
+  own request, because purchasing duty rotates and there is no auto-assign shortcut.
+- The email draft is moved from approval to claim, addressed to and DM'd to the claimer.
+
 Imports:
     - config, epif_parser, interview, log_writer, queue_worker, roster, validators, blocks, slack_io, text_rules
 May NOT import:
@@ -90,56 +95,25 @@ def finalize_purchase_request(
         except Exception as e:
             log.debug("Could not add checkmark reaction: %s", e)
 
-        is_grad_buyer = roster.is_buyer(notify_target)
         display_requester = f"{requester} (pending name confirmation)" if is_pending_name else (requester or "Requester")
         ping_user = f"<@{notify_target}>" if notify_target else display_requester
         saved_str = f"Saved EPIF to `{saved_path}`.\n\n" if saved_path else ""
 
-        if is_grad_buyer:
-            log.info("Requester %s is a grad buyer; sending pre-drafted email", requester)
-            say(
-                text=(
-                    f"Logged to row {row}: {parsed['item_description']} — "
-                    f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
-                    f"({parsed['category']}).\n"
-                    f"{saved_str}"
-                    f"📢 {ping_user} Please submit this purchase (via Workday or by emailing Tina & Ally). "
-                    f"Use the buttons on the request message to update its status when submitted, confirmed, and delivered!"
-                ),
-                thread_ts=thread_ts,
-            )
-
-            if notify_target:
-                email_draft = text_rules.generate_email_draft(parsed, requester or "Grad Student")
-                dm_text = (
-                    f"Hi {requester or 'there'}! Your purchase request for *{parsed['item_description']}* "
-                    f"has been approved and logged to *Row {row}* in the Purchasing Log.\n\n"
-                    f"📋 *Next Steps:*\n"
-                    f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
-                    f"```\n{email_draft}\n```\n\n"
-                    f"2. Use the buttons on your purchase request in the purchasing channel to update its status when submitted, confirmed, and delivered!"
-                )
-                try:
-                    slack_io.tell(client, notify_target, dm_text)
-                except Exception as e:
-                    log.warning("Could not DM requester %s: %s", notify_target, e)
-
-        else:
-            log.info("Requester %s is undergrad/non-buyer; broadcasting claim request to grad buyers", requester)
-            buyers = roster.get_buyers()
-            buyers_list = ", ".join(f"<@{b}>" for b in buyers) if buyers else "None"
-            say(
-                text=(
-                    f"Logged to row {row}: {parsed['item_description']} — "
-                    f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
-                    f"({parsed['category']}).\n"
-                    f"{saved_str}"
-                    f"📢 {ping_user}'s request is approved!\n"
-                    f"⚠️ *Needs a Grad Student Buyer to process in Workday / ShopUW.*\n"
-                    f"Grad students ({buyers_list}): please click Claim on the request above to take on this order."
-                ),
-                thread_ts=thread_ts,
-            )
+        log.info("Broadcasting claim request for %s to grad buyers", requester)
+        buyers = roster.get_buyers()
+        buyers_list = ", ".join(f"<@{b}>" for b in buyers) if buyers else "None"
+        say(
+            text=(
+                f"Logged to row {row}: {parsed['item_description']} — "
+                f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
+                f"({parsed['category']}).\n"
+                f"{saved_str}"
+                f"📢 {ping_user}'s request is approved!\n"
+                f"⚠️ *Needs a Grad Student Buyer to process in Workday / ShopUW.*\n"
+                f"Grad students ({buyers_list}): please click Claim on the request above to take on this order."
+            ),
+            thread_ts=thread_ts,
+        )
 
     def on_failure(error):
         log.error("Failed to write to workbook: %s", error)
@@ -225,8 +199,11 @@ def handle_epif_processing(client, say, channel: str, thread_ts: str, approver: 
     say(text="I couldn't find a PDF or purchase request in this thread/message.", thread_ts=thread_ts)
 
 
-def handle_claim(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str):
-    """Assign a grad student to an approved order thread."""
+def handle_claim(
+    client, say, channel: str, thread_ts: str, user_id: str, event_ts: str,
+    req_data: dict | None = None,
+):
+    """Assign a grad student to an approved order thread and DM email draft to claimer."""
     grad_name = slack_io.resolve_requester(client, user_id) or "Grad Student"
     row = slack_io.find_row_in_thread(client, channel, thread_ts)
     log.info("Claim event by %s (User: %s) for thread %s (Row: %s)", grad_name, user_id, thread_ts, row)
@@ -237,8 +214,16 @@ def handle_claim(client, say, channel: str, thread_ts: str, user_id: str, event_
         log.debug("Could not add reaction: %s", e)
 
     row_info = log_writer.get_row_info(row) if row else {}
-    item_str = f" for *{row_info['item_description']}*" if row_info.get("item_description") else ""
-    row_str = f" (Row {row})" if row else ""
+
+    draft_data = dict(req_data.get("parsed", req_data)) if req_data else {}
+    for k, v in row_info.items():
+        if k not in draft_data or not draft_data[k]:
+            draft_data[k] = v
+
+    item_desc = draft_data.get("item_description")
+    item_str = f" for *{item_desc}*" if item_desc else ""
+    row_num = row or draft_data.get("row")
+    row_str = f" (Row {row_num})" if row_num else ""
 
     say(
         text=(
@@ -248,6 +233,21 @@ def handle_claim(client, say, channel: str, thread_ts: str, user_id: str, event_
         ),
         thread_ts=thread_ts,
     )
+
+    email_draft = text_rules.generate_email_draft(draft_data, grad_name)
+    display_item = item_desc or "supplies"
+    row_dm_str = f" in *Row {row_num}*" if row_num else ""
+    dm_text = (
+        f"Hi {grad_name}! You've claimed the purchase request for *{display_item}*{row_dm_str}.\n\n"
+        f"📋 *Next Steps:*\n"
+        f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
+        f"```\n{email_draft}\n```\n\n"
+        f"2. Use the buttons on your purchase request in the purchasing channel to update its status when submitted, confirmed, and delivered!"
+    )
+    try:
+        slack_io.tell(client, user_id, dm_text)
+    except Exception as e:
+        log.warning("Could not DM claimer %s: %s", user_id, e)
 
 
 def handle_submission(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
