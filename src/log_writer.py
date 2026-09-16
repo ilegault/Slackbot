@@ -15,6 +15,12 @@ Why this file is not just pandas.ExcelWriter or openpyxl:
 
 This is safe because rows 12-1999 already exist in the sheet with their styles
 and their A/Z array formulas. We are filling blanks, not appending structure.
+
+blank_row() is the cancel path: it resets every writable cell in one row back to
+its template state (empty), so the row can be recycled. The workbook is a log of
+live approved purchases, nothing else; a cancelled purchase does not belong in it
+(ADR 0003 decision 4). Columns A and Z hold array formulas already filled down
+to row 1999 — the bot must never touch them.
 """
 import os
 import re
@@ -141,6 +147,64 @@ def append_row(values: dict, workbook_path: str = None) -> int:
 
     # Write to a temp file in the same directory, then atomically swap it in, so
     # OneDrive never sees a half-written workbook.
+    directory = os.path.dirname(os.path.abspath(path))
+    handle, temp_path = tempfile.mkstemp(suffix=".xlsx", dir=directory)
+    os.close(handle)
+    try:
+        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as out:
+            for name in order:
+                out.writestr(name, parts[name])
+        shutil.copystat(path, temp_path)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+    return row
+
+
+def _blank_cell(sheet_xml: str, ref: str) -> str:
+    """Replace a cell's value with nothing, preserving its style attribute."""
+    pattern = _cell_pattern(ref)
+    match = pattern.search(sheet_xml)
+    if match is None:
+        return sheet_xml  # cell not present — nothing to blank
+    # Keep style attributes, drop type and body so it becomes an empty cell.
+    attrs = re.sub(r'\st="[^"]*"', "", match.group("attrs")).rstrip()
+    replacement = f'<c r="{ref}"{attrs}/>'
+    return sheet_xml[: match.start()] + replacement + sheet_xml[match.end() :]
+
+
+def blank_row(row: int, workbook_path: str = None) -> int:
+    """Blank every writable cell in *row*, leaving columns A and Z untouched.
+
+    WHY THIS EXISTS:
+        Cancel un-writes the Excel row (ADR 0003 decision 4). The workbook is a
+        log of live approved purchases and their stage, nothing else. A cancelled
+        purchase is not a live approved purchase, so it does not belong in it — a
+        'CANCELLED' row is a row someone has to read past forever. Blanking the
+        row lets it be recycled. Columns A and Z hold array formulas already
+        filled down to row 1999 and must not be touched.
+    """
+    path = workbook_path or config.WORKBOOK_PATH
+    _assert_not_locked(path)
+
+    with zipfile.ZipFile(path) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+        order = archive.namelist()
+
+    sheet_xml = parts[config.SHEET_XML].decode("utf-8")
+
+    # All column letters from B to Y (skipping read-only A and Z)
+    writable_columns = [
+        chr(c) for c in range(ord("B"), ord("Z"))  # B through Y inclusive
+    ]
+    for col in writable_columns:
+        if col not in config.READ_ONLY_COLUMNS:
+            sheet_xml = _blank_cell(sheet_xml, f"{col}{row}")
+
+    parts[config.SHEET_XML] = sheet_xml.encode("utf-8")
+
     directory = os.path.dirname(os.path.abspath(path))
     handle, temp_path = tempfile.mkstemp(suffix=".xlsx", dir=directory)
     os.close(handle)
