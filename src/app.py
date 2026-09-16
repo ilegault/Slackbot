@@ -5,9 +5,9 @@ Flow of operations:
     1. Approval & Logging:
        Someone posts an EPIF pdf in #hirst-lab or a DM
          -> Charlie replies in that thread: "@p-bot approved" (or DMs the bot)
-         -> Bot parses & validates EPIF, saves PDF to EPIFs/, logs row in Purchasing-Log.xlsx (via Lock Queue).
-         -> If requester is an undergrad, bot pings grad students in thread to claim the purchase.
-         -> If requester is a grad student, bot pings requester with pre-drafted email template.
+          -> Bot parses & validates EPIF, saves PDF to EPIFs/, logs row in Purchasing-Log.xlsx (via Lock Queue).
+          -> Bot broadcasts claim request in thread to grad buyers.
+          -> Claimer claims request and receives pre-drafted email template via DM.
 
     2. Claiming (for undergrad purchases):
        Grad student replies: "@p-bot claim" (or "I will order this")
@@ -642,6 +642,11 @@ def handle_req_claim_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
+    if not roster.is_buyer(user_id):
+        log.warning("Unauthorized user %s attempted to claim purchase request", user_id)
+        respond(text="🔒 Only purchase buyers can claim requests.")
+        return
+
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_claim", user_id)
@@ -666,6 +671,7 @@ def handle_req_claim_action(ack, body, respond, client):
         thread_ts=thread_ts,
         user_id=user_id,
         event_ts=msg_ts,
+        req_data=req_data,
     )
 
     next_blocks = blocks.build_request_blocks("claimed", req_data, history=history)
@@ -878,6 +884,15 @@ def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event
     elif any(kw in text_lower for kw in config.QUOTE_KEYWORDS):
         lifecycle.handle_quote(client, say, channel, thread_ts, event_ts, files)
     elif any(kw in text_lower for kw in config.CLAIM_KEYWORDS):
+        if not roster.is_buyer(user):
+            log.warning("Unauthorized user %s attempted to claim purchase request", user)
+            say(text="🔒 Only purchase buyers can claim requests.", thread_ts=thread_ts)
+            return
+        requester_name = slack_io.resolve_requester(client, user)
+        if not requester_name:
+            log.warning("Unregistered user %s attempted to claim via mention", user)
+            say(text="🔒 You must be registered in the lab roster to claim requests. Use `/roster-set-name` first.", thread_ts=thread_ts)
+            return
         lifecycle.handle_claim(client, say, channel, thread_ts, user, event_ts)
     elif any(kw in text_lower for kw in config.SUBMIT_KEYWORDS):
         lifecycle.handle_submission(client, say, channel, thread_ts, user, event_ts, text)

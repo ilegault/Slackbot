@@ -125,7 +125,16 @@ def generate_email_draft(parsed: dict, requester_name: str) -> str:
     """Generate a pre-filled email draft matching the lab's purchasing request format."""
     vendor = parsed.get("vendor") or "Vendor"
     amount = parsed.get("total_price")
-    amount_str = f"${amount:,.2f}" if amount is not None else "the specified amount"
+    if isinstance(amount, (int, float)):
+        amount_str = f"${amount:,.2f}"
+    elif amount is not None:
+        try:
+            amount_num = float(str(amount).replace("$", "").replace(",", "").strip())
+            amount_str = f"${amount_num:,.2f}"
+        except (ValueError, TypeError):
+            amount_str = str(amount)
+    else:
+        amount_str = "the specified amount"
     project_id = parsed.get("project_id") or "PG000025831"
     fund = parsed.get("fund")
     fund_str = f" (Fund {fund})" if fund else ""
