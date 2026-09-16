@@ -3,18 +3,16 @@
 Guarantees strictly serialized writes to Purchasing-Log.xlsx and automatically
 handles retries when the workbook is locked by Excel (~$Purchasing-Log.xlsx).
 """
-from dataclasses import dataclass, field
-from datetime import datetime
 import logging
 import queue
 import threading
-import time
-from typing import Any, Callable, Dict, List, Optional
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional
 
 try:
-    from . import config
-    from . import log_writer
+    from . import config, log_writer
 except ImportError:
     import config
     import log_writer
@@ -194,7 +192,7 @@ class LockQueueWorker:
 
                     break  # Exit retry loop for this task
 
-                except (log_writer.WorkbookLockedError, PermissionError) as lock_error:
+                except (log_writer.WorkbookLockedError, PermissionError):
                     # Workbook is locked by Excel
                     task.retry_count += 1
                     task.last_retry = datetime.now()

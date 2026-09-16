@@ -9,11 +9,11 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-# E = pycodestyle errors, F = pyflakes.
-# Deliberately a small starting set. Widen it when the tree is clean, not before —
-# a lint gate that is red on arrival gets ignored, and then it gates nothing.
-select = ["E", "F"]
-ignore = ["E501", "F401", "F541", "F841"]
+# E = pycodestyle errors, F = pyflakes, I = isort.
+select = ["E", "F", "I"]
+# E501 (line length > 120) is deliberately ignored: long lines are mostly Block Kit
+# dictionaries and message strings where hard wrapping hurts readability.
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 # Every module in src/ uses the try/except ImportError relative-import shim that

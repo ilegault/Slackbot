@@ -16,10 +16,7 @@ import os
 import re
 
 try:
-    from . import admin
-    from . import config
-    from . import queue_worker
-    from . import roster
+    from . import admin, config, queue_worker, roster
 except ImportError:
     import admin
     import config

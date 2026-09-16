@@ -4,10 +4,10 @@ Setup auto-start on boot for P-Bot (Purchasing Bot).
 
 This script creates a Windows Task Scheduler entry that runs the bot at startup.
 """
-import os
-import sys
-import subprocess
 import logging
+import os
+import subprocess
+import sys
 
 if sys.platform == "win32":
     try:
@@ -189,7 +189,7 @@ def main():
     if exe_path:
         launcher_path = exe_path
         is_exe = True
-        log.info(f"Using compiled executable for auto-start")
+        log.info("Using compiled executable for auto-start")
     else:
         # Fall back to batch file
         try:
@@ -214,12 +214,12 @@ def main():
         if task_created:
             print(f"   → Bot will start automatically via Task Scheduler ({launcher_type})")
         if shortcut_created:
-            print(f"   → Bot will also start via Startup folder")
+            print("   → Bot will also start via Startup folder")
     else:
         print("⚠️  Auto-start setup had issues. You may need to run manually.")
         print("   Or manually create a Windows Task Scheduler task:")
         print(f"   → Program: {launcher_path}")
-        print(f"   → Trigger: At Startup")
+        print("   → Trigger: At Startup")
 
     print("\n📋 To check the task status, run:")
     print(f'   Get-ScheduledTask -TaskName "{TASK_NAME}" | Select-Object *')

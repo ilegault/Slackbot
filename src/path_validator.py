@@ -5,9 +5,8 @@ If storage paths don't exist, prompts the user to either:
   2. Use alternative paths on different drives
   3. Use default test directories
 """
-import os
 import logging
-from pathlib import Path
+import os
 
 try:
     from . import config
@@ -107,7 +106,7 @@ def prompt_for_path(storage_type: str, description: str, example: str) -> str | 
         elif storage_type == "directory" and os.path.isdir(expanded):
             return expanded
         else:
-            print(f"❌ Path not found or not the right type. Please try again.\n")
+            print("❌ Path not found or not the right type. Please try again.\n")
 
 
 def validate_and_configure() -> bool:
@@ -128,37 +127,37 @@ def validate_and_configure() -> bool:
     if not path_exists(config.WORKBOOK_PATH):
         all_valid = False
         missing_paths["PURCHASING_LOG_PATH"] = ("file", "Purchasing-Log.xlsx")
-        print(f"❌ Purchasing-Log.xlsx not found at:")
+        print("❌ Purchasing-Log.xlsx not found at:")
         print(f"   {config.WORKBOOK_PATH}")
     else:
-        print(f"✅ Purchasing-Log.xlsx found")
+        print("✅ Purchasing-Log.xlsx found")
 
     # Check EPIFs directory
     if not path_exists(config.EPIFS_DIR):
         all_valid = False
         missing_paths["EPIFS_DIR"] = ("directory", "EPIFs directory")
-        print(f"❌ EPIFs directory not found at:")
+        print("❌ EPIFs directory not found at:")
         print(f"   {config.EPIFS_DIR}")
     else:
-        print(f"✅ EPIFs directory found")
+        print("✅ EPIFs directory found")
 
     # Check Order-Confirmations directory
     if not path_exists(config.CONFIRMATIONS_DIR):
         all_valid = False
         missing_paths["CONFIRMATIONS_DIR"] = ("directory", "Order-Confirmations directory")
-        print(f"❌ Order-Confirmations directory not found at:")
+        print("❌ Order-Confirmations directory not found at:")
         print(f"   {config.CONFIRMATIONS_DIR}")
     else:
-        print(f"✅ Order-Confirmations directory found")
+        print("✅ Order-Confirmations directory found")
 
     # Check Quotes directory
     if not path_exists(config.QUOTES_DIR):
         all_valid = False
         missing_paths["QUOTES_DIR"] = ("directory", "Quotes directory")
-        print(f"❌ Quotes directory not found at:")
+        print("❌ Quotes directory not found at:")
         print(f"   {config.QUOTES_DIR}")
     else:
-        print(f"✅ Quotes directory found")
+        print("✅ Quotes directory found")
 
     if all_valid:
         print("\n✅ All storage paths are accessible!")
@@ -176,7 +175,7 @@ def validate_and_configure() -> bool:
     if "PURCHASING_LOG_PATH" in missing_paths:
         found = search_for_purchasing_log()
         if found:
-            print(f"✅ Found Purchasing-Log.xlsx at:")
+            print("✅ Found Purchasing-Log.xlsx at:")
             print(f"   {found}\n")
             env_updates["PURCHASING_LOG_PATH"] = found
             del missing_paths["PURCHASING_LOG_PATH"]
@@ -196,7 +195,7 @@ def validate_and_configure() -> bool:
     # Save to .env file for persistence
     if env_updates:
         env_file = os.path.join(config.BASE_DIR, ".env")
-        print(f"\n💾 Saving configuration to .env...")
+        print("\n💾 Saving configuration to .env...")
 
         # Read existing .env preserving all lines (comments, blanks, etc.)
         original_lines = []
@@ -231,7 +230,7 @@ def validate_and_configure() -> bool:
         with open(env_file, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
 
-        print(f"✅ Configuration saved to .env\n")
+        print("✅ Configuration saved to .env\n")
 
         # Also update os.environ for this session
         for k, v in env_updates.items():

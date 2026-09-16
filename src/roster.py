@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 try:
     from . import config

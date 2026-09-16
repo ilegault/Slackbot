@@ -7,7 +7,6 @@ Provides:
 - Remote Git Update (@p-bot update)
 - Remote Bot Restart (@p-bot restart)
 """
-from datetime import datetime
 import logging
 import os
 import platform
@@ -17,12 +16,11 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from . import config
-    from . import queue_worker
-    from . import roster
+    from . import config, queue_worker, roster
 except ImportError:
     import config
     import queue_worker

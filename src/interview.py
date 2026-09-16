@@ -5,8 +5,7 @@ Pure Python logic separated from Slack API plumbing for testability.
 from typing import Any, Dict, Optional
 
 try:
-    from . import config
-    from . import epif_parser
+    from . import config, epif_parser
 except ImportError:
     import config
     import epif_parser
