@@ -12,7 +12,7 @@ for p in (PROJECT_ROOT, SRC_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from src import admin, app, config, interview, roster
+from src import app, blocks, config, interview, lifecycle, ops, roster
 
 
 @pytest.fixture(autouse=True)
@@ -126,7 +126,7 @@ def test_template_command(tmp_path, monkeypatch):
     fake_temp_dir = str(tmp_path / "templates")
     monkeypatch.setattr(config, "TEMPLATE_DIR", fake_temp_dir)
 
-    app.handle_template_command(client, say, "C123", "ts", "U123")
+    ops.handle_template_command(client, say, "C123", "ts", "U123")
     assert "Template files missing" in say.call_args[1]["text"]
 
     # With files present
@@ -137,7 +137,7 @@ def test_template_command(tmp_path, monkeypatch):
         f.write("dummy readme")
 
     say.reset_mock()
-    app.handle_template_command(client, say, "C123", "ts", "U123")
+    ops.handle_template_command(client, say, "C123", "ts", "U123")
     assert "Manual EPIF Submission Kit" in say.call_args[1]["text"]
     assert client.files_upload_v2.call_count == 2
 
@@ -165,7 +165,7 @@ def test_screen1_to_screen2_routing():
         "vendor_custom": "",
         "route": "workday",
     }
-    view_workday = app.build_stage2_view(meta_workday)
+    view_workday = blocks.build_stage2_view(meta_workday)
     block_ids_workday = [b["block_id"] for b in view_workday["blocks"]]
     assert "block_payment_method" not in block_ids_workday
     assert "block_item_description" in block_ids_workday
@@ -179,7 +179,7 @@ def test_screen1_to_screen2_routing():
         "vendor_custom": "Acme Widgets",
         "route": "epif",
     }
-    view_epif = app.build_stage2_view(meta_epif)
+    view_epif = blocks.build_stage2_view(meta_epif)
     block_ids_epif = [b["block_id"] for b in view_epif["blocks"]]
     assert "block_payment_method" in block_ids_epif
     pm_block = next(b for b in view_epif["blocks"] if b["block_id"] == "block_payment_method")
@@ -249,7 +249,7 @@ def test_vendor_contact_name_required_on_screen2():
         "vendor_custom": "",
         "route": "workday",
     }
-    view = app.build_stage2_view(meta)
+    view = blocks.build_stage2_view(meta)
     name_block = next(b for b in view["blocks"] if b["block_id"] == "block_vendor_contact_name")
     assert name_block.get("optional") is not True
 
@@ -398,7 +398,7 @@ def test_private_metadata_budget():
         },
     }
 
-    view_stage3 = app.build_stage3_view(worst_case_meta)
+    view_stage3 = blocks.build_stage3_view(worst_case_meta)
     meta_json = view_stage3["private_metadata"]
     assert len(meta_json) < 3000
     assert len(meta_json) < 2000  # Should even be comfortably under 2000 chars
@@ -463,7 +463,7 @@ def test_every_command_acks_before_client_calls():
 
     # 3. /blank-template
     ack.reset_mock()
-    with patch.object(app, "handle_template_command") as mock_tmpl:
+    with patch.object(ops, "handle_template_command") as mock_tmpl:
         app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
         ack.assert_called_once()
         mock_tmpl.assert_called_once()
@@ -491,7 +491,7 @@ def test_no_slash_command_calls_chat_post_ephemeral():
     # 2. /purchasing-help
     app.handle_purchasing_help_command(ack, respond)
     # 3. /blank-template
-    with patch.object(app, "handle_template_command"):
+    with patch.object(ops, "handle_template_command"):
         app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
     # 4. /roster-list
     app.handle_roster_list_command(ack, {"user_id": "U1"}, respond)
@@ -570,15 +570,15 @@ def test_build_request_blocks_buttons_per_state():
     }
 
     for state, expected_action in state_expected_action.items():
-        blocks = app.build_request_blocks(state, sample_req)
-        action_blocks = [b for b in blocks if b.get("type") == "actions"]
+        blocks_list = blocks.build_request_blocks(state, sample_req)
+        action_blocks = [b for b in blocks_list if b.get("type") == "actions"]
         assert len(action_blocks) == 1
         elements = action_blocks[0].get("elements", [])
         assert len(elements) == 1
         assert elements[0].get("action_id") == expected_action
 
     # delivered state -> 0 buttons
-    blocks_deliv = app.build_request_blocks("delivered", sample_req)
+    blocks_deliv = blocks.build_request_blocks("delivered", sample_req)
     action_blocks_deliv = [b for b in blocks_deliv if b.get("type") == "actions"]
     assert len(action_blocks_deliv) == 0
 
@@ -595,7 +595,7 @@ def test_req_approve_non_approver_denial():
         "container": {"message_ts": "1111.22", "thread_ts": "1111.22"},
         "actions": [{"value": json.dumps({"request": {}, "history": []})}],
     }
-    with patch.object(app, "handle_epif_processing") as mock_epif:
+    with patch.object(lifecycle, "handle_epif_processing") as mock_epif:
         app.handle_req_approve_action(ack, body, respond, client)
         ack.assert_called_once()
         respond.assert_called_once()
@@ -620,7 +620,7 @@ def test_req_claim_and_keyword_dispatch_same_args():
         "container": {"message_ts": "5555.66", "thread_ts": "5555.66"},
         "actions": [{"value": json.dumps({"request": {"item_description": "Bolts"}, "history": []})}],
     }
-    with patch.object(app, "handle_claim") as mock_claim:
+    with patch.object(lifecycle, "handle_claim") as mock_claim:
         app.handle_req_claim_action(ack, button_body, respond, client)
         ack.assert_called_once()
         mock_claim.assert_called_once()
@@ -628,7 +628,7 @@ def test_req_claim_and_keyword_dispatch_same_args():
         btn_thread = mock_claim.call_args[1]["thread_ts"]
 
     # 2. Keyword mention @p-bot claim
-    with patch.object(app, "handle_claim") as mock_claim_kw:
+    with patch.object(lifecycle, "handle_claim") as mock_claim_kw:
         app.dispatch_command(
             client=client,
             say=say,
@@ -706,7 +706,7 @@ def test_approver_gate_allowed_for_approvers():
     say = MagicMock()
 
     # Charlie (hardcoded approver in roster)
-    with patch.object(app, "handle_epif_processing") as mock_epif:
+    with patch.object(lifecycle, "handle_epif_processing") as mock_epif:
         app.dispatch_command(
             client=client,
             say=say,
@@ -721,7 +721,7 @@ def test_approver_gate_allowed_for_approvers():
     # Added approver in roster
     roster.add_approver("U_CUSTOM_APPROVER")
     say.reset_mock()
-    with patch.object(app, "handle_epif_processing") as mock_epif:
+    with patch.object(lifecycle, "handle_epif_processing") as mock_epif:
         app.dispatch_command(
             client=client,
             say=say,
@@ -762,10 +762,10 @@ def test_finalize_purchase_request_without_pdf(monkeypatch):
     }
     parsed = interview.build_parsed_from_stages(stage1, stage2, stage3=None)
 
-    with patch.object(app.log_writer, "save_epif") as mock_save_epif:
-        with patch.object(app.log_writer, "append_row", return_value=17) as mock_append:
-            with patch.object(app.queue_worker, "submit_write_task") as mock_submit:
-                app.finalize_purchase_request(
+    with patch.object(lifecycle.log_writer, "save_epif") as mock_save_epif:
+        with patch.object(lifecycle.log_writer, "append_row", return_value=17) as mock_append:
+            with patch.object(lifecycle.queue_worker, "submit_write_task") as mock_submit:
+                lifecycle.finalize_purchase_request(
                     client=client,
                     say=say,
                     channel="C_PURCHASING",
@@ -924,7 +924,7 @@ def test_template_command_single_file_missing(tmp_path, monkeypatch):
     with open(os.path.join(fake_temp_dir, "EPIF_TEMPLATE_HIRST.pdf"), "w") as f:
         f.write("pdf")
 
-    app.handle_template_command(client, say, "C123", "ts", "U123")
+    ops.handle_template_command(client, say, "C123", "ts", "U123")
     assert "Template files missing" in say.call_args[1]["text"]
     assert "README.md" in say.call_args[1]["text"]
 
@@ -936,11 +936,11 @@ def test_template_command_single_file_missing(tmp_path, monkeypatch):
 def test_screen1_unresolved_user_shows_name_input():
     """Screen 1 shows name input only when prefill_name_field is True."""
     # 1. Known user
-    view_known = app.build_stage1_view(prefill_name_field=False, resolved_name="Isaac", user_id="U123")
+    view_known = blocks.build_stage1_view(prefill_name_field=False, resolved_name="Isaac", user_id="U123")
     assert "block_proposed_name" not in [b.get("block_id") for b in view_known["blocks"]]
 
     # 2. Unresolved user
-    view_unknown = app.build_stage1_view(prefill_name_field=True, resolved_name=None, user_id="UUNKNOWN")
+    view_unknown = blocks.build_stage1_view(prefill_name_field=True, resolved_name=None, user_id="UUNKNOWN")
     assert "block_proposed_name" in [b.get("block_id") for b in view_unknown["blocks"]]
 
 
@@ -1054,12 +1054,12 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": json.dumps({"request": base_req, "history": []})}],
     }
-    with patch.object(app, "handle_epif_processing"):
+    with patch.object(lifecycle, "handle_epif_processing"):
         app.handle_req_approve_action(ack, body_approve, respond, client)
         update_call = client.chat_update.call_args[1]
-        blocks = update_call["blocks"]
+        blocks_res = update_call["blocks"]
         # Next button must be req_claim
-        actions = next(b for b in blocks if b.get("type") == "actions")
+        actions = next(b for b in blocks_res if b.get("type") == "actions")
         assert actions["elements"][0]["action_id"] == "req_claim"
 
     # 2. Claim (by Dylan)
@@ -1072,11 +1072,11 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": actions["elements"][0]["value"]}],
     }
-    with patch.object(app, "handle_claim"):
+    with patch.object(lifecycle, "handle_claim"):
         app.handle_req_claim_action(ack, body_claim, respond, client)
         update_call = client.chat_update.call_args[1]
-        blocks = update_call["blocks"]
-        actions = next(b for b in blocks if b.get("type") == "actions")
+        blocks_res = update_call["blocks"]
+        actions = next(b for b in blocks_res if b.get("type") == "actions")
         assert actions["elements"][0]["action_id"] == "req_submitted"
 
     # 3. Submitted (by Dylan)
@@ -1089,11 +1089,11 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": actions["elements"][0]["value"]}],
     }
-    with patch.object(app, "handle_submission"):
+    with patch.object(lifecycle, "handle_submission"):
         app.handle_req_submitted_action(ack, body_sub, respond, client)
         update_call = client.chat_update.call_args[1]
-        blocks = update_call["blocks"]
-        actions = next(b for b in blocks if b.get("type") == "actions")
+        blocks_res = update_call["blocks"]
+        actions = next(b for b in blocks_res if b.get("type") == "actions")
         assert actions["elements"][0]["action_id"] == "req_confirmed"
 
     # 4. Confirmed (by Dylan)
@@ -1106,11 +1106,11 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": actions["elements"][0]["value"]}],
     }
-    with patch.object(app, "handle_confirmation"):
+    with patch.object(lifecycle, "handle_confirmation"):
         app.handle_req_confirmed_action(ack, body_conf, respond, client)
         update_call = client.chat_update.call_args[1]
-        blocks = update_call["blocks"]
-        actions = next(b for b in blocks if b.get("type") == "actions")
+        blocks_res = update_call["blocks"]
+        actions = next(b for b in blocks_res if b.get("type") == "actions")
         assert actions["elements"][0]["action_id"] == "req_delivered"
 
     # 5. Delivered (by Dylan)
@@ -1123,12 +1123,12 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": actions["elements"][0]["value"]}],
     }
-    with patch.object(app, "handle_delivery"):
+    with patch.object(lifecycle, "handle_delivery"):
         app.handle_req_delivered_action(ack, body_deliv, respond, client)
         update_call = client.chat_update.call_args[1]
-        blocks = update_call["blocks"]
+        blocks_res = update_call["blocks"]
         # No more action buttons on delivered
-        assert not any(b.get("type") == "actions" for b in blocks)
+        assert not any(b.get("type") == "actions" for b in blocks_res)
 
 
 

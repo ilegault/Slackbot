@@ -8,7 +8,6 @@ Usage:
 """
 import argparse
 from datetime import date
-import json
 import os
 import sys
 
@@ -57,9 +56,6 @@ def main():
             print(f"FAILED: {e}")
         return
 
-    if args.deliver-row if hasattr(args, "deliver_row") else False:
-        pass
-
     if args.deliver_row:
         today = date.today()
         print(f"\nMarking Row {args.deliver_row} as Delivered (Date: {today}, Received By: {args.requester})...")
@@ -88,9 +84,9 @@ def main():
             print(f"Error: File not found: {args.pdf_path}")
             sys.exit(1)
 
-    print(f"\n=======================================================")
+    print("\n=======================================================")
     print(f"  Testing EPIF Bot Processing for: {os.path.basename(pdf_path)}")
-    print(f"=======================================================\n")
+    print("=======================================================\n")
 
     with open(pdf_path, "rb") as f:
         pdf_bytes = f.read()
