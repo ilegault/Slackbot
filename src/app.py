@@ -592,8 +592,6 @@ def handle_req_approve_action(ack, body, respond, client):
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
     msg_ts = body.get("message", {}).get("ts")
-    thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
-
     if not admin.is_approved_reviewer(user_id):
         log.warning("Unauthorized user %s attempted to approve purchase request", user_id)
         respond(text="🔒 Only authorized approvers can approve purchase requests.")
@@ -603,6 +601,12 @@ def handle_req_approve_action(ack, body, respond, client):
     val_data = json.loads(action.get("value") or "{}")
     req_data = val_data.get("request", {})
     history = list(val_data.get("history", []))
+    thread_ts = (
+        body.get("container", {}).get("thread_ts")
+        or val_data.get("thread_ts")
+        or req_data.get("thread_ts")
+        or msg_ts
+    )
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
     user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
@@ -926,33 +930,61 @@ def on_mention(event, client, say):
 
 @app.event("message")
 def on_direct_message(event, client, say):
-    # Only process direct messages (DMs), ignore bot's own messages and standard channel chatter
-    if event.get("channel_type") != "im" or event.get("subtype") == "bot_message":
+    # Ignore bot's own messages and messages with bot subtype
+    if event.get("subtype") == "bot_message" or event.get("bot_id"):
         return
 
     user = event.get("user")
-    channel = event["channel"]
-    thread_ts = event.get("thread_ts") or event["ts"]
-    event_ts = event["ts"]
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    event_ts = event.get("ts")
     text = event.get("text", "")
+    channel_type = event.get("channel_type")
 
-    log.info("Received DM from user %s: '%s'", user, text)
+    # If it is a Direct Message (DM)
+    if channel_type == "im":
+        log.info("Received DM from user %s: '%s'", user, text)
 
-    # 1. Check FAQ layer first
-    faq_answer = interview.match_faq(text)
-    if faq_answer:
-        log.info("Matched FAQ query from user %s: '%s'", user, text)
-        say(text=faq_answer, thread_ts=thread_ts)
+        # 1. Check FAQ layer first
+        faq_answer = interview.match_faq(text)
+        if faq_answer:
+            log.info("Matched FAQ query from user %s: '%s'", user, text)
+            say(text=faq_answer, thread_ts=thread_ts)
+            return
+
+        # Look for files attached in this direct message
+        files = event.get("files", [])
+        pdf_files = [f for f in files if f.get("name", "").lower().endswith(".pdf")]
+        direct_file = pdf_files[0] if pdf_files else None
+
+        dispatch_command(
+            client, say, channel, thread_ts, user, event_ts, text,
+            files=files, direct_file=direct_file
+        )
         return
 
-    # Look for files attached in this direct message
+    # Non-DM (Channel / Thread):
+    # Ignore ordinary channel chatter if no PDF files attached
     files = event.get("files", [])
     pdf_files = [f for f in files if f.get("name", "").lower().endswith(".pdf")]
-    direct_file = pdf_files[0] if pdf_files else None
+    if not pdf_files:
+        return
 
-    dispatch_command(
-        client, say, channel, thread_ts, user, event_ts, text,
-        files=files, direct_file=direct_file
+    text_lower = text.lower()
+    if any(kw in text_lower for kw in config.QUOTE_KEYWORDS):
+        return
+    if config.TRIGGER_KEYWORD in text_lower:
+        return
+
+    log.info("Detected PDF file dropped in channel %s (thread: %s) by user %s", channel, thread_ts, user)
+    lifecycle.handle_epif_drop(
+        client=client,
+        say=say,
+        channel=channel,
+        thread_ts=thread_ts,
+        user_id=user,
+        file_obj=pdf_files[0],
+        event_ts=event_ts,
     )
 
 
