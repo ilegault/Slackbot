@@ -250,13 +250,13 @@ def handle_roster_list_command(ack, body, respond):
 
 @app.command("/roster-set-name")
 def handle_roster_set_name_command(ack, body, client):
-    """Open modal to link Slack account to a requester name in config.VALID_REQUESTERS."""
+    """Open modal to link Slack account to a requester name."""
     ack()
     trigger_id = body.get("trigger_id")
     user_id = body.get("user_id")
     channel_id = body.get("channel_id")
 
-    valid_list = ", ".join(sorted(config.VALID_REQUESTERS))
+    valid_list = ", ".join(sorted(roster.get_valid_requesters()))
     modal = {
         "type": "modal",
         "callback_id": config.ROSTER_SET_NAME_CALLBACK_ID,
@@ -308,10 +308,11 @@ def handle_roster_set_name_submit(ack, body, client, view):
         ack(response_action="errors", errors={"block_proposed_name": "Please enter your name."})
         return
 
-    # Validate against config.VALID_REQUESTERS
-    valid_map = {r.lower(): r for r in config.VALID_REQUESTERS}
+    # Validate against roster.get_valid_requesters()
+    valid_requesters = roster.get_valid_requesters()
+    valid_map = {r.lower(): r for r in valid_requesters}
     if name_val.lower() not in valid_map:
-        valid_list = ", ".join(sorted(config.VALID_REQUESTERS))
+        valid_list = ", ".join(sorted(valid_requesters))
         ack(response_action="errors", errors={"block_proposed_name": f"Name '{name_val}' is not recognized. Must match one of: {valid_list}"})
         return
 

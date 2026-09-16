@@ -139,6 +139,17 @@ LAST_DATA_ROW = 1999                     # table ref is A11:Z1999
 # row 1999. The bot must never write to them.
 READ_ONLY_COLUMNS = ("A", "Z")
 
+# Roles & Lists sheet and table constants
+ROSTER_SHEET_XML = "xl/worksheets/sheet2.xml"
+REQUESTERS_TABLE_XML = "xl/tables/table4.xml"
+GRAD_STUDENTS_TABLE_XML = "xl/tables/table3.xml"
+ROSTER_FIRST_DATA_ROW = 5
+ROSTER_LAST_DATA_ROW = 49
+ROSTER_COLUMN_REQUESTER = "D"
+ROSTER_COLUMN_GRAD = "A"
+ROSTER_XLSX_SYNC = os.environ.get("ROSTER_XLSX_SYNC", "true").lower() in ("true", "1", "yes")
+
+
 # --- EPIF AcroForm field names -> Order Log columns ---------------------------
 # Left side = exact /T name in the PDF. Right side = column letter.
 FIELD_TO_COLUMN = {
@@ -195,10 +206,6 @@ PAYMENT_CHECKBOXES = ("PCard", "Req")
 VALID_PROJECT_IDS = {"PG000025831"}
 VALID_FUNDS = {"133", "135", "150", "144", "233"}
 VALID_DELIVERY_ROOMS = {"ERB 212", "ERB 839"}
-VALID_REQUESTERS = {
-    "Isaac", "Smeet", "Dylan", "Charlie H.", "Alex", "Casey", "Prof. Hirst",
-    "Copeland", "Erich", "Finn", "Eddie", "Katarina", "Keyvan",
-}
 
 # Slack user id -> the exact name in the Requester Name dropdown.
 # Fill these in with real IDs (find them in Slack: profile -> More -> Copy member ID).

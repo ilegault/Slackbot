@@ -1,13 +1,13 @@
 """Write one row into Purchasing-Log.xlsx without wrecking the workbook.
 
-Why this file is not just pandas.ExcelWriter or openpyxl:
+Why this file is not just a high-level Excel package:
 
     The workbook uses an x14 (extension-namespace) conditional formatting block -
     that's the pink/yellow/green row colouring driven by the Status column, plus
-    the grey-out of Name of System / Asset ID. openpyxl cannot represent x14 CF,
-    so ANY load-and-save through openpyxl or pandas silently deletes it, along
-    with xl/metadata.xml and the web-extension parts. The lab opens the file and
-    the colours are gone, with nothing in the logs to explain it.
+    the grey-out of Name of System / Asset ID. Standard third-party Excel parsers
+    cannot represent x14 CF, so ANY load-and-save through those libraries silently
+    deletes it, along with xl/metadata.xml and the web-extension parts. The lab opens
+    the file and the colours are gone, with nothing in the logs to explain it.
 
     So instead of rewriting the workbook, we copy the .xlsx (which is just a zip)
     part-for-part, and surgically edit only the <c> elements of the one row we
@@ -21,7 +21,13 @@ its template state (empty), so the row can be recycled. The workbook is a log of
 live approved purchases, nothing else; a cancelled purchase does not belong in it
 (ADR 0003 decision 4). Columns A and Z hold array formulas already filled down
 to row 1999 — the bot must never touch them.
+
+sync_roster_lists() mirrors roster.json into the Roles & Lists sheet (sheet2.xml)
+and updates the Requesters (table4.xml) and GradStudents (table3.xml) tables.
+Rows 5-49 already exist with their styles in sheet2.xml. We fill existing cells,
+grow the table and autoFilter refs in lockstep, and enforce row 50 as a hard floor.
 """
+import logging
 import os
 import re
 import shutil
@@ -34,6 +40,8 @@ try:
     from . import config
 except ImportError:
     import config
+
+log = logging.getLogger(__name__)
 
 
 class WorkbookLockedError(Exception):
@@ -398,3 +406,242 @@ def build_row(parsed: dict, requester_name: str) -> dict:
         # The Fund dropdown holds numbers, not text.
         values["S"] = int(parsed["fund"])
     return {k: v for k, v in values.items() if v not in (None, "")}
+
+
+def _resolve_buyer_name(buyer_id: str, requesters: dict) -> str | None:
+    """Resolve a buyer Slack ID or name to the display name in the roster."""
+    if buyer_id in requesters:
+        return requesters[buyer_id]
+    try:
+        from . import roster
+    except ImportError:
+        import roster
+    valid_names = {n.lower(): n for n in roster.get_valid_requesters()}
+    if buyer_id.lower() in valid_names:
+        return valid_names[buyer_id.lower()]
+    return None
+
+
+def _notify_admin_alert(text: str, client=None):
+    """Send an alert to ADMIN_ALERT_CHANNEL if configured."""
+    if not config.ADMIN_ALERT_CHANNEL:
+        return
+    c = client
+    if c is None:
+        try:
+            from . import queue_worker
+            c = queue_worker.get_queue_worker().client
+        except Exception:
+            c = None
+    if c:
+        try:
+            c.chat_postMessage(
+                channel=config.ADMIN_ALERT_CHANNEL,
+                text=text,
+            )
+        except Exception as e:
+            log.warning("Could not send admin alert to %s: %s", config.ADMIN_ALERT_CHANNEL, e)
+
+
+def sync_roster_lists(workbook_path: str = None, client=None) -> dict:
+    """Append any roster name missing from the Roles & Lists tables.
+
+    Returns {"requesters_added": [...], "grads_added": [...], "skipped": [...]}.
+    """
+    if not getattr(config, "ROSTER_XLSX_SYNC", True):
+        log.debug("ROSTER_XLSX_SYNC is false; sync_roster_lists is inert.")
+        return {"requesters_added": [], "grads_added": [], "skipped": []}
+
+    path = workbook_path or config.WORKBOOK_PATH
+    if not path or not os.path.exists(path):
+        log.debug("Workbook path does not exist (%s); sync_roster_lists is inert.", path)
+        return {"requesters_added": [], "grads_added": [], "skipped": []}
+
+    _assert_not_locked(path)
+
+    try:
+        from . import roster
+    except ImportError:
+        import roster
+
+    with zipfile.ZipFile(path) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+        order = archive.namelist()
+
+    if config.ROSTER_SHEET_XML not in parts:
+        log.warning("Sheet part '%s' not found in %s; skipping roster sync.", config.ROSTER_SHEET_XML, path)
+        return {"requesters_added": [], "grads_added": [], "skipped": []}
+
+    sheet_xml = parts[config.ROSTER_SHEET_XML].decode("utf-8")
+
+    # Parse table4 (Requesters) ref and autoFilter ref
+    t4_start_col, t4_start_row, t4_end_col = config.ROSTER_COLUMN_REQUESTER, 4, config.ROSTER_COLUMN_REQUESTER
+    current_req_table_end = 4
+    if config.REQUESTERS_TABLE_XML in parts:
+        t4_xml = parts[config.REQUESTERS_TABLE_XML].decode("utf-8")
+        m4 = re.search(r'<table\b[^>]*?\bref="([A-Z]+)(\d+):([A-Z]+)(\d+)"', t4_xml)
+        if m4:
+            t4_start_col, t4_start_row, t4_end_col, current_req_table_end = (
+                m4.group(1),
+                int(m4.group(2)),
+                m4.group(3),
+                int(m4.group(4)),
+            )
+
+    # Parse table3 (GradStudents) ref and autoFilter ref
+    t3_start_col, t3_start_row, t3_end_col = config.ROSTER_COLUMN_GRAD, 4, "B"
+    current_grad_table_end = 4
+    if config.GRAD_STUDENTS_TABLE_XML in parts:
+        t3_xml = parts[config.GRAD_STUDENTS_TABLE_XML].decode("utf-8")
+        m3 = re.search(r'<table\b[^>]*?\bref="([A-Z]+)(\d+):([A-Z]+)(\d+)"', t3_xml)
+        if m3:
+            t3_start_col, t3_start_row, t3_end_col, current_grad_table_end = (
+                m3.group(1),
+                int(m3.group(2)),
+                m3.group(3),
+                int(m3.group(4)),
+            )
+
+    # Existing requesters in sheet
+    existing_requester_names = set()
+    last_filled_req_row = config.ROSTER_FIRST_DATA_ROW - 1
+    for row in range(config.ROSTER_FIRST_DATA_ROW, config.ROSTER_LAST_DATA_ROW + 1):
+        val = get_cell_value(sheet_xml, f"{config.ROSTER_COLUMN_REQUESTER}{row}")
+        if val and val.strip():
+            existing_requester_names.add(val.strip().lower())
+            if row > last_filled_req_row:
+                last_filled_req_row = row
+    next_req_row = max(current_req_table_end, last_filled_req_row) + 1
+
+    # Existing grads in sheet
+    existing_grad_names = set()
+    last_filled_grad_row = config.ROSTER_FIRST_DATA_ROW - 1
+    for row in range(config.ROSTER_FIRST_DATA_ROW, config.ROSTER_LAST_DATA_ROW + 1):
+        val = get_cell_value(sheet_xml, f"{config.ROSTER_COLUMN_GRAD}{row}")
+        if val and val.strip():
+            existing_grad_names.add(val.strip().lower())
+            if row > last_filled_grad_row:
+                last_filled_grad_row = row
+    next_grad_row = max(current_grad_table_end, last_filled_grad_row) + 1
+
+    requester_dict = roster.get_requesters()
+    roster_requesters = list(requester_dict.values())
+    roster_buyers = roster.get_buyers()
+
+    requesters_added = []
+    grads_added = []
+    skipped = []
+
+    # Sync Requesters
+    for req_name in roster_requesters:
+        clean_name = req_name.strip()
+        if not clean_name:
+            continue
+        if clean_name.lower() in existing_requester_names:
+            continue
+
+        if next_req_row > config.ROSTER_LAST_DATA_ROW:
+            skipped.append(clean_name)
+            log.warning(
+                "Cannot append '%s' to Requesters: reached row %d limit.",
+                clean_name,
+                config.ROSTER_LAST_DATA_ROW,
+            )
+            _notify_admin_alert(
+                f"⚠️ Cannot add '{clean_name}' to Roles & Lists: reached row {config.ROSTER_LAST_DATA_ROW}. "
+                "The Roles & Lists tab needs more rows above the notes block.",
+                client=client,
+            )
+            continue
+
+        ref = f"{config.ROSTER_COLUMN_REQUESTER}{next_req_row}"
+        match = _cell_pattern(ref).search(sheet_xml)
+        if match is None:
+            raise ValueError(f"Cell {ref} is not present in the sheet XML.")
+        replacement = _render_cell(ref, match.group("attrs"), clean_name)
+        sheet_xml = sheet_xml[: match.start()] + replacement + sheet_xml[match.end() :]
+        existing_requester_names.add(clean_name.lower())
+        requesters_added.append(clean_name)
+        current_req_table_end = next_req_row
+        next_req_row += 1
+
+    # Sync GradStudents
+    for buyer_id in roster_buyers:
+        bname = _resolve_buyer_name(buyer_id, requester_dict)
+        if not bname:
+            continue
+        clean_name = bname.strip()
+        if not clean_name:
+            continue
+        if clean_name.lower() in existing_grad_names:
+            continue
+
+        if next_grad_row > config.ROSTER_LAST_DATA_ROW:
+            skipped.append(clean_name)
+            log.warning(
+                "Cannot append '%s' to GradStudents: reached row %d limit.",
+                clean_name,
+                config.ROSTER_LAST_DATA_ROW,
+            )
+            _notify_admin_alert(
+                f"⚠️ Cannot add '{clean_name}' to Roles & Lists: reached row {config.ROSTER_LAST_DATA_ROW}. "
+                "The Roles & Lists tab needs more rows above the notes block.",
+                client=client,
+            )
+            continue
+
+        ref = f"{config.ROSTER_COLUMN_GRAD}{next_grad_row}"
+        match = _cell_pattern(ref).search(sheet_xml)
+        if match is None:
+            raise ValueError(f"Cell {ref} is not present in the sheet XML.")
+        replacement = _render_cell(ref, match.group("attrs"), clean_name)
+        sheet_xml = sheet_xml[: match.start()] + replacement + sheet_xml[match.end() :]
+        existing_grad_names.add(clean_name.lower())
+        grads_added.append(clean_name)
+        current_grad_table_end = next_grad_row
+        next_grad_row += 1
+
+    if not requesters_added and not grads_added:
+        return {
+            "requesters_added": requesters_added,
+            "grads_added": grads_added,
+            "skipped": skipped,
+        }
+
+    # Update table4 XML
+    if requesters_added and config.REQUESTERS_TABLE_XML in parts:
+        new_ref = f"{t4_start_col}{t4_start_row}:{t4_end_col}{current_req_table_end}"
+        t4_xml = parts[config.REQUESTERS_TABLE_XML].decode("utf-8")
+        t4_xml = re.sub(r'(<table\b[^>]*?\bref=")[^"]*(")', rf"\g<1>{new_ref}\2", t4_xml)
+        t4_xml = re.sub(r'(<autoFilter\b[^>]*?\bref=")[^"]*(")', rf"\g<1>{new_ref}\2", t4_xml)
+        parts[config.REQUESTERS_TABLE_XML] = t4_xml.encode("utf-8")
+
+    # Update table3 XML
+    if grads_added and config.GRAD_STUDENTS_TABLE_XML in parts:
+        new_ref = f"{t3_start_col}{t3_start_row}:{t3_end_col}{current_grad_table_end}"
+        t3_xml = parts[config.GRAD_STUDENTS_TABLE_XML].decode("utf-8")
+        t3_xml = re.sub(r'(<table\b[^>]*?\bref=")[^"]*(")', rf"\g<1>{new_ref}\2", t3_xml)
+        t3_xml = re.sub(r'(<autoFilter\b[^>]*?\bref=")[^"]*(")', rf"\g<1>{new_ref}\2", t3_xml)
+        parts[config.GRAD_STUDENTS_TABLE_XML] = t3_xml.encode("utf-8")
+
+    parts[config.ROSTER_SHEET_XML] = sheet_xml.encode("utf-8")
+
+    directory = os.path.dirname(os.path.abspath(path))
+    handle, temp_path = tempfile.mkstemp(suffix=".xlsx", dir=directory)
+    os.close(handle)
+    try:
+        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as out:
+            for name in order:
+                out.writestr(name, parts[name])
+        shutil.copystat(path, temp_path)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+
+    return {
+        "requesters_added": requesters_added,
+        "grads_added": grads_added,
+        "skipped": skipped,
+    }
