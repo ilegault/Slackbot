@@ -379,8 +379,8 @@ def test_help_message_returns_command_list():
     assert "/blank-template" in help_text
     assert "/roster-list" in help_text
     assert "/roster-set-name" in help_text
-    assert "@p-bot health" in help_text
-    assert "@p-bot restart" in help_text
+    assert "@Purchasing health" in help_text
+    assert "@Purchasing restart" in help_text
 
 
 def test_app_home_opened_publishes_view():
@@ -388,5 +388,5 @@ def test_app_home_opened_publishes_view():
     app.handle_app_home_opened(mock_client, {"user": "U12345"})
     mock_client.views_publish.assert_called_once_with(
         user_id="U12345",
-        view=blocks.APP_HOME_VIEW,
+        view=blocks.build_app_home_view(),
     )

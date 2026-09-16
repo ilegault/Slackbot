@@ -5,7 +5,7 @@ actually does after ticket 08, and stop them being two copies of the same text.
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** done
 
 Read `docs/adr/0004-assignment-replaces-claim.md` and `CONTEXT.md` first — this
 ticket is where their vocabulary becomes what the lab reads.
@@ -64,20 +64,41 @@ how they drift a second time.
 
 ## Acceptance criteria
 
-- [ ] The interface rule, the button list and the stage definitions each exist
+- [x] The interface rule, the button list and the stage definitions each exist
       **once** in `src/blocks.py` and are rendered by both surfaces
-- [ ] A test renders App Home and `get_help_message()` and asserts the shared
+- [x] A test renders App Home and `get_help_message()` and asserts the shared
       strings are byte-identical between them — the drift guard, and it must fail
       if someone edits one copy back in
-- [ ] Neither surface contains the string `Claim` or `claim`
-- [ ] Neither surface contains the string `@p-bot`
-- [ ] Both surfaces show the approve-and-mention example in both mention orders
-- [ ] Both surfaces state that a forgotten mention still leaves the request
+- [x] Neither surface contains the string `Claim` or `claim`
+- [x] Neither surface contains the string `@p-bot`
+- [x] Both surfaces show the approve-and-mention example in both mention orders
+- [x] Both surfaces state that a forgotten mention still leaves the request
       approved, and how a buyer takes it
-- [ ] Both surfaces list `add-buyer` and `remove-buyer`
-- [ ] The four stages are present with the wording from `CONTEXT.md`, plus the
+- [x] Both surfaces list `add-buyer` and `remove-buyer`
+- [x] The four stages are present with the wording from `CONTEXT.md`, plus the
       "Assigned isn't a stage" line, and no link to the Purchasing Log
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+
+## Comments
+
+### Implementation (2026-09-16)
+
+- Added four module-level constants to `src/blocks.py`: `_INTERFACE_RULE`,
+  `_BUTTON_LIST`, `_STAGE_DEFINITIONS`, `_ADMIN_COMMANDS`, `_SLASH_COMMANDS`.
+- Replaced the static `APP_HOME_VIEW` dict with `build_app_home_view()` that
+  interpolates those constants into Block Kit section blocks.
+- Updated `get_help_message()` to concatenate the same constants — one edit
+  point for any shared sentence.
+- Updated the one caller in `src/app.py`: `blocks.APP_HOME_VIEW` →
+  `blocks.build_app_home_view()`.
+- Updated two existing tests in `tests/test_pipeline.py`: `@p-bot` → `@Purchasing`
+  assertions, `APP_HOME_VIEW` → `build_app_home_view()` comparison.
+- Fixed harness defect in `tests/test_onboarding_and_commands.py`: old assertion
+  checked `"Hirst Lab Purchasing Bot (P-Bot)"` — a title we deliberately removed;
+  updated to `"Hirst Lab Purchasing Bot"`.
+- Added `tests/test_09_app_home_help.py` with 20 tests covering all acceptance
+  criteria including the drift guard (4 constants × 2 surfaces = 8 checks).
+- Gate: `ruff check .` ✓, `check_tests_first.py` ✓, `pytest -q` 155 passed, 31 skipped.
 
 ## Out of scope
 

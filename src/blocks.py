@@ -23,215 +23,198 @@ except ImportError:
     import interview
     import roster
 
+# ---------------------------------------------------------------------------
+# Shared text constants — the single source for content rendered by both
+# build_app_home_view() and get_help_message().  Edit here; never paste a
+# second copy into either function.
+# ---------------------------------------------------------------------------
+
+_INTERFACE_RULE = (
+    "> *Rule:* If the action needs a target, it's a button on that target. "
+    "If it doesn't, it's a slash command."
+)
+
+_BUTTON_LIST = (
+    "• Click the action buttons on the request message: *Approve* or *Decline* (approvers), "
+    "*Mark Processed*, *Mark Confirmed*, and *Mark Delivered* (the assigned buyer or an admin).\n"
+    "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
+    "• Drop quote files or confirmation receipts directly into the thread to attach them.\n\n"
+    "*Approving:* reply in the request thread with `@Purchasing approved` and `@`-mention "
+    "the grad student who will handle it —\n"
+    "```\n"
+    "@Dylan @Purchasing approved     ← either order works\n"
+    "@Purchasing approved @Dylan\n"
+    "```\n"
+    "Forgot to name someone? The request is still approved. "
+    "Any buyer can take it with `@Purchasing assign @themselves`."
+)
+
+_STAGE_DEFINITIONS = (
+    "A purchase request moves through four stages after approval:\n"
+    "• *Approved* — Charlie has agreed to spend the money; the row is written to the purchasing log.\n"
+    "• *Processed* — The request has gone to the purchasing team (Workday / ShopUW).\n"
+    "• *Confirmed* — The order is confirmed by the vendor.\n"
+    "• *Delivered* — The package is in the lab.\n\n"
+    "_Assigned isn't a stage — it's who is handling the order._"
+)
+
+_ADMIN_COMMANDS = (
+    "• `@Purchasing health` / `@Purchasing status` — View system health, host uptime, and storage status.\n"
+    "• `@Purchasing queue` — View Excel lock write queue status.\n"
+    "• `@Purchasing logs [n]` — _(Admin Only)_ View recent bot log entries.\n"
+    "• `@Purchasing update` — _(Admin Only)_ Pull latest git code and restart bot.\n"
+    "• `@Purchasing restart` — _(Admin Only)_ Gracefully restart the bot process.\n"
+    "• `@Purchasing promote-admin @user` — _(Admin Only)_ Propose promoting a user to bot administrator.\n"
+    "• `@Purchasing add-approver @user` — _(Admin Only)_ Add a user to the approver list.\n"
+    "• `@Purchasing remove-approver @user` — _(Admin Only)_ Remove a user from the approver list.\n"
+    "• `@Purchasing add-buyer @user` — _(Admin Only)_ Add a user to the buyers list.\n"
+    "• `@Purchasing remove-buyer @user` — _(Admin Only)_ Remove a user from the buyers list.\n"
+    "• `@Purchasing remove vendor <name>` — _(Admin Only)_ Remove a vendor from the Workday catalog list."
+)
+
+_SLASH_COMMANDS = (
+    "• `/new-purchase` — Open the guided purchasing modal to submit an order request.\n"
+    "• `/purchasing-help` — Display this help and command reference.\n"
+    "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
+    "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
+    "• `/roster-set-name` — Link your Slack user account to your lab name in the roster."
+)
+
 # --- App Home Block Kit View --------------------------------------------------
-APP_HOME_VIEW = {
-    "type": "home",
-    "blocks": [
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "Purchasing Bot: P-Bot",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "Welcome! *P-Bot* (`@p-bot`) automates logging, tracking, and archiving lab purchase requests directly to `Purchasing-Log.xlsx` and OneDrive.\n\n"
-                    "> *Rule:* If the action needs a target, it's a button on that target. If it doesn't, it's a slash command."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "🛒 Start Something",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• `/new-purchase` — Open the guided purchasing modal to submit an order request.\n"
-                    "• `/purchasing-help` — Display this help and command reference.\n"
-                    "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
-                    "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
-                    "• `/roster-set-name` — Link your Slack user account to your lab name in the roster."
-                ),
-            },
-            "accessory": {
-                "type": "button",
+
+
+def build_app_home_view() -> dict:
+    """Build the App Home Block Kit view dict.
+
+    WHY A FUNCTION NOT A CONSTANT: The shared text constants (_BUTTON_LIST,
+    _STAGE_DEFINITIONS, etc.) must be interpolated into the mrkdwn blocks at
+    build time.  A static dict cannot hold a reference to a module-level string
+    that hasn't been assigned yet, and string concatenation in a dict literal
+    is fragile to maintain.  The one caller (handle_app_home_opened) calls this
+    once per event, so there is no performance concern.
+    """
+    return {
+        "type": "home",
+        "blocks": [
+            {
+                "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "New Purchase Request",
+                    "text": "Hirst Lab Purchasing Bot",
                     "emoji": True,
                 },
-                "style": "primary",
-                "action_id": "start_purchase_interview",
             },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "🔄 Move a Request Along",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• Click the action buttons on the request message: *Approve* or *Decline* (approvers), *Claim* (grad buyers), *Mark Processed*, *Mark Confirmed*, and *Mark Delivered*.\n"
-                    "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
-                    "• Drop quote files or confirmation receipts directly into the thread to attach them."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "📋 Request Stages",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "A purchase request moves through four stages after approval:\n"
-                    "• *Approved* — Charlie has agreed to spend the money; the row is written to the purchasing log.\n"
-                    "• *Processed* — The request has gone to the purchasing team (Workday / ShopUW).\n"
-                    "• *Confirmed* — The order is confirmed by the vendor.\n"
-                    "• *Delivered* — The package is in the lab."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "⚙️ Admin Operations",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• `@p-bot health` / `@p-bot status` — View system health, host uptime, and storage status.\n"
-                    "• `@p-bot queue` — View Excel lock write queue status.\n"
-                    "• `@p-bot logs [n]` — _(Admin Only)_ View recent bot log entries.\n"
-                    "• `@p-bot update` — _(Admin Only)_ Pull latest git code and restart bot.\n"
-                    "• `@p-bot restart` — _(Admin Only)_ Gracefully restart the bot process.\n"
-                    "• `@p-bot promote-admin @user` — _(Admin Only)_ Propose promoting a user to bot administrator.\n"
-                    "• `@p-bot add-approver @user` — _(Admin Only)_ Add a user to the approver list.\n"
-                    "• `@p-bot remove-approver @user` — _(Admin Only)_ Remove a user from the approver list.\n"
-                    "• `@p-bot remove vendor <name>` — _(Admin Only)_ Remove a vendor from the Workday catalog list."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "⚠️ Common Issues & Troubleshooting",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• *Excel Locked:* If `Purchasing-Log.xlsx` is open in Excel, P-Bot automatically queues your update and writes it immediately once closed.\n"
-                    "• *Validation Rejections:* Make sure all required fields in the EPIF form are filled.\n"
-                    "• *Price Mismatch:* If the final invoice or checkout total differs from the initial estimate, contact your purchase approver or lab buyer.\n"
-                    "• *File Attachments:* For confirmations and quotes, ensure you attach the file in the request thread."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "💬 Questions, Feedback & Complaints",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "Bot maintained by: *Isaac Legault*\n\nIf you experience any bugs, errors, or have suggestions/complaints, please feel free to DM me directly on Slack.",
-            },
-        },
-        {
-            "type": "context",
-            "elements": [
-                {
+            {
+                "type": "section",
+                "text": {
                     "type": "mrkdwn",
-                    "text": "Hirst Lab Automation • Report issues to Isaac Legault",
+                    "text": (
+                        "Welcome! *Purchasing* automates logging, tracking, and archiving lab purchase requests "
+                        "directly to `Purchasing-Log.xlsx` and OneDrive.\n\n"
+                        + _INTERFACE_RULE
+                    ),
                 },
-            ],
-        },
-    ],
-}
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🛒 Start Something", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": _SLASH_COMMANDS},
+                "accessory": {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "New Purchase Request", "emoji": True},
+                    "style": "primary",
+                    "action_id": "start_purchase_interview",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🔄 Move a Request Along", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": _BUTTON_LIST},
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "📋 Request Stages", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": _STAGE_DEFINITIONS},
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "⚙️ Admin Operations", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": _ADMIN_COMMANDS},
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "⚠️ Common Issues & Troubleshooting", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "• *Excel Locked:* If `Purchasing-Log.xlsx` is open in Excel, Purchasing automatically "
+                        "queues your update and writes it immediately once closed.\n"
+                        "• *Validation Rejections:* Make sure all required fields in the EPIF form are filled.\n"
+                        "• *Price Mismatch:* If the final invoice or checkout total differs from the initial "
+                        "estimate, contact your purchase approver or lab buyer.\n"
+                        "• *File Attachments:* For confirmations and quotes, ensure you attach the file in the "
+                        "request thread."
+                    ),
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "💬 Questions, Feedback & Complaints", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Bot maintained by: *Isaac Legault*\n\nIf you experience any bugs, errors, or have suggestions/complaints, please feel free to DM me directly on Slack.",
+                },
+            },
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "Hirst Lab Automation • Report issues to Isaac Legault"}],
+            },
+        ],
+    }
 
 
 def get_help_message() -> str:
-    """Command guide for the bot description and help command."""
+    """Command guide rendered by /purchasing-help.
+
+    Uses the same module-level constants as build_app_home_view() so the two
+    surfaces cannot drift.  Edit the constants above; never add a second copy
+    of a sentence here.
+    """
     return (
-        "🤖 *Hirst Lab Purchasing Bot (P-Bot)*\n\n"
-        "> *Rule:* If the action needs a target, it's a button on that target. If it doesn't, it's a slash command.\n\n"
+        "🤖 *Hirst Lab Purchasing Bot*\n\n"
+        + _INTERFACE_RULE + "\n\n"
         "*🛒 Start something (Slash Commands):*\n"
-        "• `/new-purchase` — Open the guided purchasing modal to submit an order request.\n"
-        "• `/purchasing-help` — Display this help and command reference.\n"
-        "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
-        "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
-        "• `/roster-set-name` — Link your Slack user account to your lab name in the roster.\n\n"
+        + _SLASH_COMMANDS + "\n\n"
         "*🔄 Move a request along (Buttons on the message):*\n"
-        "• Click the action buttons on the request message: *Approve* or *Decline* (approvers), *Claim* (grad buyers), *Mark Processed*, *Mark Confirmed*, and *Mark Delivered*.\n"
-        "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
-        "• Drop quote files or confirmation receipts directly into the thread to attach them.\n\n"
-        "*⚙️ Admins (`@p-bot <command>`):*\n"
-        "• `@p-bot health` / `@p-bot status` — View system health, host uptime, and storage status.\n"
-        "• `@p-bot queue` — View Excel lock write queue status.\n"
-        "• `@p-bot logs [n]` — View recent bot logs.\n"
-        "• `@p-bot update` — Pull git updates and restart bot.\n"
-        "• `@p-bot restart` — Restart the bot process.\n"
-        "• `@p-bot promote-admin @user` — Propose promoting a user to bot administrator.\n"
-        "• `@p-bot add-approver @user` — Add a user to the approver list.\n"
-        "• `@p-bot remove-approver @user` — Remove a user from the approver list.\n"
-        "• `@p-bot remove vendor <name>` — Remove a vendor from the Workday catalog list."
+        + _BUTTON_LIST + "\n\n"
+        "*📋 Request Stages:*\n"
+        + _STAGE_DEFINITIONS + "\n\n"
+        "*⚙️ Admins (`@Purchasing <command>`):*\n"
+        + _ADMIN_COMMANDS
     )
 
 

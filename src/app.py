@@ -1108,7 +1108,7 @@ def handle_app_home_opened(client, event):
     try:
         client.views_publish(
             user_id=user_id,
-            view=blocks.APP_HOME_VIEW,
+            view=blocks.build_app_home_view(),
         )
         log.info("Published App Home view to user %s", user_id)
     except Exception as e:
