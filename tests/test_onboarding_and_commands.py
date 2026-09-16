@@ -1466,6 +1466,458 @@ def test_claim_draft_fields_fallback_to_get_row_info():
     assert "Swagelok" in dm_text
 
 
+# --- Ticket 04: Buttons on the PDF-drop path ----------------------------------
+
+def test_pdf_drop_in_thread_produces_posted_card_with_approve_button():
+    """An EPIF PDF dropped in a channel thread produces a bot post carrying a req_approve button."""
+    from datetime import date
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_POSTER", "Isaac")
+
+    fake_file = {
+        "id": "F_EPIF_123",
+        "name": "Prusa_EPIF.pdf",
+        "url_private": "https://slack.com/files/epif.pdf",
+    }
+    event = {
+        "type": "message",
+        "subtype": "file_share",
+        "channel": "C_PURCHASING",
+        "channel_type": "channel",
+        "user": "U_POSTER",
+        "ts": "100.50",
+        "thread_ts": "100.00",
+        "files": [fake_file],
+    }
+
+    parsed_sample = {
+        "item_description": "Prusa CORE One L+ INDX 4-Tool",
+        "total_price": 2799.0,
+        "vendor": "Prusa",
+        "vendor_contact_email": "info@prusa3d.com",
+        "date_of_purchase": date(2026, 9, 3),
+        "project_id": "PG000025831",
+        "fund": "150",
+        "delivery_room": "ERB 212",
+        "purpose": "3D printing parts",
+        "category": "Research/Lab Supplies (3105)",
+        "payment_method": "P-card",
+    }
+
+    with patch.object(lifecycle.slack_io, "download", return_value=b"%PDF-fake"):
+        with patch.object(lifecycle.epif_parser, "parse_epif", return_value=parsed_sample):
+            app.on_direct_message(event, client, say)
+
+    client.chat_postMessage.assert_called_once()
+    call_kw = client.chat_postMessage.call_args[1]
+    assert call_kw["channel"] == "C_PURCHASING"
+    assert call_kw["thread_ts"] == "100.00"
+    assert "🛒 *New Purchase Request from Isaac:*" in call_kw["text"]
+    assert "Use the buttons below to approve and track this request." in call_kw["text"]
+
+    # Verify metadata and payload shape
+    meta = call_kw["metadata"]
+    assert meta["event_type"] == "purchase_request"
+    payload = meta["event_payload"]
+    assert payload["requester"] == "Isaac"
+    assert payload["user_id"] == "U_POSTER"
+    assert payload["parsed"]["item_description"] == "Prusa CORE One L+ INDX 4-Tool"
+    assert payload["parsed"]["date_of_purchase"] == "2026-09-03"
+
+    # Verify blocks have req_approve button
+    blocks_posted = call_kw["blocks"]
+    action_block = next(b for b in blocks_posted if b.get("type") == "actions")
+    approve_btn = action_block["elements"][0]
+    assert approve_btn["action_id"] == "req_approve"
+    assert approve_btn["text"]["text"] == "Approve"
+
+
+def test_pdf_drop_payload_built_where_pdf_parsed():
+    """The PDF path's request payload is built where the PDF is parsed, and build_request_blocks is unchanged."""
+    from datetime import date
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_POSTER", "Dylan")
+
+    fake_file = {
+        "name": "EPIF.pdf",
+        "url_private": "https://slack.com/files/epif.pdf",
+    }
+    parsed_sample = {
+        "item_description": "Laser Diode",
+        "total_price": 500.0,
+        "vendor": "Thorlabs",
+        "payment_method": "Req/PO",
+        "category": "Research/Lab Supplies (3105)",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "delivery_room": "ERB 212",
+        "purpose": "Optical setup",
+        "date_of_purchase": date(2026, 9, 10),
+    }
+
+    with patch.object(lifecycle.slack_io, "download", return_value=b"%PDF-fake"):
+        with patch.object(lifecycle.epif_parser, "parse_epif", return_value=parsed_sample):
+            lifecycle.handle_epif_drop(
+                client=client,
+                say=say,
+                channel="C_TEST",
+                thread_ts="200.00",
+                user_id="U_POSTER",
+                file_obj=fake_file,
+                event_ts="200.00",
+            )
+
+    client.chat_postMessage.assert_called_once()
+    payload = client.chat_postMessage.call_args[1]["metadata"]["event_payload"]
+    assert payload["requester"] == "Dylan"
+    assert payload["user_id"] == "U_POSTER"
+    assert payload["is_pending_name"] is False
+    assert payload["thread_ts"] == "200.00"
+    assert payload["parsed"]["item_description"] == "Laser Diode"
+    assert payload["parsed"]["payment_method"] == "Req/PO"
+
+    # Ensure build_request_blocks is called with standard signature and produces valid blocks
+    direct_blocks = blocks.build_request_blocks("posted", payload)
+    action_elem = next(b for b in direct_blocks if b.get("type") == "actions")["elements"][0]
+    assert action_elem["action_id"] == "req_approve"
+
+
+def test_pdf_request_approve_button_click_by_approver():
+    """Clicking Approve as an approver on a PDF request writes the row, rewrites message with history & Claim button."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    roster.add_requester("U_CHARLIE", "Charlie H.")
+    roster.add_approver("U_CHARLIE")
+    roster.add_requester("U_REQ", "Isaac")
+
+    req_payload = {
+        "parsed": {
+            "item_description": "Oscilloscope",
+            "total_price": 1200.00,
+            "vendor": "Keysight",
+            "payment_method": "P-card",
+            "category": "Research/Lab Supplies (3105)",
+            "project_id": "PG000025831",
+            "fund": "133",
+            "delivery_room": "ERB 212",
+            "purpose": "Signal analysis",
+            "date_of_purchase": "2026-09-01",
+        },
+        "requester": "Isaac",
+        "user_id": "U_REQ",
+        "is_pending_name": False,
+        "thread_ts": "300.00",
+    }
+
+    body = {
+        "user": {"id": "U_CHARLIE"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "300.05"},
+        "container": {"message_ts": "300.05", "thread_ts": "300.00"},
+        "actions": [{
+            "action_id": "req_approve",
+            "value": json.dumps({"state": "posted", "requester": "Isaac", "thread_ts": "300.00", "request": req_payload, "history": []}),
+        }],
+    }
+
+    with patch.object(lifecycle, "handle_epif_processing") as mock_epif:
+        app.handle_req_approve_action(ack, body, respond, client)
+        ack.assert_called_once()
+        mock_epif.assert_called_once()
+        assert mock_epif.call_args[1]["channel"] == "C_PURCHASE"
+        assert mock_epif.call_args[1]["thread_ts"] == "300.00"
+        assert mock_epif.call_args[1]["approver"] == "U_CHARLIE"
+
+        # Chat update called to rewrite message to 'approved'
+        client.chat_update.assert_called_once()
+        update_kw = client.chat_update.call_args[1]
+        assert update_kw["channel"] == "C_PURCHASE"
+        assert update_kw["ts"] == "300.05"
+        actions = next(b for b in update_kw["blocks"] if b.get("type") == "actions")
+        assert actions["elements"][0]["action_id"] == "req_claim"
+
+        # Context history line
+        context = next(b for b in update_kw["blocks"] if b.get("type") == "context")
+        assert "Approved by Charlie H. on" in context["elements"][0]["text"]
+
+
+def test_pdf_request_approve_button_click_by_non_approver_denial():
+    """Clicking Approve as a non-approver gets an ephemeral denial, message is unchanged, nothing written."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    roster.add_requester("U_STUDENT", "Student")
+
+    body = {
+        "user": {"id": "U_STUDENT"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "300.05"},
+        "container": {"message_ts": "300.05", "thread_ts": "300.00"},
+        "actions": [{
+            "action_id": "req_approve",
+            "value": json.dumps({"state": "posted", "requester": "Isaac", "thread_ts": "300.00", "request": {}, "history": []}),
+        }],
+    }
+
+    with patch.object(lifecycle, "handle_epif_processing") as mock_epif:
+        app.handle_req_approve_action(ack, body, respond, client)
+        ack.assert_called_once()
+        respond.assert_called_once()
+        assert "Only authorized approvers" in respond.call_args[1]["text"]
+        mock_epif.assert_not_called()
+        client.chat_update.assert_not_called()
+
+
+def test_pdf_request_at_pbot_approved_keyword_still_works():
+    """@p-bot approved on a PDF request still works via dispatch_command."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_CHARLIE", "Charlie H.")
+    roster.add_approver("U_CHARLIE")
+
+    with patch.object(lifecycle, "handle_epif_processing") as mock_epif:
+        app.dispatch_command(
+            client=client,
+            say=say,
+            channel="C_PURCHASE",
+            thread_ts="400.00",
+            user="U_CHARLIE",
+            event_ts="400.05",
+            text="@p-bot approved",
+        )
+        args, kwargs = mock_epif.call_args
+        assert (kwargs.get("channel") or args[2]) == "C_PURCHASE"
+        assert (kwargs.get("thread_ts") or args[3]) == "400.00"
+        assert (kwargs.get("approver") or args[4]) == "U_CHARLIE"
+
+
+def test_pdf_request_no_duplicate_lifecycle_logic():
+    """No lifecycle logic is duplicated: req_approve calls handle_epif_processing."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    roster.add_requester("U_CHARLIE", "Charlie H.")
+    roster.add_approver("U_CHARLIE")
+
+    body = {
+        "user": {"id": "U_CHARLIE"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "500.05"},
+        "container": {"message_ts": "500.05", "thread_ts": "500.00"},
+        "actions": [{
+            "action_id": "req_approve",
+            "value": json.dumps({"state": "posted", "requester": "Isaac", "thread_ts": "500.00", "request": {}, "history": []}),
+        }],
+    }
+
+    with patch.object(lifecycle, "handle_epif_processing") as mock_epif:
+        app.handle_req_approve_action(ack, body, respond, client)
+        mock_epif.assert_called_once()
+
+
+def test_pdf_request_walks_from_posted_to_delivered_with_excel_writes(monkeypatch):
+    """Walk a PDF request from posted to delivered through buttons and assert matching Excel writes."""
+    from datetime import date
+
+    # Synchronously execute write tasks
+    def sync_submit(action_fn, channel, thread_ts, user_id, task_type, description, success_callback, failure_callback, client=None):
+        res = action_fn()
+        success_callback(res)
+
+    monkeypatch.setattr(lifecycle.queue_worker, "submit_write_task", sync_submit)
+
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    say = MagicMock()
+
+    # Dynamic in-thread replies tracking
+    thread_messages = []
+
+    def mock_chat_postMessage(channel, text, thread_ts=None, **kw):
+        msg = {"channel": channel, "text": text, "ts": "100.99", "thread_ts": thread_ts, **kw}
+        thread_messages.append(msg)
+        return {"ok": True, "ts": "100.99"}
+
+    client.chat_postMessage = mock_chat_postMessage
+    client.conversations_replies.side_effect = lambda channel, ts, limit=100, **kw: {"ok": True, "messages": list(thread_messages)}
+
+    # Roles setup
+    roster.add_requester("U_CHARLIE", "Charlie H.")
+    roster.add_approver("U_CHARLIE")
+    roster.add_requester("U_BUYER", "Dylan")
+    roster.add_buyer("U_BUYER")
+    roster.add_requester("U_REQ", "Isaac")
+
+    # Initial PDF drop
+    fake_file = {"name": "EPIF.pdf", "url_private": "https://slack.com/files/epif.pdf"}
+    thread_messages.append({
+        "user": "U_REQ",
+        "ts": "100.00",
+        "thread_ts": "100.00",
+        "files": [fake_file],
+    })
+
+    parsed_sample = {
+        "item_description": "Precision Mirror Mount",
+        "total_price": 250.0,
+        "vendor": "Thorlabs",
+        "vendor_contact_name": "Sales",
+        "vendor_contact_email": "sales@thorlabs.com",
+        "payment_method": "P-card",
+        "category": "Research/Lab Supplies (3105)",
+        "category_error": None,
+        "project_id": "PG000025831",
+        "fund": "133",
+        "delivery_room": "ERB 212",
+        "purpose": "Optics testing",
+        "link": "https://thorlabs.com/mount",
+        "date_of_purchase": date(2026, 9, 15),
+        "name_of_system": "",
+        "asset_id": "",
+        "total_price_raw": "250.00",
+        "pi_of_funding": "Charlie Hirst",
+        "end_user": "Isaac",
+    }
+
+    excel_appends = []
+    excel_updates = []
+
+    def fake_append_row(values, workbook_path=None):
+        excel_appends.append(values)
+        return 42
+
+    def fake_update_row(row, values, workbook_path=None):
+        excel_updates.append((row, values))
+        return row
+
+    monkeypatch.setattr(lifecycle.log_writer, "append_row", fake_append_row)
+    monkeypatch.setattr(lifecycle.log_writer, "update_row", fake_update_row)
+    monkeypatch.setattr(lifecycle.log_writer, "save_epif", lambda bytes_, name, target_dir=None: "/lab/EPIFs/EPIF.pdf")
+    monkeypatch.setattr(lifecycle.log_writer, "get_row_info", lambda row: {"row": row, "item_description": "Precision Mirror Mount"})
+
+    with patch.object(lifecycle.slack_io, "download", return_value=b"%PDF-dummy"):
+        with patch.object(lifecycle.epif_parser, "parse_epif", return_value=parsed_sample):
+            lifecycle.handle_epif_drop(
+                client=client,
+                say=say,
+                channel="C_PURCHASE",
+                thread_ts="100.00",
+                user_id="U_REQ",
+                file_obj=fake_file,
+                event_ts="100.00",
+            )
+
+    # Bot posted message with req_approve
+    posted_call = thread_messages[-1]
+    posted_actions = next(b for b in posted_call["blocks"] if b.get("type") == "actions")
+    assert posted_actions["elements"][0]["action_id"] == "req_approve"
+    approve_value = posted_actions["elements"][0]["value"]
+
+    # 1. Approve (by Charlie) -> writes row to Excel (append)
+    body_approve = {
+        "user": {"id": "U_CHARLIE"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.10"},
+        "container": {"message_ts": "100.10", "thread_ts": "100.00"},
+        "actions": [{"action_id": "req_approve", "value": approve_value}],
+    }
+    with patch.object(lifecycle.slack_io, "download", return_value=b"%PDF-dummy"):
+        with patch.object(lifecycle.epif_parser, "parse_epif", return_value=parsed_sample):
+            app.handle_req_approve_action(ack, body_approve, respond, client)
+
+    # Assert append_row was called with parsed values and requester
+    assert len(excel_appends) == 1
+    appended = excel_appends[0]
+    assert appended[config.COLUMN_REQUESTER] == "Isaac"
+    assert appended["C"] == "Precision Mirror Mount"
+    assert appended[config.COLUMN_TOTAL_PRICE] == 250.0
+
+    update_approve = client.chat_update.call_args[1]
+    actions_approve = next(b for b in update_approve["blocks"] if b.get("type") == "actions")
+    assert actions_approve["elements"][0]["action_id"] == "req_claim"
+    claim_value = actions_approve["elements"][0]["value"]
+
+    # 2. Claim (by Dylan)
+    ack.reset_mock()
+    client.chat_update.reset_mock()
+    body_claim = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.10"},
+        "container": {"message_ts": "100.10", "thread_ts": "100.00"},
+        "actions": [{"action_id": "req_claim", "value": claim_value}],
+    }
+    app.handle_req_claim_action(ack, body_claim, respond, client)
+    update_claim = client.chat_update.call_args[1]
+    actions_claim = next(b for b in update_claim["blocks"] if b.get("type") == "actions")
+    assert actions_claim["elements"][0]["action_id"] == "req_submitted"
+    submitted_value = actions_claim["elements"][0]["value"]
+
+    # 3. Submitted / Processed (by Dylan) -> writes Date Processed to Col U
+    ack.reset_mock()
+    client.chat_update.reset_mock()
+    body_sub = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.10"},
+        "container": {"message_ts": "100.10", "thread_ts": "100.00"},
+        "actions": [{"action_id": "req_submitted", "value": submitted_value}],
+    }
+    app.handle_req_submitted_action(ack, body_sub, respond, client)
+    assert len(excel_updates) == 1
+    assert excel_updates[0][0] == 42
+    assert config.COLUMN_DATE_PROCESSED in excel_updates[0][1]
+
+    update_sub = client.chat_update.call_args[1]
+    actions_sub = next(b for b in update_sub["blocks"] if b.get("type") == "actions")
+    assert actions_sub["elements"][0]["action_id"] == "req_confirmed"
+    confirmed_value = actions_sub["elements"][0]["value"]
+
+    # 4. Confirmed (by Dylan) -> writes Date Confirmed to Col V
+    ack.reset_mock()
+    client.chat_update.reset_mock()
+    body_conf = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.10"},
+        "container": {"message_ts": "100.10", "thread_ts": "100.00"},
+        "actions": [{"action_id": "req_confirmed", "value": confirmed_value}],
+    }
+    app.handle_req_confirmed_action(ack, body_conf, respond, client)
+    assert len(excel_updates) == 2
+    assert excel_updates[1][0] == 42
+    assert config.COLUMN_DATE_CONFIRMED in excel_updates[1][1]
+
+    update_conf = client.chat_update.call_args[1]
+    actions_conf = next(b for b in update_conf["blocks"] if b.get("type") == "actions")
+    assert actions_conf["elements"][0]["action_id"] == "req_delivered"
+    delivered_value = actions_conf["elements"][0]["value"]
+
+    # 5. Delivered (by Dylan) -> writes Date Delivered (Col W) + Received By (Col X)
+    ack.reset_mock()
+    client.chat_update.reset_mock()
+    body_deliv = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "100.10"},
+        "container": {"message_ts": "100.10", "thread_ts": "100.00"},
+        "actions": [{"action_id": "req_delivered", "value": delivered_value}],
+    }
+    app.handle_req_delivered_action(ack, body_deliv, respond, client)
+    assert len(excel_updates) == 3
+    assert excel_updates[2][0] == 42
+    assert config.COLUMN_DATE_DELIVERY in excel_updates[2][1]
+    assert excel_updates[2][1][config.COLUMN_RECEIVED_BY] == "Dylan"
+
+    update_deliv = client.chat_update.call_args[1]
+    assert not any(b.get("type") == "actions" for b in update_deliv["blocks"])
+
+
+
 
 
 

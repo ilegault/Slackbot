@@ -6,7 +6,10 @@ Encapsulates all stage transitions for a purchase request: approval, claiming,
 submission, confirmation, delivery, and quote archiving. Coordinates between
 Slack client I/O, domain validation, storage write queue, and Block Kit messages.
 
-Per ADR 0002 decision 6:
+Per ADR 0002 decisions 1 and 2:
+- An EPIF PDF dropped into a thread builds the purchase request payload where parsed
+  and posts a Block Kit card with the Approve button (state="posted"), eliminating
+  the discrepancy between modal and PDF paths while keeping build_request_blocks unchanged.
 - Approval always broadcasts to grad buyers and waits for a Claim — even for a buyer's
   own request, because purchasing duty rotates and there is no auto-assign shortcut.
 - The email draft is moved from approval to claim, addressed to and DM'd to the claimer.
@@ -197,6 +200,95 @@ def handle_epif_processing(client, say, channel: str, thread_ts: str, approver: 
 
     log.info("No PDF or purchase request found in thread/message %s", thread_ts)
     say(text="I couldn't find a PDF or purchase request in this thread/message.", thread_ts=thread_ts)
+
+
+def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, file_obj: dict, event_ts: str):
+    """Handle an EPIF PDF dropped into a channel thread: parse and post with Approve button."""
+    file_name = file_obj.get("name", "EPIF.pdf")
+    log.info("Processing EPIF drop '%s' from user %s in channel %s (thread: %s)", file_name, user_id, channel, thread_ts)
+
+    try:
+        pdf_bytes = slack_io.download(file_obj)
+        log.info("Downloaded %s (%d bytes)", file_name, len(pdf_bytes))
+        parsed = epif_parser.parse_epif(pdf_bytes)
+    except (epif_parser.FlattenedPdfError, RuntimeError) as error:
+        requester = slack_io.resolve_requester(client, user_id)
+        if "epif" in file_name.lower():
+            slack_io.log_rejection(user_id, file_name, [str(error)], requester_name=requester)
+            target_dm = user_id
+            slack_io.tell(client, target_dm, str(error))
+            if channel != target_dm:
+                say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
+        else:
+            log.debug("Non-EPIF PDF %s failed form parsing; ignoring: %s", file_name, error)
+        return
+    except Exception as e:
+        log.error("Unexpected error parsing dropped PDF %s: %s", file_name, e)
+        return
+
+    requester = slack_io.resolve_requester(client, user_id)
+
+    # Build the payload where the PDF is parsed (ticket 04 requirement)
+    req_payload = {
+        "parsed": {
+            **parsed,
+            "date_of_purchase": (
+                parsed["date_of_purchase"].isoformat()
+                if hasattr(parsed.get("date_of_purchase"), "isoformat")
+                else (parsed.get("date_of_purchase") or None)
+            ),
+            "payment_method": parsed.get("payment_method") or "EPIF",
+        },
+        "requester": requester,
+        "user_id": user_id,
+        "is_pending_name": False,
+        "thread_ts": thread_ts,
+    }
+
+    req_blocks = blocks.build_request_blocks("posted", req_payload)
+
+    display_name = requester or f"<@{user_id}>"
+    price = parsed.get("total_price")
+    if isinstance(price, (int, float)):
+        price_str = f"${price:,.2f}"
+    elif price:
+        price_str = str(price)
+        if not price_str.startswith("$"):
+            price_str = f"${price_str}"
+    else:
+        price_str = "$0.00"
+
+    pay_method = req_payload["parsed"].get("payment_method") or "EPIF"
+
+    summary_text = (
+        f"🛒 *New Purchase Request from {display_name}:*\n"
+        f"• *Item:* {parsed.get('item_description', '')}\n"
+        f"• *Total:* {price_str}\n"
+        f"• *Vendor:* {parsed.get('vendor', '')} ({pay_method})\n"
+        f"• *Category:* {parsed.get('category', '')}\n"
+        f"• *Project ID / Fund:* {parsed.get('project_id', '')} (Fund {parsed.get('fund', '')})\n"
+        f"• *Delivery Room:* {parsed.get('delivery_room', '')}\n"
+        f"• *Purpose:* {parsed.get('purpose', '')}\n\n"
+        f"Use the buttons below to approve and track this request."
+    )
+
+    try:
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=summary_text,
+            blocks=req_blocks,
+            metadata={
+                "event_type": "purchase_request",
+                "event_payload": req_payload,
+            },
+        )
+        log.info(
+            "Posted purchase request card with Approve button for %s in %s (thread: %s)",
+            file_name, channel, thread_ts,
+        )
+    except Exception as e:
+        log.error("Failed to post purchase request card to channel %s: %s", channel, e)
 
 
 def handle_claim(

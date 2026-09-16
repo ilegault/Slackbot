@@ -5,7 +5,7 @@ too, so a dropped PDF produces the same Approve button as a modal submission.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 Read `docs/adr/0002-request-lifecycle-and-surfaces.md` decisions 1 and 2 first.
 `docs/adr/0001-tests-first-and-no-muted-failures.md` is binding.
@@ -36,22 +36,42 @@ no way to tell which he is looking at.
 
 ## Acceptance criteria
 
-- [ ] An EPIF PDF dropped in a channel thread produces a bot post carrying a
+- [x] An EPIF PDF dropped in a channel thread produces a bot post carrying a
       `req_approve` button, identical in shape to the modal path's post
-- [ ] The PDF path's request payload is built where the PDF is parsed, and
+- [x] The PDF path's request payload is built where the PDF is parsed, and
       `build_request_blocks` is unchanged
-- [ ] Clicking Approve as an approver on a PDF request writes the row, rewrites the
+- [x] Clicking Approve as an approver on a PDF request writes the row, rewrites the
       message with a history line and a Claim button, and behaves exactly as a
       modal request does
-- [ ] Clicking Approve as a non-approver gets an ephemeral denial, the message is
+- [x] Clicking Approve as a non-approver gets an ephemeral denial, the message is
       unchanged, and nothing is written to Excel
-- [ ] `@p-bot approved` on a PDF request still works
-- [ ] No lifecycle logic is duplicated: the button handler calls the same
+- [x] `@p-bot approved` on a PDF request still works
+- [x] No lifecycle logic is duplicated: the button handler calls the same
       `handle_epif_processing` the keyword branch calls
-- [ ] A test asserts a PDF dropped in a thread produces a message carrying a
+- [x] A test asserts a PDF dropped in a thread produces a message carrying a
       `req_approve` button
-- [ ] A test walks a PDF request from `posted` to `delivered` through the buttons
+- [x] A test walks a PDF request from `posted` to `delivered` through the buttons
       and asserts the same Excel writes as the modal path produces
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Comments
+
+- 2026-09-15: Implemented `lifecycle.handle_epif_drop()` — parses the PDF, builds
+  `req_payload` exactly where parsing happens (ticket requirement), serialises
+  `date_of_purchase` to ISO string, and calls `blocks.build_request_blocks("posted", …)`
+  unchanged. The resulting `chat_postMessage` carries full Block Kit blocks, summary
+  text, and message metadata so `find_modal_request_in_thread` can find it on the
+  `@p-bot approved` keyword path.
+- Updated `on_direct_message` in `app.py` to branch on `channel_type`: DMs follow
+  the existing `dispatch_command` path; channel messages with PDF attachments (that
+  are not quote or approve keywords) call `handle_epif_drop`. Bot messages and
+  `bot_id` events are filtered at the top.
+- Updated `handle_req_approve_action` to extract `val_data`/`req_data` before
+  computing `thread_ts`, so the stored `thread_ts` in the button value can be used
+  as a fallback when the `container` field is absent.
+- Tests added (7): channel PDF drop posts approve card; payload built at parse site;
+  approver approval rewrites message with Claim and history; non-approver denied;
+  keyword still works; no duplicate lifecycle logic; full posted→delivered walk with
+  asserted Excel writes (append + 3 updates). Full gate: ruff ✓, check_tests_first ✓,
+  pytest 96 passed / 28 skipped.
+
