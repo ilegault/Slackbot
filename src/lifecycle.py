@@ -105,7 +105,7 @@ def finalize_purchase_request(
 
         display_requester = f"{requester} (pending name confirmation)" if is_pending_name else (requester or "Requester")
         ping_user = f"<@{notify_target}>" if notify_target else display_requester
-        saved_name = os.path.basename(saved_path) if saved_path else None
+        saved_name = os.path.basename(saved_path.replace("\\", "/")) if saved_path else None
         saved_str = f"Saved EPIF to `{saved_name}`.\n\n" if saved_name else ""
 
         if assignee_id and assignee_name:
