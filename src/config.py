@@ -223,7 +223,7 @@ WORKDAY_VENDORS = {
     "Vanguard", "VWR-AVANTOR", "Anixter", "Kranz", "NASSCO",
 }
 
-VENDOR_SUGGEST_OPTION = "Suggest a new vendor"
+VENDOR_SUGGEST_OPTION = "Suggest a new vendor that was added to workday"
 VENDOR_OTHER_OPTION = "Not listed / other"
 WORKDAY_PAYMENT_METHOD = "Workday"
 

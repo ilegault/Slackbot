@@ -418,7 +418,7 @@ def build_stage2_view(meta: dict) -> dict:
     """Generate Screen 2 (Details) Block Kit modal shaped by Screen 1 route."""
     v_choice = meta.get("vendor_choice") or ""
     v_custom = meta.get("vendor_custom") or ""
-    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor")
+    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday")
     other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
     if v_choice in (suggest_opt, other_opt) and v_custom:
         vendor_display = v_custom

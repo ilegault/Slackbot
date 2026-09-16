@@ -48,7 +48,7 @@ def needs_asset_details(category: Optional[str]) -> bool:
 def validate_stage1(vendor_choice: str, vendor_custom: str) -> Dict[str, str]:
     """Validate Stage 1 inputs. Returns {block_id: error_message} dict (empty if valid)."""
     errors: Dict[str, str] = {}
-    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor")
+    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday")
     other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
     if vendor_choice in (suggest_opt, other_opt) and not str(vendor_custom or "").strip():
         errors["block_vendor_custom"] = "Please enter the vendor name."
@@ -86,7 +86,7 @@ def build_parsed_from_stages(
 
     # Determine final vendor name
     vendor_choice = str(stage1.get("vendor_choice") or "").strip()
-    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor")
+    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday")
     other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
     if vendor_choice in (suggest_opt, other_opt):
         custom_v = str(stage1.get("vendor_custom") or "").strip()

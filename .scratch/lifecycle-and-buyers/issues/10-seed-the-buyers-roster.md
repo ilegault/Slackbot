@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 (deploy it first, then seed)
 
-**Status:** human-task
+**Status:** human-task done
 
 ## Why
 
