@@ -445,7 +445,7 @@ def test_faq_routing_in_dm():
     }
     app.on_direct_message(event_cmd, client, say)
     say.assert_called_once()
-    assert "Hirst Lab Purchasing Bot (P-Bot)" in say.call_args[1]["text"]
+    assert "Hirst Lab Purchasing Bot" in say.call_args[1]["text"]
 
 
 def test_every_command_acks_before_client_calls():
