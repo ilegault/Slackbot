@@ -562,26 +562,39 @@ def test_build_request_blocks_buttons_per_state():
         "user_id": "U123",
     }
 
-    state_expected_action = {
-        "posted": "req_approve",
-        "approved": "req_claim",
-        "claimed": "req_submitted",
-        "submitted": "req_confirmed",
-        "confirmed": "req_delivered",
+    # posted/approved/claimed get a primary + secondary (Decline or Cancel) button
+    two_button_states = {
+        "posted": ("req_approve", "req_decline"),
+        "approved": ("req_claim", "req_cancel"),
+        "claimed": ("req_processed", "req_cancel"),
     }
-
-    for state, expected_action in state_expected_action.items():
+    for state, (primary_id, secondary_id) in two_button_states.items():
         blocks_list = blocks.build_request_blocks(state, sample_req)
         action_blocks = [b for b in blocks_list if b.get("type") == "actions"]
-        assert len(action_blocks) == 1
+        assert len(action_blocks) == 1, f"state={state}: expected 1 actions block"
         elements = action_blocks[0].get("elements", [])
-        assert len(elements) == 1
+        assert len(elements) == 2, f"state={state}: expected 2 buttons (primary + secondary)"
+        assert elements[0].get("action_id") == primary_id, f"state={state}: primary button"
+        assert elements[1].get("action_id") == secondary_id, f"state={state}: secondary button"
+
+    # processed/confirmed get only the primary button (cancel not allowed after processed)
+    one_button_states = {
+        "processed": "req_confirmed",
+        "confirmed": "req_delivered",
+    }
+    for state, expected_action in one_button_states.items():
+        blocks_list = blocks.build_request_blocks(state, sample_req)
+        action_blocks = [b for b in blocks_list if b.get("type") == "actions"]
+        assert len(action_blocks) == 1, f"state={state}: expected 1 actions block"
+        elements = action_blocks[0].get("elements", [])
+        assert len(elements) == 1, f"state={state}: expected 1 button"
         assert elements[0].get("action_id") == expected_action
 
-    # delivered state -> 0 buttons
-    blocks_deliv = blocks.build_request_blocks("delivered", sample_req)
-    action_blocks_deliv = [b for b in blocks_deliv if b.get("type") == "actions"]
-    assert len(action_blocks_deliv) == 0
+    # delivered/declined/cancelled -> 0 buttons
+    for terminal_state in ("delivered", "declined", "cancelled"):
+        blocks_term = blocks.build_request_blocks(terminal_state, sample_req)
+        action_blocks_term = [b for b in blocks_term if b.get("type") == "actions"]
+        assert len(action_blocks_term) == 0, f"state={terminal_state}: expected no action buttons"
 
 
 def test_req_approve_non_approver_denial():
@@ -1031,7 +1044,7 @@ def test_roster_list_empty_requesters_prompt(monkeypatch, tmp_path):
 
 
 def test_all_lifecycle_buttons_state_machine(monkeypatch):
-    """Test full sequential lifecycle: posted -> approved -> claimed -> submitted -> confirmed -> delivered."""
+    """Test full sequential lifecycle: posted -> approved -> claimed -> processed -> confirmed -> delivered."""
     ack = MagicMock()
     respond = MagicMock()
     client = MagicMock()
@@ -1084,9 +1097,9 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         update_call = client.chat_update.call_args[1]
         blocks_res = update_call["blocks"]
         actions = next(b for b in blocks_res if b.get("type") == "actions")
-        assert actions["elements"][0]["action_id"] == "req_submitted"
+        assert actions["elements"][0]["action_id"] == "req_processed"
 
-    # 3. Submitted (by Dylan)
+    # 3. Processed (by Dylan)
     ack.reset_mock()
     client.reset_mock()
     body_sub = {
@@ -1096,8 +1109,8 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": actions["elements"][0]["value"]}],
     }
-    with patch.object(lifecycle, "handle_submission"):
-        app.handle_req_submitted_action(ack, body_sub, respond, client)
+    with patch.object(lifecycle, "handle_processed"):
+        app.handle_req_processed_action(ack, body_sub, respond, client)
         update_call = client.chat_update.call_args[1]
         blocks_res = update_call["blocks"]
         actions = next(b for b in blocks_res if b.get("type") == "actions")
@@ -1854,10 +1867,10 @@ def test_pdf_request_walks_from_posted_to_delivered_with_excel_writes(monkeypatc
     app.handle_req_claim_action(ack, body_claim, respond, client)
     update_claim = client.chat_update.call_args[1]
     actions_claim = next(b for b in update_claim["blocks"] if b.get("type") == "actions")
-    assert actions_claim["elements"][0]["action_id"] == "req_submitted"
-    submitted_value = actions_claim["elements"][0]["value"]
+    assert actions_claim["elements"][0]["action_id"] == "req_processed"
+    processed_value = actions_claim["elements"][0]["value"]
 
-    # 3. Submitted / Processed (by Dylan) -> writes Date Processed to Col U
+    # 3. Processed (by Dylan) -> writes Date Processed to Col U
     ack.reset_mock()
     client.chat_update.reset_mock()
     body_sub = {
@@ -1865,9 +1878,9 @@ def test_pdf_request_walks_from_posted_to_delivered_with_excel_writes(monkeypatc
         "channel": {"id": "C_PURCHASE"},
         "message": {"ts": "100.10"},
         "container": {"message_ts": "100.10", "thread_ts": "100.00"},
-        "actions": [{"action_id": "req_submitted", "value": submitted_value}],
+        "actions": [{"action_id": "req_processed", "value": processed_value}],
     }
-    app.handle_req_submitted_action(ack, body_sub, respond, client)
+    app.handle_req_processed_action(ack, body_sub, respond, client)
     assert len(excel_updates) == 1
     assert excel_updates[0][0] == 42
     assert config.COLUMN_DATE_PROCESSED in excel_updates[0][1]

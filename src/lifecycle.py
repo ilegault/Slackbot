@@ -321,7 +321,7 @@ def handle_claim(
         text=(
             f"✋ <@{user_id}> ({grad_name}) has claimed order{item_str}{row_str}!\n"
             f"Please coordinate here with the requester for cart/punchout options. "
-            f"Once placed in Workday, click the button on the request message above to mark it submitted."
+            f"Once placed in Workday, click the button on the request message above to mark it processed."
         ),
         thread_ts=thread_ts,
     )
@@ -334,7 +334,7 @@ def handle_claim(
         f"📋 *Next Steps:*\n"
         f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
         f"```\n{email_draft}\n```\n\n"
-        f"2. Use the buttons on your purchase request in the purchasing channel to update its status when submitted, confirmed, and delivered!"
+        f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
     )
     try:
         slack_io.tell(client, user_id, dm_text)
@@ -342,8 +342,8 @@ def handle_claim(
         log.warning("Could not DM claimer %s: %s", user_id, e)
 
 
-def handle_submission(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
-    """Mark an order as Submitted/Processed in Workday (Col U) and optionally update Total Price (Col H)."""
+def handle_processed(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
+    """Mark an order as Processed in Workday (Col U) and optionally update Total Price (Col H)."""
     user_name = slack_io.resolve_requester(client, user_id) or "Buyer"
     row = text_rules.extract_row_from_text(text)
     if not row and thread_ts:
@@ -386,7 +386,7 @@ def handle_submission(client, say, channel: str, thread_ts: str, user_id: str, e
         price_str = f" with Total Price updated to *${price:,.2f}*" if price is not None else ""
         say(
             text=(
-                f"🛒 Order{item_str} (Row {row}) marked as *Processed / Submitted* on {today.strftime('%m/%d/%y')}{price_str}.\n"
+                f"🛒 Order{item_str} (Row {row}) marked as *Processed* on {today.strftime('%m/%d/%y')}{price_str}.\n"
                 f"Please use the buttons on the request message to mark it confirmed once confirmation arrives!"
             ),
             thread_ts=thread_ts,
@@ -693,7 +693,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
 
     # DM user confirmation
     try:
-        slack_io.tell(client, user_id, f"✅ Your purchase request for *{parsed['item_description']}* has been submitted to the purchasing channel awaiting approval.")
+        slack_io.tell(client, user_id, f"✅ Your purchase request for *{parsed['item_description']}* has been sent to the purchasing channel awaiting approval.")
     except Exception as e:
         log.warning("Could not DM user confirmation: %s", e)
 
@@ -702,7 +702,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         try:
             client.chat_postMessage(
                 channel=config.ADMIN_ALERT_CHANNEL,
-                text=f"⚠️ New unrecognized user <@{user_id}> submitted a purchase request and proposed display name '{requester}'.",
+                text=f"⚠️ New unrecognized user <@{user_id}> opened a purchase request and proposed display name '{requester}'.",
                 blocks=[
                     {
                         "type": "section",
@@ -768,3 +768,104 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
             )
         except Exception as e:
             log.warning("Could not post new vendor alert to admin channel: %s", e)
+
+
+# States where cancel is refused — the request has already gone to purchasing (ADR 0003 decision 5).
+_CANCEL_REFUSED_STATES = {"processed", "confirmed", "delivered"}
+
+
+def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: dict, history: list):
+    """Decline a posted purchase request.
+
+    WHY THIS EXISTS:
+        Decline is the approver's "no" on a request in the posted state.
+        It updates the message to show it was declined and by whom, and removes
+        every button.  Nothing is written to Excel (no row exists yet),
+        no alert is posted, and no DM is sent (ADR 0003 decision 3).
+    """
+    user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+    history.append(f"Declined by {user_name} on {now_str}")
+    declined_blocks = blocks.build_request_blocks("declined", req_data, history=history)
+    try:
+        client.chat_update(
+            channel=channel,
+            ts=msg_ts,
+            text="Purchase Request (Declined)",
+            blocks=declined_blocks,
+        )
+        log.info("Purchase request declined by %s in channel %s (ts: %s)", user_id, channel, msg_ts)
+    except Exception as e:
+        log.error("Failed to update message on decline: %s", e)
+
+
+def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_id: str, req_data: dict, state: str, history: list):
+    """Cancel an approved or claimed purchase request, blanking its Excel row(s).
+
+    WHY THIS EXISTS:
+        Cancel un-writes the Excel row — the workbook is a log of live approved
+        purchases and their stage, nothing else (ADR 0003 decision 4).
+        Cancel is refused once a request is processed because a Workday
+        requisition or ShopUW cart is already out in the world (ADR 0003 decision 5).
+        Both approvers and admins can cancel; buyers cannot (ADR 0003 decision 6).
+        A batch (multiple EPIFs in one thread) is cancelled as a batch — every
+        row is blanked in a single queued write (ADR 0003 decision 7).
+    """
+    if state in _CANCEL_REFUSED_STATES:
+        say(
+            text=(
+                "This request has already been sent to the purchasing team and cannot be cancelled here.\n"
+                "To reverse it, contact the purchasing team (Tina / Ally / Lisa) directly."
+            ),
+            thread_ts=thread_ts,
+        )
+        log.info(
+            "Cancel refused for state=%s by %s in channel %s (ts: %s)", state, user_id, channel, msg_ts
+        )
+        return False
+
+    user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+    history.append(f"Cancelled by {user_name} on {now_str}")
+
+    rows = slack_io.find_all_rows_in_thread(client, channel, thread_ts)
+
+    if rows:
+        def write_action():
+            for row in rows:
+                log_writer.blank_row(row)
+            return rows
+
+        def on_success(res):
+            log.info("Blanked row(s) %s for cancelled request by %s in channel %s", res, user_id, channel)
+
+        def on_failure(error):
+            log.error("Failed to blank row(s) %s on cancel: %s", rows, error)
+
+        queue_worker.submit_write_task(
+            action_fn=write_action,
+            channel=channel,
+            thread_ts=thread_ts,
+            user_id=user_id,
+            task_type="blank",
+            description=f"Cancel rows {rows} by {user_name}",
+            success_callback=on_success,
+            failure_callback=on_failure,
+            client=client,
+        )
+    else:
+        log.warning("Cancel: no logged rows found in thread %s; nothing blanked", thread_ts)
+
+    cancelled_blocks = blocks.build_request_blocks("cancelled", req_data, history=history)
+    try:
+        client.chat_update(
+            channel=channel,
+            ts=msg_ts,
+            text="Purchase Request (Cancelled)",
+            blocks=cancelled_blocks,
+        )
+        log.info("Purchase request cancelled by %s in channel %s (ts: %s)", user_id, channel, msg_ts)
+    except Exception as e:
+        log.error("Failed to update message on cancel: %s", e)
+
+    return True

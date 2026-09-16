@@ -14,7 +14,7 @@ Flow of operations:
          -> Bot tags both grad student and requester in the thread to coordinate cart/punchout.
 
     3. Submission / Cart Adjustments:
-       Grad student replies: "@p-bot submitted $152.49" (or "processed")
+       Grad student replies: "@p-bot processed $152.49" (or "submitted" as a silent alias)
          -> Bot records Date Processed (Col U) and updates Total Price (Col H) if price changed.
 
     4. Confirmation:
@@ -371,7 +371,7 @@ def handle_roster_set_name_submit(ack, body, client, view):
         except Exception as e:
             log.warning("Could not post new requester alert to admin channel: %s", e)
 
-    slack_io.tell(client, user_id, f"Your request to link your Slack account as *{matched_name}* has been submitted to admins for approval.")
+    slack_io.tell(client, user_id, f"Your request to link your Slack account as *{matched_name}* has been sent to admins for approval.")
 
 
 @app.view(config.STAGE1_CALLBACK_ID)
@@ -691,9 +691,9 @@ def handle_req_claim_action(ack, body, respond, client):
         log.error("Failed to update message on req_claim: %s", e)
 
 
-@app.action("req_submitted")
-def handle_req_submitted_action(ack, body, respond, client):
-    """Handle clicking 'Mark Submitted' button on purchase request message."""
+@app.action("req_processed")
+def handle_req_processed_action(ack, body, respond, client):
+    """Handle clicking 'Mark Processed' button on purchase request message."""
     ack()
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
@@ -702,7 +702,7 @@ def handle_req_submitted_action(ack, body, respond, client):
 
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
-        log.warning("Unregistered user %s clicked req_submitted", user_id)
+        log.warning("Unregistered user %s clicked req_processed", user_id)
         respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
@@ -712,12 +712,12 @@ def handle_req_submitted_action(ack, body, respond, client):
     history = list(val_data.get("history", []))
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    history.append(f"Submitted by {requester_name} on {now_str}")
+    history.append(f"Processed by {requester_name} on {now_str}")
 
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
-    lifecycle.handle_submission(
+    lifecycle.handle_processed(
         client=client,
         say=say,
         channel=channel_id,
@@ -727,17 +727,64 @@ def handle_req_submitted_action(ack, body, respond, client):
         text="",
     )
 
-    next_blocks = blocks.build_request_blocks("submitted", req_data, history=history)
+    next_blocks = blocks.build_request_blocks("processed", req_data, history=history)
     try:
         client.chat_update(
             channel=channel_id,
             ts=msg_ts,
-            text="🛒 Purchase Request (Submitted)",
+            text="🛒 Purchase Request (Processed)",
             blocks=next_blocks,
         )
-        log.info("Purchase request message updated to 'submitted' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
+        log.info("Purchase request message updated to 'processed' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
     except Exception as e:
-        log.error("Failed to update message on req_submitted: %s", e)
+        log.error("Failed to update message on req_processed: %s", e)
+
+
+@app.action("req_decline")
+def handle_req_decline_action(ack, body, respond, client):
+    """Handle clicking 'Decline' button on a posted purchase request message."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+    msg_ts = body.get("message", {}).get("ts")
+
+    if not admin.is_approved_reviewer(user_id):
+        log.warning("Unauthorized user %s attempted to decline purchase request", user_id)
+        respond(text="🔒 Only authorized approvers can decline purchase requests.")
+        return
+
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+    history = list(val_data.get("history", []))
+
+    lifecycle.handle_decline(client, channel_id, msg_ts, user_id, req_data, history)
+
+
+@app.action("req_cancel")
+def handle_req_cancel_action(ack, body, respond, client):
+    """Handle clicking 'Cancel' button on an approved or claimed purchase request message."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+    msg_ts = body.get("message", {}).get("ts")
+    thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
+
+    if not (admin.is_approved_reviewer(user_id) or admin.is_admin_user(user_id)):
+        log.warning("Unauthorized user %s attempted to cancel purchase request", user_id)
+        respond(text="🔒 Only approvers and admins can cancel purchase requests.")
+        return
+
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+    state = val_data.get("state", "")
+    history = list(val_data.get("history", []))
+
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
+
+    lifecycle.handle_cancel(client, say, channel_id, thread_ts, msg_ts, user_id, req_data, state, history)
 
 
 @app.action("req_confirmed")
@@ -898,8 +945,8 @@ def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event
             say(text="🔒 You must be registered in the lab roster to claim requests. Use `/roster-set-name` first.", thread_ts=thread_ts)
             return
         lifecycle.handle_claim(client, say, channel, thread_ts, user, event_ts)
-    elif any(kw in text_lower for kw in config.SUBMIT_KEYWORDS):
-        lifecycle.handle_submission(client, say, channel, thread_ts, user, event_ts, text)
+    elif any(kw in text_lower for kw in config.PROCESSED_KEYWORDS):
+        lifecycle.handle_processed(client, say, channel, thread_ts, user, event_ts, text)
     elif any(kw in text_lower for kw in config.CONFIRM_KEYWORDS):
         lifecycle.handle_confirmation(client, say, channel, thread_ts, user, event_ts, text, files)
     elif any(kw in text_lower for kw in config.DELIVERED_KEYWORDS):

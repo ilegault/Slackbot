@@ -96,7 +96,7 @@ def log_rejection(user_id: str | None, filename: str, problems: list, requester_
     except Exception as e:
         log.warning("Failed to record rejection log to %s: %s", config.REJECTIONS_LOG_FILE, e)
 
-    log.warning("Form validation failed for '%s' submitted by %s: %s", filename, user_str, "; ".join(problems))
+    log.warning("Form validation failed for '%s' (from %s): %s", filename, user_str, "; ".join(problems))
 
 
 def find_epif_in_thread(client, channel: str, thread_ts: str):
@@ -111,7 +111,7 @@ def find_epif_in_thread(client, channel: str, thread_ts: str):
 
 
 def find_modal_request_in_thread(client, channel: str, thread_ts: str):
-    """Find a modal-submitted purchase request in the thread if present."""
+    """Find a modal purchase request posted in the thread if present."""
     try:
         replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100, include_all_metadata=True)
         for msg in replies.get("messages", []):
@@ -188,6 +188,26 @@ def find_row_in_thread(client, channel: str, thread_ts: str) -> int | None:
     except Exception as e:
         log.warning("Could not search thread for row number: %s", e)
     return None
+
+
+def find_all_rows_in_thread(client, channel: str, thread_ts: str) -> list:
+    """Return every logged row number mentioned in this thread.
+
+    Used by handle_cancel to blank all rows a batch request wrote.
+    The approval success message contains 'Logged to row N', once per EPIF.
+    """
+    rows = []
+    try:
+        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100)
+        for msg in replies.get("messages", []):
+            text = msg.get("text", "")
+            for match in re.finditer(r"Logged to row\s*(\d+)", text, re.I):
+                row = int(match.group(1))
+                if row not in rows:
+                    rows.append(row)
+    except Exception as e:
+        log.warning("Could not search thread for row numbers: %s", e)
+    return rows
 
 
 def download(file_obj) -> bytes:

@@ -166,7 +166,7 @@ COLUMN_HOW_BUYING = "L"     # P-card / Req is NOT the same as Workday / Out-of-N
 COLUMN_DATE_OF_REQUEST = "M"# Date of Purchase / Request
 COLUMN_URGENCY = "N"        # not on the EPIF
 COLUMN_CATEGORY = "O"
-COLUMN_DATE_PROCESSED = "U" # Date submitted to Workday/Tina/Lisa
+COLUMN_DATE_PROCESSED = "U" # Date sent to Workday/Tina/Lisa (Date Processed)
 COLUMN_DATE_CONFIRMED = "V" # Date order/package confirmed
 COLUMN_DATE_DELIVERY = "W"  # Date package delivered to lab
 COLUMN_RECEIVED_BY = "X"    # Lab member who received package
@@ -222,7 +222,7 @@ WORKDAY_PAYMENT_METHOD = "Workday"
 
 TRIGGER_KEYWORD = "approved"
 CLAIM_KEYWORDS = ("claim", "i will order", "i'll order", "take", "claiming")
-SUBMIT_KEYWORDS = ("submitted", "submit", "processed", "processing", "ordered")
+PROCESSED_KEYWORDS = ("processed", "processing", "ordered", "submitted", "submit")  # "submitted"/"submit" are silent backwards-compat aliases
 CONFIRM_KEYWORDS = ("confirmed", "confirm", "package confirmed", "order confirmed")
 DELIVERED_KEYWORDS = ("delivered", "received", "package delivered", "package received")
 QUOTE_KEYWORDS = ("quote", "save quote", "quotes")
