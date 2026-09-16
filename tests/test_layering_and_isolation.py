@@ -6,6 +6,8 @@ Guards against architectural erosion:
 1. Verifies pure layers (blocks, text_rules) can be imported and executed
    without importing Bolt App or Slack SDK.
 2. Verifies that no module under src/ imports app (downward import flow invariant).
+3. Verifies that importing src.app does not perform online auth verification when
+   dummy tokens are configured (as in CI).
 """
 import ast
 import os
@@ -73,3 +75,27 @@ def test_no_module_in_src_imports_app():
                         assert "app" not in imported_names, (
                             f"{rel_path}:{node.lineno} imports 'app' relatively. No module in src/ may import app."
                         )
+
+
+def test_app_importable_with_dummy_or_missing_tokens():
+    """Verify that importing src.app does not make network auth calls when dummy tokens are present.
+
+    In CI and testing environments, SLACK_BOT_TOKEN is set to a dummy value (e.g., xoxb-test-not-a-real-token).
+    App construction must set token_verification_enabled=False to avoid Bolt raising BoltError or attempting
+    an online auth.test during module import.
+    """
+    code = (
+        "import os\n"
+        "os.environ['SLACK_BOT_TOKEN'] = 'xoxb-test-not-a-real-token'\n"
+        "os.environ['SLACK_APP_TOKEN'] = 'xapp-test-not-a-real-token'\n"
+        "from src import app\n"
+        "assert app.app is not None\n"
+    )
+    res = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, f"Subprocess failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+

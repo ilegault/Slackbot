@@ -115,7 +115,11 @@ def setup_logging():
 
 
 log = setup_logging()
-app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
+# token_verification_enabled=False avoids an auth.test network call on import/tests.
+app = App(
+    token=os.environ.get("SLACK_BOT_TOKEN"),
+    token_verification_enabled=False,
+)
 
 
 @app.middleware

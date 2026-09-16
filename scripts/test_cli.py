@@ -26,12 +26,12 @@ for p in (PROJECT_ROOT, SRC_DIR):
         sys.path.insert(0, p)
 
 try:
-    from src import app, config, epif_parser, log_writer, validators
+    from src import config, epif_parser, log_writer, text_rules, validators
 except ImportError:
-    import app
     import config
     import epif_parser
     import log_writer
+    import text_rules
     import validators
 
 
@@ -128,7 +128,7 @@ def main():
         print(f"    Col {col}: {val}")
 
     print("\n[3b] Generated Email Draft for Requester:")
-    email_draft = app.generate_email_draft(parsed, args.requester)
+    email_draft = text_rules.generate_email_draft(parsed, args.requester)
     print("-------------------------------------------------------")
     print(email_draft)
     print("-------------------------------------------------------")

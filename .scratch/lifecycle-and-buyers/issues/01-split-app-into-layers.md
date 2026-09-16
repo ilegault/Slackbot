@@ -87,4 +87,6 @@ new module needs something from `app.py`, the split is wrong, not the rule.
 ## Comments
 
 - 2026-09-15: Completed pure architectural split of `src/app.py` (2855 lines -> 442 lines) into `text_rules.py`, `blocks.py`, `slack_io.py`, `lifecycle.py`, and `ops.py`. Added structural AST & import isolation test suite in `tests/test_layering_and_isolation.py`. Full test gate passed cleanly (ruff, check_tests_first, pytest).
+- 2026-09-15: Fixed CI collection failure: set `token_verification_enabled=False` on `App` initialization in `src/app.py` to prevent online `auth.test` calls on import when dummy tokens are present. Added `testpaths = tests` to `pytest.ini`, updated `scripts/test_cli.py` to use `text_rules.generate_email_draft`, and added isolation test `test_app_importable_with_dummy_or_missing_tokens`.
+
 
