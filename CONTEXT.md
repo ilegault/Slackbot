@@ -31,14 +31,41 @@ not grant approval. Stored as Slack IDs in the roster's `buyers`, checked with
 not a licence to act on a request already assigned to someone else.
 
 **Requester** — whoever asked for the purchase. Anyone in the lab. Mapped Slack ID
-→ name in the roster's `requesters`; the name has to match `VALID_REQUESTERS`
-exactly because it goes into the workbook.
+→ name in the roster's `requesters`. The name goes into the workbook, so it is
+validated — but **not against a fixed list any more.** `config.VALID_REQUESTERS`
+was deleted in ticket 11; `roster.get_valid_requesters()` is the only source. A
+name nobody holds is allowed and goes to an admin for approval; a name another
+member already holds is refused outright. See **Lab member** below.
 
 **Purchasing guru** — the buyer currently holding purchasing duty. Charlie set up
 a rotating arrangement, Dylan first. This is a **human arrangement, not a role in
 the bot.** The bot still does not know whose turn it is — it knows the name the
 approver types, and the approver is the person who set the rotation up. See ADR
 0004.
+
+**Lab member** — a person the bot knows: a Slack ID with a name in the roster's
+`requesters`. Being a lab member is what makes someone a requester, and it is
+independent of the three roles. Everyone in the lab should be one; only members
+can be assigned requests or have their name written to the workbook.
+
+**Register** — linking your Slack account to your roster name, with
+`/roster-set-name`. One command covers all three cases: you are not in the roster
+yet, you are and want to correct your name, or the name you want is new to the lab.
+A name nobody holds needs an admin's approval before it lands; a name that only
+differs from your current one by case, spacing or punctuation applies instantly; a
+name another member already holds is refused and never reaches an admin.
+
+**Remove a role** vs **remove a member** — two different acts and never
+interchangeable. `remove-buyer` and `remove-approver` take one role away and leave
+the person in the lab. **`remove-member` ends their membership**: the `requesters`
+entry is hard-deleted and they are stripped from all three role lists at once.
+"Dylan is off purchasing duty" is the first; "Katarina graduated" is the second.
+Refused if it would leave the lab with no admin or no approver.
+
+> Removing a member does **not** touch the workbook. The `Roles & Lists` mirror is
+> append-only by design (ticket 11, requirement 2), so a removed name stays in the
+> `Requester Name` dropdown and the bot says so in the alert channel, naming the
+> cell. Deleting it is a human's call, because Order Log rows still reference it.
 
 > Avoid "reviewer" as a synonym for approver in anything user-facing.
 > `is_approved_reviewer` keeps the name for now because renaming it is a code
@@ -134,12 +161,15 @@ button clicks carry `channel.id`, `container.message_ts` and
 `/roster-list`, `/roster-set-name`. Things with no target.
 
 **Button** — Approve, Mark Processed, Mark Confirmed, Mark Delivered, Decline,
-Cancel. Things with a target, rendered on the request message. **Assigning is not
-a button** — a button cannot carry a person, and the mention already does.
+Cancel. Things with a target, rendered on the request message. **Assignment has
+two inputs**: a `users_select` picker on the posted card, and an `@`-mention in the
+approval text. Both resolve to one assignment function; if both are given, the
+mention wins. ADR 0005 corrects ADR 0004's claim that a button cannot carry a
+person — it can, and the earlier reasoning was never checked.
 
 **Keyword** — `@p-bot <word>`. Two kinds: **admin ops** (`restart`, `logs`,
 `update`, `health`, `queue`, `promote-admin`, `add-approver`, `remove-approver`,
-`add-buyer`, `remove-buyer`, `remove-vendor`) which are documented and admin-only;
+`add-buyer`, `remove-buyer`, `remove-member`, `remove-vendor`) which are documented and admin-only;
 and **lifecycle aliases** (`approved`, `assign`, `processed`, `confirmed`,
 `delivered`, `quote`) which keep working so Charlie's habits do not break, but are
 taught nowhere. User mentions are stripped from the text *before* a keyword is
@@ -190,3 +220,5 @@ message. Do not use "the store" to mean that module without saying so.
 | cancel (before approval) | **decline** |
 | decline (after approval) | **cancel** |
 | ticket done / complete / completed | **done** (exactly this) |
+| delete a member, deregister, kick | **remove-member** |
+| remove a requester (meaning the role) | there is no requester *role* — see **Lab member** |
