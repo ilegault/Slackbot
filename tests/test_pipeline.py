@@ -24,12 +24,15 @@ for p in (PROJECT_ROOT, SRC_DIR):
         sys.path.insert(0, p)
 
 try:
-    from src import app, config, epif_parser, log_writer, validators
+    from src import app, blocks, config, epif_parser, log_writer, slack_io, text_rules, validators
 except ImportError:
     import app
+    import blocks
     import config
     import epif_parser
     import log_writer
+    import slack_io
+    import text_rules
     import validators
 
 SAMPLES = os.path.join(PROJECT_ROOT, "samples")
@@ -137,7 +140,7 @@ def test_resolve_requester_via_explicit_mapping():
     mock_client = MagicMock()
     config.SLACK_USER_TO_REQUESTER["U12345"] = "Isaac"
     try:
-        assert app.resolve_requester(mock_client, "U12345") == "Isaac"
+        assert slack_io.resolve_requester(mock_client, "U12345") == "Isaac"
     finally:
         config.SLACK_USER_TO_REQUESTER.pop("U12345", None)
 
@@ -154,7 +157,7 @@ def test_resolve_requester_via_users_info_fallback():
             },
         },
     }
-    assert app.resolve_requester(mock_client, "U99999") == "Isaac"
+    assert slack_io.resolve_requester(mock_client, "U99999") == "Isaac"
 
 
 def test_resolve_requester_returns_none_if_unmatched():
@@ -169,7 +172,7 @@ def test_resolve_requester_returns_none_if_unmatched():
             },
         },
     }
-    assert app.resolve_requester(mock_client, "U88888") is None
+    assert slack_io.resolve_requester(mock_client, "U88888") is None
 
 
 # --- writing ------------------------------------------------------------------
@@ -280,7 +283,7 @@ def test_save_epif_handles_missing_extension_and_traversal(tmp_path):
 # --- email draft & confirmation flow ------------------------------------------
 
 def test_generate_email_draft_contains_all_key_elements(filled):
-    draft = app.generate_email_draft(filled, "Isaac Legault")
+    draft = text_rules.generate_email_draft(filled, "Isaac Legault")
     assert "Tina and Ally" in draft
     assert "Prusa" in draft
     assert "$2,799.00" in draft
@@ -291,17 +294,17 @@ def test_generate_email_draft_contains_all_key_elements(filled):
 
 
 def test_extract_row_from_text():
-    assert app.extract_row_from_text("confirmed row 17") == 17
-    assert app.extract_row_from_text("confirm #18") == 18
-    assert app.extract_row_from_text("package confirmed 19") == 19
-    assert app.extract_row_from_text("no row mentioned") is None
+    assert text_rules.extract_row_from_text("confirmed row 17") == 17
+    assert text_rules.extract_row_from_text("confirm #18") == 18
+    assert text_rules.extract_row_from_text("package confirmed 19") == 19
+    assert text_rules.extract_row_from_text("no row mentioned") is None
 
 
 def test_extract_price_from_text():
-    assert app.extract_price_from_text("Total: $152.49, about to be submitted") == 152.49
-    assert app.extract_price_from_text("submitted for $85.00") == 85.0
-    assert app.extract_price_from_text("price is 120.50") == 120.50
-    assert app.extract_price_from_text("submitted without price") is None
+    assert text_rules.extract_price_from_text("Total: $152.49, about to be submitted") == 152.49
+    assert text_rules.extract_price_from_text("submitted for $85.00") == 85.0
+    assert text_rules.extract_price_from_text("price is 120.50") == 120.50
+    assert text_rules.extract_price_from_text("submitted without price") is None
 
 
 def test_update_row_and_confirm(workbook, filled):
@@ -370,7 +373,7 @@ def test_save_quote_file(tmp_path):
 
 
 def test_help_message_returns_command_list():
-    help_text = app.get_help_message()
+    help_text = blocks.get_help_message()
     assert "/new-purchase" in help_text
     assert "/purchasing-help" in help_text
     assert "/blank-template" in help_text
@@ -385,5 +388,5 @@ def test_app_home_opened_publishes_view():
     app.handle_app_home_opened(mock_client, {"user": "U12345"})
     mock_client.views_publish.assert_called_once_with(
         user_id="U12345",
-        view=app.APP_HOME_VIEW,
+        view=blocks.APP_HOME_VIEW,
     )

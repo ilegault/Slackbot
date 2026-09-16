@@ -39,198 +39,41 @@ Flow of operations:
        - "@p-bot restart" -> Restart bot process (Admin only)
 """
 from datetime import datetime
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
-import re
 import sys
 import time
 import traceback
 
-import json
-import requests
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 try:
     from . import admin
+    from . import blocks
     from . import config
-    from . import epif_parser
     from . import heartbeat
     from . import interview
-    from . import log_writer
+    from . import lifecycle
+    from . import ops
     from . import queue_worker
     from . import roster
-    from . import validators
+    from . import slack_io
+    from . import text_rules
 except ImportError:
     import admin
+    import blocks
     import config
-    import epif_parser
     import heartbeat
     import interview
-    import log_writer
+    import lifecycle
+    import ops
     import queue_worker
     import roster
-    import validators
-
-# --- App Home Block Kit View --------------------------------------------------
-# --- App Home Block Kit View --------------------------------------------------
-APP_HOME_VIEW = {
-    "type": "home",
-    "blocks": [
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "Purchasing Bot: P-Bot",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "Welcome! *P-Bot* (`@p-bot`) automates logging, tracking, and archiving lab purchase requests directly to `Purchasing-Log.xlsx` and OneDrive.\n\n"
-                    "> *Rule:* If the action needs a target, it's a button on that target. If it doesn't, it's a slash command."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "🛒 Start Something",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• `/new-purchase` — Open the guided purchasing modal to submit an order request.\n"
-                    "• `/purchasing-help` — Display this help and command reference.\n"
-                    "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
-                    "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
-                    "• `/roster-set-name` — Link your Slack user account to your lab name in the roster."
-                ),
-            },
-            "accessory": {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "New Purchase Request",
-                    "emoji": True,
-                },
-                "style": "primary",
-                "action_id": "start_purchase_interview",
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "🔄 Move a Request Along",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• Click the action buttons on the request message: *Approve* (approvers), *Claim* (grad buyers), *Mark Submitted*, *Mark Confirmed*, and *Mark Delivered*.\n"
-                    "• Drop quote files or confirmation receipts directly into the thread to attach them."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "⚙️ Admin Operations",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• `@p-bot health` / `@p-bot status` — View system health, host uptime, and storage status.\n"
-                    "• `@p-bot queue` — View Excel lock write queue status.\n"
-                    "• `@p-bot logs [n]` — _(Admin Only)_ View recent bot log entries.\n"
-                    "• `@p-bot update` — _(Admin Only)_ Pull latest git code and restart bot.\n"
-                    "• `@p-bot restart` — _(Admin Only)_ Gracefully restart the bot process.\n"
-                    "• `@p-bot promote-admin @user` — _(Admin Only)_ Propose promoting a user to bot administrator.\n"
-                    "• `@p-bot add-approver @user` — _(Admin Only)_ Add a user to the approver list.\n"
-                    "• `@p-bot remove-approver @user` — _(Admin Only)_ Remove a user from the approver list.\n"
-                    "• `@p-bot remove vendor <name>` — _(Admin Only)_ Remove a vendor from the Workday catalog list."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "⚠️ Common Issues & Troubleshooting",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "• *Excel Locked:* If `Purchasing-Log.xlsx` is open in Excel, P-Bot automatically queues your update and writes it immediately once closed.\n"
-                    "• *Validation Rejections:* Make sure all required fields in the EPIF form are filled.\n"
-                    "• *Price Mismatch:* If the final invoice or checkout total differs from the initial estimate, contact your purchase approver or lab buyer.\n"
-                    "• *File Attachments:* For confirmations and quotes, ensure you attach the file in the request thread."
-                ),
-            },
-        },
-        {
-            "type": "divider",
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "💬 Questions, Feedback & Complaints",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "Bot maintained by: *Isaac Legault*\n\nIf you experience any bugs, errors, or have suggestions/complaints, please feel free to DM me directly on Slack.",
-            },
-        },
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": "Hirst Lab Automation • Report issues to Isaac Legault",
-                },
-            ],
-        },
-    ],
-}
+    import slack_io
+    import text_rules
 
 
 # --- Setup Logging ------------------------------------------------------------
@@ -272,65 +115,17 @@ def setup_logging():
 
 
 log = setup_logging()
-app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
-
-
-def extract_request_info(body: dict) -> tuple[str, str, str | None, str | None, bool]:
-    """Extract (kind, identifier, user_id, channel_id, is_verbose_msg) from Slack Bolt request body."""
-    if not isinstance(body, dict):
-        return "unknown", "unknown", None, None, False
-
-    # 1. Slash commands
-    if "command" in body:
-        return "command", body.get("command", ""), body.get("user_id"), body.get("channel_id"), False
-
-    # 2. Block actions (interactive button clicks, select menus)
-    if body.get("type") == "block_actions":
-        actions = body.get("actions", [])
-        act_id = actions[0].get("action_id", "unknown_action") if actions else "no_action"
-        user_id = body.get("user", {}).get("id")
-        channel_id = body.get("channel", {}).get("id")
-        return "block_actions", act_id, user_id, channel_id, False
-
-    # 3. View submission (modal submit)
-    if body.get("type") == "view_submission":
-        cb_id = body.get("view", {}).get("callback_id", "unknown_callback")
-        user_id = body.get("user", {}).get("id")
-        return "view_submission", cb_id, user_id, None, False
-
-    # 4. View closed (modal cancel)
-    if body.get("type") == "view_closed":
-        cb_id = body.get("view", {}).get("callback_id", "unknown_callback")
-        user_id = body.get("user", {}).get("id")
-        return "view_closed", cb_id, user_id, None, False
-
-    # 5. Events (app_mention, message, app_home_opened, etc.)
-    if body.get("type") == "event_callback":
-        ev = body.get("event", {})
-        ev_type = ev.get("type", "unknown_event")
-        user_id = ev.get("user")
-        channel_id = ev.get("channel")
-        is_verbose = (ev_type == "message" and (ev.get("channel_type") != "im" or ev.get("subtype") == "bot_message"))
-        return "event", ev_type, user_id, channel_id, is_verbose
-
-    # 6. Shortcuts
-    if body.get("type") in ("shortcut", "message_action"):
-        cb_id = body.get("callback_id", "unknown_shortcut")
-        user_id = body.get("user", {}).get("id")
-        channel_id = body.get("channel", {}).get("id")
-        return "shortcut", cb_id, user_id, channel_id, False
-
-    # Fallback
-    b_type = body.get("type", "unknown")
-    user_id = body.get("user_id") or body.get("user", {}).get("id")
-    channel_id = body.get("channel_id") or body.get("channel", {}).get("id")
-    return b_type, b_type, user_id, channel_id, False
+# token_verification_enabled=False avoids an auth.test network call on import/tests.
+app = App(
+    token=os.environ.get("SLACK_BOT_TOKEN"),
+    token_verification_enabled=False,
+)
 
 
 @app.middleware
 def log_request(body, next):
     """Global Bolt middleware to log incoming requests and execution outcomes/timings."""
-    kind, ident, user_id, channel_id, is_verbose = extract_request_info(body)
+    kind, ident, user_id, channel_id, is_verbose = text_rules.extract_request_info(body)
     user_name = None
     if user_id and hasattr(roster, "get_requesters"):
         user_name = roster.get_requesters().get(user_id)
@@ -359,1264 +154,15 @@ def log_request(body, next):
                 log.info("Completed %s [%s] from %s in %.1f ms", kind, ident, user_str, elapsed_ms)
 
 
-def resolve_requester(client, user_id: str | None) -> str | None:
-    """Resolve Slack user ID to the exact name in the Requester Name dropdown."""
-    if not user_id:
-        return None
-    # 1. Check explicit map in roster and config fallback
-    requesters_map = roster.get_requesters() if hasattr(roster, "get_requesters") else {}
-    if user_id in requesters_map:
-        return requesters_map[user_id]
-    cfg_map = getattr(config, "SLACK_USER_TO_REQUESTER", {})
-    if user_id in cfg_map:
-        return cfg_map[user_id]
-
-
-    # 2. Lookup user profile via Slack API and match against valid requesters
-    try:
-        res = client.users_info(user=user_id)
-        if res.get("ok") and "user" in res:
-            user_data = res["user"]
-            profile = user_data.get("profile", {})
-            candidates = [
-                profile.get("display_name", "").strip(),
-                profile.get("real_name", "").strip(),
-                user_data.get("real_name", "").strip(),
-                user_data.get("name", "").strip(),
-            ]
-            valid_set = roster.get_valid_requesters() if hasattr(roster, "get_valid_requesters") else getattr(config, "VALID_REQUESTERS", set())
-            valid_map = {r.lower(): r for r in valid_set}
-            # Try exact match first
-            for cand in candidates:
-                if cand and cand.lower() in valid_map:
-                    return valid_map[cand.lower()]
-            # Try first-name match (e.g. "Isaac Legault" -> "Isaac")
-            for cand in candidates:
-                if not cand:
-                    continue
-                first_name = cand.split()[0].lower()
-                if first_name in valid_map:
-                    return valid_map[first_name]
-    except Exception as e:
-        log.warning("Could not lookup user info for %s: %s", user_id, e)
-
-    return None
-
-
-def log_rejection(user_id: str | None, filename: str, problems: list, requester_name: str | None = None):
-    """Log validation failures cleanly to rejections.log and p_bot.log."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user_str = f"{requester_name} ({user_id})" if requester_name and user_id else (user_id or requester_name or "Unknown User")
-
-    entry = (
-        f"[{timestamp}] REJECTION | User: {user_str} | File: {filename}\n"
-        + "".join(f"  • {p}\n" for p in problems)
-        + "-" * 70 + "\n"
-    )
-
-    try:
-        with open(config.REJECTIONS_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(entry)
-    except Exception as e:
-        log.warning("Failed to record rejection log to %s: %s", config.REJECTIONS_LOG_FILE, e)
-
-    log.warning("Form validation failed for '%s' submitted by %s: %s", filename, user_str, "; ".join(problems))
-
-
-def find_epif_in_thread(client, channel: str, thread_ts: str):
-    """Newest PDF posted in the thread, plus who posted it."""
-    replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
-    for message in reversed(replies.get("messages", [])):
-        for attachment in message.get("files", []):
-            name = attachment.get("name", "").lower()
-            if name.endswith(".pdf"):
-                return attachment, message.get("user")
-    return None, None
-
-
-def find_modal_request_in_thread(client, channel: str, thread_ts: str):
-    """Find a modal-submitted purchase request in the thread if present."""
-    try:
-        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100, include_all_metadata=True)
-        for msg in replies.get("messages", []):
-            meta = msg.get("metadata", {})
-            if meta and meta.get("event_type") == "purchase_request":
-                payload = meta.get("event_payload", {})
-                parsed = dict(payload.get("parsed", {}))
-                if parsed.get("date_of_purchase") and isinstance(parsed["date_of_purchase"], str):
-                    parsed["date_of_purchase"] = epif_parser.parse_date(parsed["date_of_purchase"])
-                return parsed, payload.get("requester"), payload.get("user_id"), payload.get("is_pending_name", False)
-
-            text = msg.get("text", "")
-            if "🛒 *New Purchase Request" in text:
-                item_m = re.search(r"•\s*\*Item:\*\s*(.+)", text)
-                total_m = re.search(r"•\s*\*Total:\*\s*\$?([0-9,]+(?:\.[0-9]{1,2})?)", text)
-                vendor_m = re.search(r"•\s*\*Vendor:\*\s*(.+?)(?:\s*\((.*?)\))?$", text, re.M)
-                cat_m = re.search(r"•\s*\*Category:\*\s*(.+)", text)
-                proj_m = re.search(r"•\s*\*Project ID / Fund:\*\s*(\S+)\s*\(Fund\s*(\S+)\)", text)
-                room_m = re.search(r"•\s*\*Delivery Room:\*\s*(.+)", text)
-                purp_m = re.search(r"•\s*\*Purpose:\*\s*([\s\S]+?)(?=\n💡|\n\nReply|$)", text)
-                name_m = re.search(r"🛒 \*New Purchase Request from (.+?)(?:\s*\(pending name confirmation\))?:", text)
-
-                if item_m and vendor_m and proj_m:
-                    vendor_name = vendor_m.group(1).strip()
-                    pay_method = vendor_m.group(2).strip() if vendor_m.group(2) else None
-                    is_pending = "(pending name confirmation)" in text
-                    requester_name = name_m.group(1).strip() if name_m else None
-                    user_match = re.search(r"<@([A-Z0-9]+)>", text)
-                    poster_id = user_match.group(1) if user_match else None
-                    purpose_str = purp_m.group(1).strip() if purp_m else ""
-                    parsed = {
-                        "raw_fields": {},
-                        "item_description": item_m.group(1).strip(),
-                        "purpose": purpose_str,
-                        "link": epif_parser.first_url(purpose_str),
-                        "total_price": float(total_m.group(1).replace(",", "")) if total_m else None,
-                        "total_price_raw": total_m.group(1) if total_m else "",
-                        "vendor": vendor_name,
-                        "vendor_contact_name": "",
-                        "vendor_contact_email": "sales@vendor.com",
-                        "date_of_purchase": datetime.now().date(),
-                        "name_of_system": "",
-                        "delivery_room": room_m.group(1).strip() if room_m else "",
-                        "project_id": proj_m.group(1).strip(),
-                        "fund": proj_m.group(2).strip(),
-                        "asset_id": "",
-                        "pi_of_funding": "",
-                        "end_user": "",
-                        "category": cat_m.group(1).strip() if cat_m else "Research/Lab Supplies (3105)",
-                        "category_error": None,
-                        "payment_method": pay_method or ("Workday" if interview.route_vendor(vendor_name) == "workday" else "P-card"),
-                    }
-                    return parsed, requester_name, poster_id, is_pending
-    except Exception as e:
-        log.warning("Could not search thread for modal request: %s", e)
-    return None, None, None, False
-
-
-def find_row_in_thread(client, channel: str, thread_ts: str) -> int | None:
-    """Find previously logged row number mentioned in this thread."""
-    try:
-        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100)
-        for msg in reversed(replies.get("messages", [])):
-            text = msg.get("text", "")
-            match = re.search(r"Logged to row\s*(\d+)", text, re.I)
-            if match:
-                return int(match.group(1))
-            match = re.search(r"Row\s*#?\s*(\d+)", text, re.I)
-            if match:
-                return int(match.group(1))
-    except Exception as e:
-        log.warning("Could not search thread for row number: %s", e)
-    return None
-
-
-def extract_row_from_text(text: str) -> int | None:
-    """Extract explicit row number from message text (e.g. 'row 17', '#17')."""
-    match = re.search(r"row\s*#?\s*(\d+)", text, re.I)
-    if match:
-        return int(match.group(1))
-    match = re.search(r"\b(\d{2,4})\b", text)
-    if match:
-        val = int(match.group(1))
-        if config.FIRST_DATA_ROW <= val <= config.LAST_DATA_ROW:
-            return val
-    return None
-
-
-def extract_price_from_text(text: str) -> float | None:
-    """Extract dollar amount or updated price from message text (e.g. '$152.49', '152.49')."""
-    match = re.search(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)", text)
-    if match:
-        val_str = match.group(1).replace(",", "")
-        try:
-            return float(val_str)
-        except ValueError:
-            pass
-    match = re.search(r"(?:price|total|for|amount)\s*(?:of|is|:)?\s*\$?([0-9]+(?:\.[0-9]{1,2})?)", text, re.I)
-    if match:
-        try:
-            return float(match.group(1))
-        except ValueError:
-            pass
-    return None
-
-
-def download(file_obj) -> bytes:
-    """Slack file URLs need the bot token as a bearer header."""
-    url = file_obj.get("url_private_download") or file_obj.get("url_private")
-    token = os.environ.get("SLACK_BOT_TOKEN")
-    try:
-        response = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        if response.status_code == 403:
-            raise RuntimeError(
-                "Slack returned 403 Forbidden while downloading the file. "
-                "Ensure 'files:read' is added under OAuth & Permissions -> Bot Token Scopes, "
-                "and click 'Reinstall to Workspace' in api.slack.com."
-            ) from e
-        raise
-
-    if response.content[:4] != b"%PDF":
-        # Slack hands back an HTML login page when the scope is missing.
-        raise RuntimeError(
-            "Slack returned something that isn't a PDF - the bot is probably "
-            "missing the files:read scope, or needs to be reinstalled to the workspace."
-        )
-    return response.content
-
-
-def download_file(file_obj) -> bytes:
-    """Download any file attachment (PDF, screenshot/PNG, image, quote, etc.) from Slack."""
-    url = file_obj.get("url_private_download") or file_obj.get("url_private")
-    token = os.environ.get("SLACK_BOT_TOKEN")
-    try:
-        response = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        response.raise_for_status()
-    except requests.exceptions.HTTPError:
-        if response.status_code == 403:
-            raise RuntimeError(
-                "Slack returned 403 Forbidden while downloading the file. "
-                "Ensure 'files:read' is added under OAuth & Permissions -> Bot Token Scopes, "
-                "and click 'Reinstall to Workspace' in api.slack.com."
-            )
-        raise
-    return response.content
-
-
-def tell(client, user_id: str, text: str):
-    client.chat_postMessage(channel=user_id, text=text)
-
-
-def generate_email_draft(parsed: dict, requester_name: str) -> str:
-    """Generate a pre-filled email draft matching the lab's purchasing request format."""
-    vendor = parsed.get("vendor") or "Vendor"
-    amount = parsed.get("total_price")
-    amount_str = f"${amount:,.2f}" if amount is not None else "the specified amount"
-    project_id = parsed.get("project_id") or "PG000025831"
-    fund = parsed.get("fund")
-    fund_str = f" (Fund {fund})" if fund else ""
-    link = parsed.get("link") or "[Link to product / cart]"
-    item = parsed.get("item_description") or "supplies"
-
-    return (
-        f"Subject: Hirst Lab purchase request - {vendor} - {item}\n\n"
-        f"Hello Tina and Ally,\n\n"
-        f"We would like to make a purchase from {vendor} for {amount_str} under project ID {project_id}{fund_str}.\n"
-        f"Attached is the filled out EPIF and the link to the website:\n"
-        f"{link}\n\n"
-        f"Please let me know if you have any questions or edits that need to be made.\n\n"
-        f"All the best,\n"
-        f"{requester_name}"
-    )
-
-
-def get_help_message() -> str:
-    """Command guide for the bot description and help command."""
-    return (
-        "🤖 *Hirst Lab Purchasing Bot (P-Bot)*\n\n"
-        "> *Rule:* If the action needs a target, it's a button on that target. If it doesn't, it's a slash command.\n\n"
-        "*🛒 Start something (Slash Commands):*\n"
-        "• `/new-purchase` — Open the guided purchasing modal to submit an order request.\n"
-        "• `/purchasing-help` — Display this help and command reference.\n"
-        "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
-        "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
-        "• `/roster-set-name` — Link your Slack user account to your lab name in the roster.\n\n"
-        "*🔄 Move a request along (Buttons on the message):*\n"
-        "• Click the action buttons on the request message: *Approve* (approvers), *Claim* (grad buyers), *Mark Submitted*, *Mark Confirmed*, and *Mark Delivered*.\n"
-        "• Drop quote files or confirmation receipts directly into the thread to attach them.\n\n"
-        "*⚙️ Admins (`@p-bot <command>`):*\n"
-        "• `@p-bot health` / `@p-bot status` — View system health, host uptime, and storage status.\n"
-        "• `@p-bot queue` — View Excel lock write queue status.\n"
-        "• `@p-bot logs [n]` — View recent bot logs.\n"
-        "• `@p-bot update` — Pull git updates and restart bot.\n"
-        "• `@p-bot restart` — Restart the bot process.\n"
-        "• `@p-bot promote-admin @user` — Propose promoting a user to bot administrator.\n"
-        "• `@p-bot add-approver @user` — Add a user to the approver list.\n"
-        "• `@p-bot remove-approver @user` — Remove a user from the approver list.\n"
-        "• `@p-bot remove vendor <name>` — Remove a vendor from the Workday catalog list."
-    )
-
-
-def build_request_blocks(state: str, request: dict, history: list | None = None) -> list:
-    """Generate Block Kit blocks for a purchase request at a given lifecycle state.
-
-    States: posted -> approved -> claimed -> submitted -> confirmed -> delivered
-    """
-    parsed = request.get("parsed", request)
-    requester = request.get("requester")
-    user_id = request.get("user_id")
-    is_pending_name = request.get("is_pending_name", False)
-
-    display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or (f"<@{user_id}>" if user_id else "Requester"))
-
-    item = parsed.get("item_description", "Item")
-    price = parsed.get("total_price")
-    if isinstance(price, (int, float)):
-        price_str = f"${price:,.2f}"
-    elif price:
-        price_str = str(price)
-        if not price_str.startswith("$"):
-            price_str = f"${price_str}"
-    else:
-        price_str = "$0.00"
-
-    vendor = parsed.get("vendor", "Vendor")
-    payment_method = parsed.get("payment_method", "Workday")
-    category = parsed.get("category", "")
-    project_id = parsed.get("project_id", "")
-    fund = parsed.get("fund", "")
-    delivery_room = parsed.get("delivery_room", "")
-    purpose = parsed.get("purpose", "")
-    suggest_note = request.get("suggest_note", "")
-
-    summary_lines = [
-        f"🛒 *New Purchase Request from {display_name}:*",
-        f"• *Item:* {item}",
-        f"• *Total:* {price_str}",
-        f"• *Vendor:* {vendor} ({payment_method})",
-        f"• *Category:* {category}",
-        f"• *Project ID / Fund:* {project_id} (Fund {fund})",
-        f"• *Delivery Room:* {delivery_room}",
-        f"• *Purpose:* {purpose}",
-    ]
-    if suggest_note:
-        summary_lines.append(suggest_note)
-
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "\n".join(summary_lines),
-            },
-        }
-    ]
-
-    if history:
-        hist_text = "\n".join(f"• {h}" for h in history)
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"*History:*\n{hist_text}",
-                }
-            ],
-        })
-
-    button_mapping = {
-        "posted": ("Approve", "req_approve"),
-        "approved": ("Claim", "req_claim"),
-        "claimed": ("Mark Submitted", "req_submitted"),
-        "submitted": ("Mark Confirmed", "req_confirmed"),
-        "confirmed": ("Mark Delivered", "req_delivered"),
-    }
-
-    if state in button_mapping:
-        btn_label, btn_action_id = button_mapping[state]
-        btn_value = json.dumps({
-            "state": state,
-            "requester": requester,
-            "thread_ts": request.get("thread_ts"),
-            "request": request,
-            "history": history or [],
-        })
-        blocks.append({
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": btn_label, "emoji": True},
-                    "style": "primary",
-                    "action_id": btn_action_id,
-                    "value": btn_value,
-                }
-            ],
-        })
-
-    return blocks
-
-
-def finalize_purchase_request(
-    client, say, channel: str, thread_ts: str, event_ts: str,
-    parsed: dict, requester: str | None, notify_target: str | None,
-    pdf_bytes: bytes | None = None, file_name: str | None = None,
-    is_pending_name: bool = False,
-):
-    """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF if present, and notify."""
-    display_file = file_name or "Purchase Request"
-    problems = validators.validate(parsed, requester_name=requester)
-    if problems:
-        log_rejection(notify_target, display_file, problems, requester_name=requester)
-        bullets = "\n".join(f"  • {p}" for p in problems)
-        if notify_target:
-            if pdf_bytes:
-                fail_msg = (
-                    f"I couldn't log *{display_file}* yet:\n{bullets}\n\n"
-                    "Fix those in the EPIF, re-upload it to the thread, and ask for approval again."
-                )
-            else:
-                fail_msg = (
-                    f"I couldn't log this *{display_file}* yet:\n{bullets}\n\n"
-                    "Please adjust your request and submit again."
-                )
-            tell(client, notify_target, fail_msg)
-        if channel != notify_target:
-            say(text=f"Not logged - {len(problems)} problem(s), requester DM'd.", thread_ts=thread_ts)
-        return
-
-    # Define atomic write action for the queue
-    def write_action():
-        row_num = log_writer.append_row(log_writer.build_row(parsed, requester))
-        if pdf_bytes and file_name:
-            saved_epif_path = log_writer.save_epif(pdf_bytes, file_name)
-        else:
-            saved_epif_path = None
-        return row_num, saved_epif_path
-
-    def on_success(result):
-        row, saved_path = result
-        log.info("✅ Successfully logged order to Row %d (saved PDF: %s)", row, saved_path)
-
-        try:
-            client.reactions_add(channel=channel, timestamp=event_ts, name="white_check_mark")
-        except Exception as e:
-            log.debug("Could not add checkmark reaction: %s", e)
-
-        is_grad_buyer = requester in config.GRAD_STUDENT_BUYERS
-        display_requester = f"{requester} (pending name confirmation)" if is_pending_name else (requester or "Requester")
-        ping_user = f"<@{notify_target}>" if notify_target else display_requester
-        saved_str = f"Saved EPIF to `{saved_path}`.\n\n" if saved_path else ""
-
-        if is_grad_buyer:
-            log.info("Requester %s is a grad buyer; sending pre-drafted email", requester)
-            say(
-                text=(
-                    f"Logged to row {row}: {parsed['item_description']} — "
-                    f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
-                    f"({parsed['category']}).\n"
-                    f"{saved_str}"
-                    f"📢 {ping_user} Please submit this purchase (via Workday or by emailing Tina & Ally). "
-                    f"Use the buttons on the request message to update its status when submitted, confirmed, and delivered!"
-                ),
-                thread_ts=thread_ts,
-            )
-
-            if notify_target:
-                email_draft = generate_email_draft(parsed, requester or "Grad Student")
-                dm_text = (
-                    f"Hi {requester or 'there'}! Your purchase request for *{parsed['item_description']}* "
-                    f"has been approved and logged to *Row {row}* in the Purchasing Log.\n\n"
-                    f"📋 *Next Steps:*\n"
-                    f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
-                    f"```\n{email_draft}\n```\n\n"
-                    f"2. Use the buttons on your purchase request in the purchasing channel to update its status when submitted, confirmed, and delivered!"
-                )
-                try:
-                    tell(client, notify_target, dm_text)
-                except Exception as e:
-                    log.warning("Could not DM requester %s: %s", notify_target, e)
-
-        else:
-            log.info("Requester %s is undergrad/non-buyer; broadcasting claim request to grad buyers", requester)
-            buyers_list = ", ".join(sorted(config.GRAD_STUDENT_BUYERS))
-            say(
-                text=(
-                    f"Logged to row {row}: {parsed['item_description']} — "
-                    f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
-                    f"({parsed['category']}).\n"
-                    f"{saved_str}"
-                    f"📢 {ping_user}'s request is approved!\n"
-                    f"⚠️ *Needs a Grad Student Buyer to process in Workday / ShopUW.*\n"
-                    f"Grad students ({buyers_list}): please click Claim on the request above to take on this order."
-                ),
-                thread_ts=thread_ts,
-            )
-
-    def on_failure(error):
-        log.error("Failed to write to workbook: %s", error)
-        say(text=f"Error saving/logging purchase request: {error}", thread_ts=thread_ts)
-
-    queue_worker.submit_write_task(
-        action_fn=write_action,
-        channel=channel,
-        thread_ts=thread_ts,
-        user_id=notify_target or "",
-        task_type="append",
-        description=f"Purchase for {requester or 'requester'}: {parsed.get('item_description', 'Order')}",
-        success_callback=on_success,
-        failure_callback=on_failure,
-        client=client,
-    )
-
-
-def handle_epif_processing(client, say, channel: str, thread_ts: str, approver: str, event_ts: str, direct_file=None, direct_poster=None):
-    """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving."""
-    log.info("Processing EPIF/purchase request from approver/poster: %s in channel: %s", approver or direct_poster, channel)
-    if direct_file:
-        file_obj, poster = direct_file, direct_poster
-    else:
-        file_obj, poster = find_epif_in_thread(client, channel, thread_ts)
-
-    if file_obj is not None:
-        # PDF Attachment Path
-        requester = resolve_requester(client, poster)
-        file_name = file_obj.get("name", "EPIF.pdf")
-        log.info("Found file '%s' posted by %s (resolved requester: %s)", file_name, poster, requester)
-
-        try:
-            pdf_bytes = download(file_obj)
-            log.info("Downloaded %s (%d bytes)", file_name, len(pdf_bytes))
-            parsed = epif_parser.parse_epif(pdf_bytes)
-            log.info("Parsed EPIF fields: Item='%s', Vendor='%s', Total=$%s, Project=%s, Fund=%s, Category='%s'",
-                     parsed.get("item_description"), parsed.get("vendor"), parsed.get("total_price"),
-                     parsed.get("project_id"), parsed.get("fund"), parsed.get("category"))
-        except (epif_parser.FlattenedPdfError, RuntimeError) as error:
-            log_rejection(poster or approver, file_name, [str(error)], requester_name=requester)
-            target_dm = poster or approver
-            tell(client, target_dm, str(error))
-            if channel != target_dm:
-                say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
-            return
-
-        finalize_purchase_request(
-            client=client,
-            say=say,
-            channel=channel,
-            thread_ts=thread_ts,
-            event_ts=event_ts,
-            parsed=parsed,
-            requester=requester,
-            notify_target=poster or approver,
-            pdf_bytes=pdf_bytes,
-            file_name=file_name,
-            is_pending_name=False,
-        )
-        return
-
-    # Modal Purchase Request in Thread Path
-    parsed_req, modal_req_name, modal_user_id, is_pending = find_modal_request_in_thread(client, channel, thread_ts)
-    if parsed_req:
-        log.info("Found modal purchase request in thread: %s from %s", parsed_req.get("item_description"), modal_req_name)
-        finalize_purchase_request(
-            client=client,
-            say=say,
-            channel=channel,
-            thread_ts=thread_ts,
-            event_ts=event_ts,
-            parsed=parsed_req,
-            requester=modal_req_name,
-            notify_target=modal_user_id or approver,
-            pdf_bytes=None,
-            file_name=None,
-            is_pending_name=is_pending,
-        )
-        return
-
-    log.info("No PDF or purchase request found in thread/message %s", thread_ts)
-    say(text="I couldn't find a PDF or purchase request in this thread/message.", thread_ts=thread_ts)
-
-
-def handle_claim(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str):
-    """Assign a grad student to an approved order thread."""
-    grad_name = resolve_requester(client, user_id) or "Grad Student"
-    row = find_row_in_thread(client, channel, thread_ts)
-    log.info("Claim event by %s (User: %s) for thread %s (Row: %s)", grad_name, user_id, thread_ts, row)
-
-    try:
-        client.reactions_add(channel=channel, timestamp=event_ts, name="raised_hand")
-    except Exception as e:
-        log.debug("Could not add reaction: %s", e)
-
-    row_info = log_writer.get_row_info(row) if row else {}
-    item_str = f" for *{row_info['item_description']}*" if row_info.get("item_description") else ""
-    row_str = f" (Row {row})" if row else ""
-
-    say(
-        text=(
-            f"✋ <@{user_id}> ({grad_name}) has claimed order{item_str}{row_str}!\n"
-            f"Please coordinate here with the requester for cart/punchout options. "
-            f"Once placed in Workday, click the button on the request message above to mark it submitted."
-        ),
-        thread_ts=thread_ts,
-    )
-
-
-def handle_submission(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
-    """Mark an order as Submitted/Processed in Workday (Col U) and optionally update Total Price (Col H)."""
-    user_name = resolve_requester(client, user_id) or "Buyer"
-    row = extract_row_from_text(text)
-    if not row and thread_ts:
-        row = find_row_in_thread(client, channel, thread_ts)
-    if not row and user_name:
-        row = log_writer.find_latest_unconfirmed_row_for_requester(user_name)
-
-    if not row:
-        log.warning("Could not identify row for submission by %s (%s). Text: %s", user_name, user_id, text)
-        say(
-            text="I couldn't figure out which order you're submitting. Please specify the row number or click the button on the request message.",
-            thread_ts=thread_ts,
-        )
-        return
-
-    today = datetime.now().date()
-    update_vals = {config.COLUMN_DATE_PROCESSED: today}
-
-    price = extract_price_from_text(text)
-    if price is not None:
-        update_vals[config.COLUMN_TOTAL_PRICE] = price
-
-    log.info("Queueing submission update for Row %d on %s (Price: %s) by %s", row, today, price, user_name)
-
-    def write_action():
-        return log_writer.update_row(row, update_vals)
-
-    def on_success(res):
-        try:
-            client.reactions_add(channel=channel, timestamp=event_ts, name="shopping_trolley")
-        except Exception as e:
-            log.debug("Could not add reaction: %s", e)
-
-        try:
-            row_info = log_writer.get_row_info(row)
-            item_str = f" for *{row_info['item_description']}*" if row_info.get("item_description") else ""
-        except Exception:
-            item_str = ""
-
-        price_str = f" with Total Price updated to *${price:,.2f}*" if price is not None else ""
-        say(
-            text=(
-                f"🛒 Order{item_str} (Row {row}) marked as *Processed / Submitted* on {today.strftime('%m/%d/%y')}{price_str}.\n"
-                f"Please use the buttons on the request message to mark it confirmed once confirmation arrives!"
-            ),
-            thread_ts=thread_ts,
-        )
-
-    def on_failure(error):
-        log.error("Error updating Order Log for row %d: %s", row, error)
-        say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
-
-    queue_worker.submit_write_task(
-        action_fn=write_action,
-        channel=channel,
-        thread_ts=thread_ts,
-        user_id=user_id,
-        task_type="update",
-        description=f"Submission for row {row} by {user_name}",
-        success_callback=on_success,
-        failure_callback=on_failure,
-        client=client,
-    )
-
-
-def handle_confirmation(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str, files=None):
-    """Mark an order as Confirmed in Purchasing-Log.xlsx (Col V) and save confirmation files."""
-    requester_name = resolve_requester(client, user_id)
-    row = extract_row_from_text(text)
-    if not row and thread_ts:
-        row = find_row_in_thread(client, channel, thread_ts)
-    if not row and requester_name:
-        row = log_writer.find_latest_unconfirmed_row_for_requester(requester_name)
-
-    if not row:
-        log.warning("Could not identify row for confirmation by %s (%s). Text: %s", requester_name, user_id, text)
-        say(
-            text="I couldn't figure out which order you're confirming. Please specify the row number or click the button on the request message.",
-            thread_ts=thread_ts,
-        )
-        return
-
-    today = datetime.now().date()
-    update_vals = {config.COLUMN_DATE_CONFIRMED: today}
-
-    def write_action():
-        saved_files = []
-        if files:
-            for f in files:
-                fname = f.get("name", "Order_Confirmation.pdf")
-                try:
-                    content = download_file(f)
-                    saved = log_writer.save_confirmation(content, fname)
-                    saved_files.append(saved)
-                    log.info("Saved confirmation file '%s' to %s", fname, saved)
-                except Exception as e:
-                    log.warning("Could not save confirmation attachment %s: %s", fname, e)
-        log_writer.update_row(row, update_vals)
-        return row, saved_files
-
-    def on_success(result):
-        res_row, saved_files = result
-        try:
-            client.reactions_add(channel=channel, timestamp=event_ts, name="white_check_mark")
-        except Exception as e:
-            log.debug("Could not add reaction: %s", e)
-
-        try:
-            row_info = log_writer.get_row_info(row)
-            item_str = f" for *{row_info['item_description']}*" if row_info.get("item_description") else ""
-        except Exception:
-            item_str = ""
-
-        conf_msg = f"✅ Order{item_str} (Row {row}) has been marked as *Confirmed* in the Purchasing Log (Date Confirmed: {today.strftime('%m/%d/%y')})."
-        if saved_files:
-            conf_msg += f"\nSaved {len(saved_files)} confirmation file(s) to `Order-Confirmations`."
-
-        say(text=conf_msg, thread_ts=thread_ts)
-
-    def on_failure(error):
-        log.error("Error updating Order Log for row %d: %s", row, error)
-        say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
-
-    queue_worker.submit_write_task(
-        action_fn=write_action,
-        channel=channel,
-        thread_ts=thread_ts,
-        user_id=user_id,
-        task_type="update",
-        description=f"Confirmation for row {row} by {requester_name or user_id}",
-        success_callback=on_success,
-        failure_callback=on_failure,
-        client=client,
-    )
-
-
-def handle_delivery(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
-    """Mark an order as Delivered in Purchasing-Log.xlsx (Col W) and record Received By (Col X)."""
-    requester_name = resolve_requester(client, user_id) or "Lab Member"
-    row = extract_row_from_text(text)
-    if not row and thread_ts:
-        row = find_row_in_thread(client, channel, thread_ts)
-    if not row and requester_name:
-        row = log_writer.find_latest_unconfirmed_row_for_requester(requester_name)
-
-    if not row:
-        log.warning("Could not identify row for delivery by %s (%s). Text: %s", requester_name, user_id, text)
-        say(
-            text="I couldn't figure out which order was delivered. Please specify the row number or click the button on the request message.",
-            thread_ts=thread_ts,
-        )
-        return
-
-    today = datetime.now().date()
-    update_vals = {
-        config.COLUMN_DATE_DELIVERY: today,
-        config.COLUMN_RECEIVED_BY: requester_name,
-    }
-
-    def write_action():
-        return log_writer.update_row(row, update_vals)
-
-    def on_success(res):
-        try:
-            client.reactions_add(channel=channel, timestamp=event_ts, name="package")
-        except Exception as e:
-            log.debug("Could not add reaction: %s", e)
-
-        try:
-            row_info = log_writer.get_row_info(row)
-            item_str = f" for *{row_info['item_description']}*" if row_info.get("item_description") else ""
-        except Exception:
-            item_str = ""
-
-        say(
-            text=f"📦 Order{item_str} (Row {row}) has been marked as *Delivered* (Date: {today.strftime('%m/%d/%y')}, Received By: {requester_name}).",
-            thread_ts=thread_ts,
-        )
-
-    def on_failure(error):
-        log.error("Error updating Order Log for row %d: %s", row, error)
-        say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
-
-    queue_worker.submit_write_task(
-        action_fn=write_action,
-        channel=channel,
-        thread_ts=thread_ts,
-        user_id=user_id,
-        task_type="update",
-        description=f"Delivery for row {row} by {requester_name}",
-        success_callback=on_success,
-        failure_callback=on_failure,
-        client=client,
-    )
-
-
-def handle_quote(client, say, channel: str, thread_ts: str, event_ts: str, files=None):
-    """Save quote file(s) into the lab's Quotes directory."""
-    log.info("Processing quote archive request in channel %s", channel)
-    if not files:
-        if thread_ts:
-            try:
-                replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=50)
-                for msg in reversed(replies.get("messages", [])):
-                    if msg.get("files"):
-                        files = msg.get("files")
-                        break
-            except Exception:
-                pass
-
-    if not files:
-        log.warning("No quote attachment found in quote request message/thread %s", thread_ts)
-        say(text="Please attach the quote file (PDF or image) with your message.", thread_ts=thread_ts)
-        return
-
-    saved_paths = []
-    for f in files:
-        fname = f.get("name", "Vendor_Quote.pdf")
-        try:
-            content = download_file(f)
-            saved = log_writer.save_quote(content, fname)
-            saved_paths.append(saved)
-            log.info("Saved quote file '%s' to %s", fname, saved)
-        except Exception as e:
-            log.warning("Could not download/save quote %s: %s", fname, e)
-
-    if saved_paths:
-        try:
-            client.reactions_add(channel=channel, timestamp=event_ts, name="page_facing_up")
-        except Exception:
-            pass
-        say(
-            text=f"📄 Saved {len(saved_paths)} quote file(s) to `Purchasing\\Quotes` (`{saved_paths[0]}`).",
-            thread_ts=thread_ts,
-        )
-    else:
-        say(text="Failed to save attached quote file.", thread_ts=thread_ts)
-
-
-# --- Diagnostic & Admin Command Handlers --------------------------------------
-
-def handle_health_status(client, say, channel: str, thread_ts: str):
-    """Publish comprehensive health and diagnostics report."""
-    blocks = admin.build_health_blocks()
-    say(
-        text="🩺 *P-Bot System Health & Status*",
-        blocks=blocks,
-        thread_ts=thread_ts,
-    )
-
-
-def handle_queue_status(client, say, channel: str, thread_ts: str):
-    """Report pending tasks in the Excel write queue."""
-    q = queue_worker.get_queue_status()
-    pending = q["pending_count"]
-
-    if pending == 0:
-        say(
-            text="✅ *Excel Write Queue:* All clear! There are currently 0 pending write tasks.",
-            thread_ts=thread_ts,
-        )
-        return
-
-    status_lines = [f"⏳ *Excel Write Queue:* `{pending} pending task(s)`"]
-    if q.get("is_locked"):
-        status_lines.append("⚠️ `Purchasing-Log.xlsx` is currently open in Excel. Tasks are retrying automatically every 5s.")
-
-    curr = q.get("current_task")
-    if curr:
-        status_lines.append(
-            f"\n*Currently Active:* Task `{curr['task_id']}` ({curr['task_type']}) — {curr['description']}\n"
-            f"  • Submitted by: <@{curr['user_id']}> at {curr['created_at']} (Retries: {curr['retry_count']})"
-        )
-
-    queued = q.get("queued_tasks", [])
-    if queued:
-        status_lines.append("\n*Queued Tasks:*")
-        for i, t in enumerate(queued, 1):
-            status_lines.append(f"  {i}. Task `{t['task_id']}` ({t['task_type']}) — {t['description']} (<@{t['user_id']}>)")
-
-    say(text="\n".join(status_lines), thread_ts=thread_ts)
-
-
-def handle_logs(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Show tail of application logs to authorized administrators."""
-    if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot logs'", user_id)
-        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
-        return
-
-    # Extract optional line count (default 30, max 100)
-    match = re.search(r"\blogs?\s+(\d+)\b", text, re.I)
-    n = int(match.group(1)) if match else 30
-    n = max(1, min(100, n))
-
-    log_tail = admin.get_tail_logs(n=n)
-    if len(log_tail) > 2800:
-        log_tail = log_tail[-2800:]
-
-    say(
-        text=f"📋 *Recent Bot Logs (Last {n} lines):*\n```\n{log_tail}\n```",
-        thread_ts=thread_ts,
-    )
-
-
-def handle_update(client, say, channel: str, thread_ts: str, user_id: str):
-    """Pull latest changes from git, update dependencies, and trigger restart."""
-    if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot update'", user_id)
-        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
-        return
-
-    say(text="🔄 Checking for updates and pulling latest changes from git repository...", thread_ts=thread_ts)
-    success, msg = admin.execute_git_update()
-    say(text=msg, thread_ts=thread_ts)
-
-    if success and "already up to date" not in msg.lower():
-        say(text="🚀 Code updated! Restarting P-Bot process in 2 seconds...", thread_ts=thread_ts)
-        admin.execute_restart(delay=2.0)
-
-
-def handle_restart(client, say, channel: str, thread_ts: str, user_id: str):
-    """Restart the bot process cleanly if queue is idle."""
-    if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot restart'", user_id)
-        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
-        return
-
-    q = queue_worker.get_queue_status()
-    if q["pending_count"] > 0:
-        say(
-            text=f"⚠️ Cannot restart yet: {q['pending_count']} write task(s) are currently in the queue. Please wait until they finish.",
-            thread_ts=thread_ts,
-        )
-        return
-
-    say(text="🔄 Restarting P-Bot process cleanly...", thread_ts=thread_ts)
-    admin.execute_restart(delay=1.5)
-
-
-# --- Purchasing Interview Staged Modals & Actions (Phase 4) ------------------
-
-def build_stage1_view(prefill_name_field: bool = False, resolved_name: str | None = None, user_id: str | None = None) -> dict:
-    """Generate Screen 1 (Which path?) Block Kit modal."""
-    vendors = sorted(roster.get_vendors() if hasattr(roster, "get_vendors") else config.WORKDAY_VENDORS)
-    vendor_options = [
-        {"text": {"type": "plain_text", "text": v[:75]}, "value": v}
-        for v in vendors
-    ]
-    vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_SUGGEST_OPTION[:75]}, "value": config.VENDOR_SUGGEST_OPTION})
-    vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_OTHER_OPTION[:75]}, "value": config.VENDOR_OTHER_OPTION})
-
-    blocks = []
-    if prefill_name_field:
-        blocks.append({
-            "type": "input",
-            "block_id": "block_proposed_name",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "proposed_name",
-                "placeholder": {"type": "plain_text", "text": "e.g. Alex, Casey, Dylan"},
-            },
-            "label": {"type": "plain_text", "text": "What would you like your name to appear as?"},
-        })
-
-    blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": "💡 *Fast path vs Full EPIF:* Listed vendors are pre-approved UW Workday punch-out vendors (skips EPIF paperwork). For any other vendor, choose *Not listed / other*.",
-            }
-        ],
-    })
-
-    blocks.append({
-        "type": "input",
-        "block_id": "block_vendor",
-        "element": {
-            "type": "static_select",
-            "action_id": "vendor_select",
-            "placeholder": {"type": "plain_text", "text": "Select punchout vendor or option"},
-            "options": vendor_options,
-        },
-        "label": {"type": "plain_text", "text": "Who are you buying from?"},
-    })
-
-    blocks.append({
-        "type": "input",
-        "block_id": "block_vendor_custom",
-        "optional": True,
-        "element": {
-            "type": "plain_text_input",
-            "action_id": "vendor_custom",
-            "placeholder": {"type": "plain_text", "text": "Enter vendor name"},
-        },
-        "label": {"type": "plain_text", "text": "Vendor Name (if Other or Suggested)"},
-    })
-
-    return {
-        "type": "modal",
-        "callback_id": config.STAGE1_CALLBACK_ID,
-        "title": {"type": "plain_text", "text": "New Purchase"},
-        "submit": {"type": "plain_text", "text": "Next"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "private_metadata": json.dumps({"resolved_name": resolved_name, "user_id": user_id}),
-        "blocks": blocks,
-    }
-
-
-def build_stage2_view(meta: dict) -> dict:
-    """Generate Screen 2 (Details) Block Kit modal shaped by Screen 1 route."""
-    v_choice = meta.get("vendor_choice") or ""
-    v_custom = meta.get("vendor_custom") or ""
-    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor")
-    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
-    if v_choice in (suggest_opt, other_opt) and v_custom:
-        vendor_display = v_custom
-    else:
-        vendor_display = v_choice
-
-    route = meta.get("route") or interview.route_vendor(v_choice)
-    path_title = "Workday" if route == "workday" else "Full EPIF"
-    header_context = f"📋 *Path:* {path_title} — {vendor_display}"
-
-    room_options = [
-        {"text": {"type": "plain_text", "text": r}, "value": r}
-        for r in sorted(config.VALID_DELIVERY_ROOMS)
-    ]
-    project_options = [
-        {"text": {"type": "plain_text", "text": p}, "value": p}
-        for p in sorted(config.VALID_PROJECT_IDS)
-    ]
-    fund_options = [
-        {"text": {"type": "plain_text", "text": f}, "value": f}
-        for f in sorted(config.VALID_FUNDS)
-    ]
-
-    category_display_list = getattr(config, "CATEGORY_DISPLAY_ORDER", [])
-    if category_display_list:
-        category_options = [
-            {"text": {"type": "plain_text", "text": disp[:75]}, "value": val}
-            for val, disp in category_display_list
-        ]
-    else:
-        category_options = [
-            {"text": {"type": "plain_text", "text": c[:75]}, "value": c}
-            for c in sorted(set(config.CHECKBOX_TO_CATEGORY.values()))
-        ]
-
-    blocks = [
-        {
-            "type": "context",
-            "block_id": "block_path_context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": header_context,
-                }
-            ],
-        },
-        {
-            "type": "input",
-            "block_id": "block_item_description",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "item_description",
-                "max_length": getattr(config, "MAX_ITEM_DESCRIPTION_LEN", 150),
-                "placeholder": {"type": "plain_text", "text": "e.g. Box of Nitrile Gloves (Medium)"},
-            },
-            "label": {"type": "plain_text", "text": "Item Description (What is being purchased)"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_purpose",
-            "element": {
-                "type": "plain_text_input",
-                "multiline": True,
-                "action_id": "purpose",
-                "max_length": getattr(config, "MAX_PURPOSE_LEN", 900),
-                "placeholder": {"type": "plain_text", "text": "Why needed for research, and product URL (https://...)"},
-            },
-            "label": {"type": "plain_text", "text": "Purpose / Why Necessary & Link"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_total_price",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "total_price",
-                "placeholder": {"type": "plain_text", "text": "e.g. 145.50 or $145.50"},
-            },
-            "label": {"type": "plain_text", "text": "Total Price ($ Amount)"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_vendor_contact_name",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "vendor_contact_name",
-                "placeholder": {"type": "plain_text", "text": "Vendor contact name or rep"},
-            },
-            "label": {"type": "plain_text", "text": "Vendor Contact Name"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_vendor_contact_email",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "vendor_contact_email",
-                "placeholder": {"type": "plain_text", "text": "e.g. sales@vendor.com or info@vendor.com"},
-            },
-            "label": {"type": "plain_text", "text": "Vendor Contact Email"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_date_of_purchase",
-            "element": {
-                "type": "datepicker",
-                "action_id": "date_of_purchase",
-                "initial_date": datetime.now().strftime("%Y-%m-%d"),
-                "placeholder": {"type": "plain_text", "text": "Select date"},
-            },
-            "label": {"type": "plain_text", "text": "Date of Request / Purchase"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_delivery_room",
-            "element": {
-                "type": "static_select",
-                "action_id": "delivery_room",
-                "placeholder": {"type": "plain_text", "text": "Select delivery room"},
-                "options": room_options,
-            },
-            "label": {"type": "plain_text", "text": "Delivery Room (Campus Address)"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_project_id",
-            "element": {
-                "type": "static_select",
-                "action_id": "project_id",
-                "placeholder": {"type": "plain_text", "text": "Select Project ID"},
-                "options": project_options,
-            },
-            "label": {"type": "plain_text", "text": "Project ID Number"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_fund",
-            "element": {
-                "type": "static_select",
-                "action_id": "fund",
-                "placeholder": {"type": "plain_text", "text": "Select Fund"},
-                "options": fund_options,
-            },
-            "label": {"type": "plain_text", "text": "Fund Number"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_category",
-            "element": {
-                "type": "static_select",
-                "action_id": "category",
-                "placeholder": {"type": "plain_text", "text": "Select Category"},
-                "options": category_options,
-            },
-            "label": {"type": "plain_text", "text": "Accounting Category"},
-        },
-    ]
-
-    if route == "epif":
-        blocks.append({
-            "type": "input",
-            "block_id": "block_payment_method",
-            "element": {
-                "type": "static_select",
-                "action_id": "payment_method",
-                "placeholder": {"type": "plain_text", "text": "Select payment method"},
-                "options": [
-                    {"text": {"type": "plain_text", "text": "P-card"}, "value": "P-card"},
-                    {"text": {"type": "plain_text", "text": "Req/PO"}, "value": "Req/PO"},
-                ],
-            },
-            "label": {"type": "plain_text", "text": "Payment Method"},
-        })
-
-    return {
-        "type": "modal",
-        "callback_id": config.STAGE2_CALLBACK_ID,
-        "title": {"type": "plain_text", "text": "Purchase Details"},
-        "submit": {"type": "plain_text", "text": "Continue"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "private_metadata": json.dumps(meta),
-        "blocks": blocks,
-    }
-
-
-def build_stage3_view(meta: dict) -> dict:
-    """Generate Screen 3 (Fabrication details) Block Kit modal for category 4670."""
-    return {
-        "type": "modal",
-        "callback_id": config.STAGE3_CALLBACK_ID,
-        "title": {"type": "plain_text", "text": "Fabrication Info"},
-        "submit": {"type": "plain_text", "text": "Submit Request"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "private_metadata": json.dumps(meta),
-        "blocks": [
-            {
-                "type": "context",
-                "block_id": "block_fab_context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "🔬 *Fabrication Component:* This is the asset/fabrication number of the system the part belongs to — ask Charlie or check the fabrication paperwork.",
-                    }
-                ],
-            },
-            {
-                "type": "input",
-                "block_id": "block_asset_id",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "asset_id",
-                    "placeholder": {"type": "plain_text", "text": "e.g. TAG-12345 or Fab #4670"},
-                },
-                "label": {"type": "plain_text", "text": "Asset ID / Fabrication #"},
-            },
-            {
-                "type": "input",
-                "block_id": "block_name_of_system",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "name_of_system",
-                    "placeholder": {"type": "plain_text", "text": "e.g. Target Chamber, Laser System"},
-                },
-                "label": {"type": "plain_text", "text": "Name of System"},
-            },
-        ],
-    }
-
-
-@app.action("start_purchase_interview")
-def handle_start_purchase_interview(ack, body, client):
-    """Open Screen 1 when user clicks 'New Purchase Request' in App Home."""
-    ack()
-    user_id = body.get("user", {}).get("id")
-    requester = resolve_requester(client, user_id)
-    modal = build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
-    try:
-        client.views_open(trigger_id=body["trigger_id"], view=modal)
-        log.info("Opened interview modal (Screen 1) from App Home button for user %s", user_id)
-    except Exception as e:
-        log.error("Failed to open interview modal from button: %s", e)
-
+# --- Slash Commands -----------------------------------------------------------
 
 @app.command("/new-purchase")
 def handle_new_purchase_command(ack, body, client):
     """Open Screen 1 when user runs /new-purchase slash command."""
     ack()
     user_id = body.get("user_id")
-    requester = resolve_requester(client, user_id)
-    modal = build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
+    requester = slack_io.resolve_requester(client, user_id)
+    modal = blocks.build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
     try:
         client.views_open(trigger_id=body["trigger_id"], view=modal)
         log.info("Opened interview modal (Screen 1) from /new-purchase for user %s", user_id)
@@ -1629,7 +175,7 @@ def handle_purchasing_help_command(ack, respond):
     """Display help and command reference ephemerally."""
     ack()
     try:
-        respond(text=get_help_message())
+        respond(text=blocks.get_help_message())
         log.info("Responded with help message for /purchasing-help")
     except Exception as e:
         log.error("Failed to respond to /purchasing-help: %s", e)
@@ -1649,7 +195,7 @@ def handle_blank_template_command(ack, body, client):
         client.chat_postMessage(**kw)
 
     try:
-        handle_template_command(client, say, channel=channel_id, thread_ts=None, user_id=user_id)
+        ops.handle_template_command(client, say, channel=channel_id, thread_ts=None, user_id=user_id)
         log.info("Dispatched /blank-template command for user %s in channel %s", user_id, channel_id)
     except Exception as e:
         log.error("Failed to process /blank-template: %s", e)
@@ -1742,6 +288,8 @@ def handle_roster_set_name_command(ack, body, client):
         log.error("Failed to open /roster-set-name modal: %s", e)
 
 
+# --- View Submissions ---------------------------------------------------------
+
 @app.view(config.ROSTER_SET_NAME_CALLBACK_ID)
 def handle_roster_set_name_submit(ack, body, client, view):
     """Process submission of /roster-set-name modal."""
@@ -1750,7 +298,7 @@ def handle_roster_set_name_submit(ack, body, client, view):
     user_id = metadata.get("user_id") or body.get("user", {}).get("id")
     channel_id = metadata.get("channel_id")
 
-    name_val = str(_extract_modal_field(values, "block_proposed_name", "proposed_name") or "").strip()
+    name_val = str(text_rules._extract_modal_field(values, "block_proposed_name", "proposed_name") or "").strip()
     if not name_val:
         ack(response_action="errors", errors={"block_proposed_name": "Please enter your name."})
         return
@@ -1774,9 +322,9 @@ def handle_roster_set_name_submit(ack, body, client, view):
             try:
                 client.chat_postEphemeral(channel=channel_id, user=user_id, text=msg)
             except Exception:
-                tell(client, user_id, msg)
+                slack_io.tell(client, user_id, msg)
         else:
-            tell(client, user_id, msg)
+            slack_io.tell(client, user_id, msg)
         return
 
     # User not in roster yet -> ack and post to ADMIN_ALERT_CHANNEL reusing approve_new_requester
@@ -1817,24 +365,7 @@ def handle_roster_set_name_submit(ack, body, client, view):
         except Exception as e:
             log.warning("Could not post new requester alert to admin channel: %s", e)
 
-    tell(client, user_id, f"Your request to link your Slack account as *{matched_name}* has been submitted to admins for approval.")
-
-
-def _extract_modal_field(values: dict, block_id: str, action_id: str, field_type: str = "value"):
-    """Safely extract field value from Slack modal state values dict."""
-    block = values.get(block_id)
-    if not isinstance(block, dict):
-        return None
-    action = block.get(action_id)
-    if isinstance(action, dict):
-        if field_type == "selected_option":
-            opt = action.get("selected_option")
-            return opt.get("value") if isinstance(opt, dict) else opt
-        elif field_type == "selected_date":
-            return action.get("selected_date")
-        else:
-            return action.get("value")
-    return action
+    slack_io.tell(client, user_id, f"Your request to link your Slack account as *{matched_name}* has been submitted to admins for approval.")
 
 
 @app.view(config.STAGE1_CALLBACK_ID)
@@ -1845,7 +376,7 @@ def handle_stage1_submit(ack, body, client, view):
     user_id = metadata.get("user_id") or body.get("user", {}).get("id")
     resolved_name = metadata.get("resolved_name")
 
-    proposed_name_val = _extract_modal_field(values, "block_proposed_name", "proposed_name")
+    proposed_name_val = text_rules._extract_modal_field(values, "block_proposed_name", "proposed_name")
     if proposed_name_val:
         requester = str(proposed_name_val).strip()
         is_pending_name = True
@@ -1853,8 +384,8 @@ def handle_stage1_submit(ack, body, client, view):
         requester = resolved_name
         is_pending_name = False
 
-    vendor_choice = _extract_modal_field(values, "block_vendor", "vendor_select", field_type="selected_option") or ""
-    vendor_custom = str(_extract_modal_field(values, "block_vendor_custom", "vendor_custom") or "").strip()
+    vendor_choice = text_rules._extract_modal_field(values, "block_vendor", "vendor_select", field_type="selected_option") or ""
+    vendor_custom = str(text_rules._extract_modal_field(values, "block_vendor_custom", "vendor_custom") or "").strip()
 
     errors = interview.validate_stage1(vendor_choice, vendor_custom)
     if not vendor_choice:
@@ -1873,7 +404,7 @@ def handle_stage1_submit(ack, body, client, view):
         "route": route,
         "is_pending_name": is_pending_name,
     }
-    stage2_view = build_stage2_view(meta)
+    stage2_view = blocks.build_stage2_view(meta)
     ack(response_action="update", view=stage2_view)
 
 
@@ -1885,32 +416,32 @@ def handle_stage2_submit(ack, body, client, view):
     route = meta.get("route", "workday")
 
     payment_method_val = (
-        _extract_modal_field(values, "block_payment_method", "payment_method", field_type="selected_option")
+        text_rules._extract_modal_field(values, "block_payment_method", "payment_method", field_type="selected_option")
         if route == "epif"
         else config.WORKDAY_PAYMENT_METHOD
     )
 
     stage2 = {
-        "item_description": _extract_modal_field(values, "block_item_description", "item_description"),
-        "purpose": _extract_modal_field(values, "block_purpose", "purpose"),
-        "total_price": _extract_modal_field(values, "block_total_price", "total_price"),
-        "vendor_contact_name": _extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
-        "vendor_contact_email": _extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),
-        "date_of_purchase": _extract_modal_field(values, "block_date_of_purchase", "date_of_purchase", field_type="selected_date"),
-        "delivery_room": _extract_modal_field(values, "block_delivery_room", "delivery_room", field_type="selected_option"),
-        "project_id": _extract_modal_field(values, "block_project_id", "project_id", field_type="selected_option"),
-        "fund": _extract_modal_field(values, "block_fund", "fund", field_type="selected_option"),
-        "category": _extract_modal_field(values, "block_category", "category", field_type="selected_option"),
+        "item_description": text_rules._extract_modal_field(values, "block_item_description", "item_description"),
+        "purpose": text_rules._extract_modal_field(values, "block_purpose", "purpose"),
+        "total_price": text_rules._extract_modal_field(values, "block_total_price", "total_price"),
+        "vendor_contact_name": text_rules._extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
+        "vendor_contact_email": text_rules._extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),
+        "date_of_purchase": text_rules._extract_modal_field(values, "block_date_of_purchase", "date_of_purchase", field_type="selected_date"),
+        "delivery_room": text_rules._extract_modal_field(values, "block_delivery_room", "delivery_room", field_type="selected_option"),
+        "project_id": text_rules._extract_modal_field(values, "block_project_id", "project_id", field_type="selected_option"),
+        "fund": text_rules._extract_modal_field(values, "block_fund", "fund", field_type="selected_option"),
+        "category": text_rules._extract_modal_field(values, "block_category", "category", field_type="selected_option"),
         "payment_method": payment_method_val,
     }
 
     category = stage2.get("category")
     if interview.needs_asset_details(category):
         meta["stage2"] = stage2
-        stage3_view = build_stage3_view(meta)
+        stage3_view = blocks.build_stage3_view(meta)
         ack(response_action="update", view=stage3_view)
     else:
-        _process_interview_completion(ack, client, body, meta, stage2, stage3=None)
+        lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=None)
 
 
 @app.view(config.STAGE3_CALLBACK_ID)
@@ -1921,198 +452,10 @@ def handle_stage3_submit(ack, body, client, view):
     stage2 = meta.get("stage2", {})
 
     stage3 = {
-        "asset_id": _extract_modal_field(values, "block_asset_id", "asset_id"),
-        "name_of_system": _extract_modal_field(values, "block_name_of_system", "name_of_system"),
+        "asset_id": text_rules._extract_modal_field(values, "block_asset_id", "asset_id"),
+        "name_of_system": text_rules._extract_modal_field(values, "block_name_of_system", "name_of_system"),
     }
-    _process_interview_completion(ack, client, body, meta, stage2, stage3=stage3)
-
-
-def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, stage3: dict | None = None):
-    """Validate staged inputs, report errors or finalize and post to purchasing channel."""
-    stage1 = {
-        "resolved_name": meta.get("resolved_name"),
-        "user_id": meta.get("user_id"),
-        "vendor_choice": meta.get("vendor_choice"),
-        "vendor_custom": meta.get("vendor_custom"),
-        "route": meta.get("route"),
-    }
-    parsed = interview.build_parsed_from_stages(stage1, stage2, stage3)
-    requester = meta.get("resolved_name")
-    is_pending_name = meta.get("is_pending_name", False)
-    user_id = meta.get("user_id") or body.get("user", {}).get("id")
-    vendor_choice = meta.get("vendor_choice")
-    custom_vendor = meta.get("vendor_custom")
-
-    dummy_valid_name = list(roster.get_valid_requesters())[0] if (hasattr(roster, "get_valid_requesters") and roster.get_valid_requesters()) else "Isaac"
-    problems = validators.validate(parsed, requester_name=requester if not is_pending_name else dummy_valid_name)
-
-    if stage3 is not None:
-        if not str(stage3.get("asset_id") or "").strip():
-            problems.append("Asset ID is required for fabrication components")
-        if not str(stage3.get("name_of_system") or "").strip():
-            problems.append("Name of System is required for fabrication components")
-
-    if problems:
-        errors = {}
-        for p in problems:
-            p_lower = p.lower()
-            if "asset" in p_lower:
-                errors["block_asset_id"] = p
-            elif "system" in p_lower or "name of system" in p_lower:
-                errors["block_name_of_system"] = p
-            elif "what" in p_lower or "item" in p_lower:
-                errors["block_item_description"] = p
-            elif "purpose" in p_lower or "why" in p_lower:
-                errors["block_purpose"] = p
-            elif "amt" in p_lower or "price" in p_lower or "number" in p_lower or "amount" in p_lower:
-                errors["block_total_price"] = p
-            elif "contact" in p_lower:
-                errors["block_vendor_contact_name"] = p
-            elif "email" in p_lower:
-                errors["block_vendor_contact_email"] = p
-            elif "vendor" in p_lower:
-                errors["block_vendor"] = p
-            elif "date" in p_lower:
-                errors["block_date_of_purchase"] = p
-            elif "project id" in p_lower:
-                errors["block_project_id"] = p
-            elif "fund" in p_lower:
-                errors["block_fund"] = p
-            elif "delivery" in p_lower or "room" in p_lower:
-                errors["block_delivery_room"] = p
-            elif "category" in p_lower:
-                errors["block_category"] = p
-            elif "p-card" in p_lower or "req" in p_lower:
-                errors["block_payment_method"] = p
-            else:
-                errors.setdefault("block_item_description", p)
-
-        ack(response_action="errors", errors=errors)
-        return
-
-    ack()
-
-    # Determine posting channel
-    post_channel = os.environ.get("PURCHASING_CHANNEL") or config.ADMIN_ALERT_CHANNEL or user_id
-    display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or f"<@{user_id}>")
-    suggest_note = f"\n💡 *Note:* Suggested new vendor: `{custom_vendor}`" if (vendor_choice == config.VENDOR_SUGGEST_OPTION and custom_vendor) else ""
-
-    req_payload = {
-        "parsed": {
-            **parsed,
-            "date_of_purchase": parsed["date_of_purchase"].isoformat() if parsed["date_of_purchase"] else None,
-        },
-        "requester": requester,
-        "user_id": user_id,
-        "is_pending_name": is_pending_name,
-        "suggest_note": suggest_note,
-    }
-    blocks = build_request_blocks("posted", req_payload)
-
-    summary_text = (
-        f"🛒 *New Purchase Request from {display_name}:*\n"
-        f"• *Item:* {parsed['item_description']}\n"
-        f"• *Total:* ${parsed['total_price']:,.2f}\n"
-        f"• *Vendor:* {parsed['vendor']} ({parsed['payment_method']})\n"
-        f"• *Category:* {parsed['category']}\n"
-        f"• *Project ID / Fund:* {parsed['project_id']} (Fund {parsed['fund']})\n"
-        f"• *Delivery Room:* {parsed['delivery_room']}\n"
-        f"• *Purpose:* {parsed['purpose']}"
-        f"{suggest_note}\n\n"
-        f"Use the buttons below to approve and track this request."
-    )
-
-    try:
-        client.chat_postMessage(
-            channel=post_channel,
-            text=summary_text,
-            blocks=blocks,
-            metadata={
-                "event_type": "purchase_request",
-                "event_payload": req_payload,
-            },
-        )
-    except Exception as e:
-        log.error("Failed to post purchase request summary to channel %s: %s", post_channel, e)
-
-    # DM user confirmation
-    try:
-        tell(client, user_id, f"✅ Your purchase request for *{parsed['item_description']}* has been submitted to the purchasing channel awaiting approval.")
-    except Exception as e:
-        log.warning("Could not DM user confirmation: %s", e)
-
-    # If pending name confirmation, post alert with approve button to ADMIN_ALERT_CHANNEL (Phase 2 Ticket 2.3)
-    if is_pending_name and config.ADMIN_ALERT_CHANNEL:
-        try:
-            client.chat_postMessage(
-                channel=config.ADMIN_ALERT_CHANNEL,
-                text=f"⚠️ New unrecognized user <@{user_id}> submitted a purchase request and proposed display name '{requester}'.",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": (
-                                f"⚠️ *New Lab Member Approval Needed:*\n"
-                                f"User: <@{user_id}> (`{user_id}`)\n"
-                                f"Proposed Requester Name: *{requester}*\n"
-                                f"Approve adding them to `roster.json`?"
-                            ),
-                        },
-                    },
-                    {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "Approve New Member"},
-                                "style": "primary",
-                                "action_id": "approve_new_requester",
-                                "value": json.dumps({"slack_id": user_id, "name": requester}),
-                            }
-                        ],
-                    },
-                ],
-            )
-        except Exception as e:
-            log.warning("Could not post new requester alert to admin channel: %s", e)
-
-    # If suggested vendor, post alert with approve button to ADMIN_ALERT_CHANNEL (Phase 2 Ticket 2.4)
-    if vendor_choice == config.VENDOR_SUGGEST_OPTION and custom_vendor and config.ADMIN_ALERT_CHANNEL:
-        try:
-            client.chat_postMessage(
-                channel=config.ADMIN_ALERT_CHANNEL,
-                text=f"💡 New vendor suggested by <@{user_id}>: '{custom_vendor}'.",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": (
-                                f"💡 *Suggested Vendor Approval Needed:*\n"
-                                f"Suggested Name: *{custom_vendor}*\n"
-                                f"Suggested by: <@{user_id}>\n"
-                                f"Add to Workday catalog vendor list in `roster.json`?"
-                            ),
-                        },
-                    },
-                    {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "Approve Vendor"},
-                                "style": "primary",
-                                "action_id": "approve_new_vendor",
-                                "value": json.dumps({"vendor": custom_vendor}),
-                            }
-                        ],
-                    },
-                ],
-            )
-        except Exception as e:
-            log.warning("Could not post new vendor alert to admin channel: %s", e)
-
+    lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=stage3)
 
 
 # --- Alerts-Channel Interactive Action Handlers (Phase 2) --------------------
@@ -2151,7 +494,7 @@ def handle_approve_new_requester_action(ack, body, respond, client):
                 }
             ],
         )
-        tell(client, slack_id, f"🎉 You're approved as '{name}'! The next `@p-bot restart` will pick this up.")
+        slack_io.tell(client, slack_id, f"🎉 You're approved as '{name}'! The next `@p-bot restart` will pick this up.")
         log.info("Admin %s approved new requester %s (%s)", approver_id, slack_id, name)
     except Exception as e:
         log.error("Failed to approve new requester: %s", e)
@@ -2190,7 +533,7 @@ def handle_approve_new_admin_action(ack, body, respond, client):
                 }
             ],
         )
-        tell(client, slack_id, "🎉 You have been added as a P-Bot administrator! The next `@p-bot restart` will pick this up.")
+        slack_io.tell(client, slack_id, "🎉 You have been added as a P-Bot administrator! The next `@p-bot restart` will pick this up.")
         log.info("Admin %s approved admin promotion for %s", approver_id, slack_id)
     except Exception as e:
         log.error("Failed to approve admin promotion: %s", e)
@@ -2205,7 +548,7 @@ def handle_approve_new_vendor_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
 
     if not admin.is_admin_user(approver_id):
-        log.warning("Non-admin %s attempted to approve new vendor", approver_id)
+        log.warning("Non-admin %s attempted to approve vendors", approver_id)
         respond(text="🔒 Only bot administrators can approve vendors.")
         return
 
@@ -2256,13 +599,13 @@ def handle_req_approve_action(ack, body, respond, client):
     history = list(val_data.get("history", []))
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    user_name = resolve_requester(client, user_id) or f"<@{user_id}>"
+    user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
     history.append(f"Approved by {user_name} on {now_str}")
 
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
-    handle_epif_processing(
+    lifecycle.handle_epif_processing(
         client=client,
         say=say,
         channel=channel_id,
@@ -2271,7 +614,7 @@ def handle_req_approve_action(ack, body, respond, client):
         event_ts=msg_ts,
     )
 
-    next_blocks = build_request_blocks("approved", req_data, history=history)
+    next_blocks = blocks.build_request_blocks("approved", req_data, history=history)
     try:
         client.chat_update(
             channel=channel_id,
@@ -2293,7 +636,7 @@ def handle_req_claim_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
-    requester_name = resolve_requester(client, user_id)
+    requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_claim", user_id)
         respond(text="🔒 You must be registered in the lab roster to claim requests. Use `/roster-set-name` first.")
@@ -2310,7 +653,7 @@ def handle_req_claim_action(ack, body, respond, client):
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
-    handle_claim(
+    lifecycle.handle_claim(
         client=client,
         say=say,
         channel=channel_id,
@@ -2319,7 +662,7 @@ def handle_req_claim_action(ack, body, respond, client):
         event_ts=msg_ts,
     )
 
-    next_blocks = build_request_blocks("claimed", req_data, history=history)
+    next_blocks = blocks.build_request_blocks("claimed", req_data, history=history)
     try:
         client.chat_update(
             channel=channel_id,
@@ -2341,7 +684,7 @@ def handle_req_submitted_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
-    requester_name = resolve_requester(client, user_id)
+    requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_submitted", user_id)
         respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
@@ -2358,7 +701,7 @@ def handle_req_submitted_action(ack, body, respond, client):
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
-    handle_submission(
+    lifecycle.handle_submission(
         client=client,
         say=say,
         channel=channel_id,
@@ -2368,7 +711,7 @@ def handle_req_submitted_action(ack, body, respond, client):
         text="",
     )
 
-    next_blocks = build_request_blocks("submitted", req_data, history=history)
+    next_blocks = blocks.build_request_blocks("submitted", req_data, history=history)
     try:
         client.chat_update(
             channel=channel_id,
@@ -2390,7 +733,7 @@ def handle_req_confirmed_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
-    requester_name = resolve_requester(client, user_id)
+    requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_confirmed", user_id)
         respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
@@ -2407,7 +750,7 @@ def handle_req_confirmed_action(ack, body, respond, client):
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
-    handle_confirmation(
+    lifecycle.handle_confirmation(
         client=client,
         say=say,
         channel=channel_id,
@@ -2418,7 +761,7 @@ def handle_req_confirmed_action(ack, body, respond, client):
         files=None,
     )
 
-    next_blocks = build_request_blocks("confirmed", req_data, history=history)
+    next_blocks = blocks.build_request_blocks("confirmed", req_data, history=history)
     try:
         client.chat_update(
             channel=channel_id,
@@ -2440,7 +783,7 @@ def handle_req_delivered_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
-    requester_name = resolve_requester(client, user_id)
+    requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_delivered", user_id)
         respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
@@ -2457,7 +800,7 @@ def handle_req_delivered_action(ack, body, respond, client):
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
-    handle_delivery(
+    lifecycle.handle_delivery(
         client=client,
         say=say,
         channel=channel_id,
@@ -2467,7 +810,7 @@ def handle_req_delivered_action(ack, body, respond, client):
         text="",
     )
 
-    next_blocks = build_request_blocks("delivered", req_data, history=history)
+    next_blocks = blocks.build_request_blocks("delivered", req_data, history=history)
     try:
         client.chat_update(
             channel=channel_id,
@@ -2480,217 +823,18 @@ def handle_req_delivered_action(ack, body, respond, client):
         log.error("Failed to update message on req_delivered: %s", e)
 
 
-
-# --- New Admin & Template Commands (Phase 2 & 3) ------------------------------
-
-def handle_promote_admin(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Admin command to propose promoting another user to admin."""
-    if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot promote-admin'", user_id)
-        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
-        return
-
-    match = re.search(r"<@([A-Z0-9]+)>", text)
-    if not match:
-        say(text="⚠️ Please mention the user to promote, e.g. `@p-bot promote-admin @user`.", thread_ts=thread_ts)
-        return
-
-    target_user_id = match.group(1)
-    if config.ADMIN_ALERT_CHANNEL:
-        client.chat_postMessage(
-            channel=config.ADMIN_ALERT_CHANNEL,
-            text=f"👑 Admin promotion proposed for <@{target_user_id}> by <@{user_id}>.",
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": (
-                            f"👑 *Admin Promotion Request:*\n"
-                            f"Proposed Admin: <@{target_user_id}> (`{target_user_id}`)\n"
-                            f"Proposed by: <@{user_id}>\n"
-                            f"Approve promoting them to bot administrator in `roster.json`?"
-                        ),
-                    },
-                },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Approve Admin Promotion"},
-                            "style": "primary",
-                            "action_id": "approve_new_admin",
-                            "value": json.dumps({"slack_id": target_user_id}),
-                        }
-                    ],
-                },
-            ],
-        )
-        say(text=f"👑 Admin promotion proposal for <@{target_user_id}> has been sent to the admin alerts channel for approval.", thread_ts=thread_ts)
-    else:
-        say(text="⚠️ ADMIN_ALERT_CHANNEL is not configured.", thread_ts=thread_ts)
-
-
-def handle_remove_vendor(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Admin command to remove a vendor from the Workday punchout catalog list."""
-    if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot remove vendor'", user_id)
-        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
-        return
-
-    match = re.search(r"(?:remove vendor|delete vendor)\s+(.+)", text, re.I)
-    if not match:
-        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot remove vendor Fisher Scientific`.", thread_ts=thread_ts)
-        return
-
-    vendor_name = match.group(1).strip()
-    removed = roster.remove_vendor(vendor_name)
-    if removed:
-        say(
-            text=f"✅ Vendor *{vendor_name}* was removed from `roster.json`. (Run `@p-bot restart` to update dropdowns).",
-            thread_ts=thread_ts,
-        )
-    else:
-        all_vendors = roster.get_vendors()
-        close = [v for v in all_vendors if vendor_name.lower() in v.lower()]
-        close_str = f"\nDid you mean: {', '.join(close[:5])}?" if close else ""
-        say(
-            text=f"⚠️ Vendor '{vendor_name}' was not found in the catalog list.{close_str}",
-            thread_ts=thread_ts,
-        )
-
-
-def handle_add_approver(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Admin command to add a user to the approver list."""
-    if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot add-approver'", user_id)
-        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
-        return
-
-    match = re.search(r"<@([A-Z0-9]+)>", text)
-    if not match:
-        say(text="⚠️ Please mention the user to add as approver, e.g. `@p-bot add-approver @user`.", thread_ts=thread_ts)
-        return
-
-    target_id = match.group(1)
-    roster.add_approver(target_id)
-    say(
-        text=f"✅ <@{target_id}> added to purchase approvers in `roster.json`. (Run `@p-bot restart` to reload).",
-        thread_ts=thread_ts,
-    )
-
-
-def handle_remove_approver(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Admin command to remove a user from the approver list."""
-    if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot remove-approver'", user_id)
-        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
-        return
-
-    match = re.search(r"<@([A-Z0-9]+)>", text)
-    if not match:
-        say(text="⚠️ Please mention the user to remove from approvers, e.g. `@p-bot remove-approver @user`.", thread_ts=thread_ts)
-        return
-
-    target_id = match.group(1)
-    if roster.remove_approver(target_id):
-        say(
-            text=f"✅ <@{target_id}> removed from purchase approvers in `roster.json`. (Run `@p-bot restart` to reload).",
-            thread_ts=thread_ts,
-        )
-    else:
-        say(text=f"⚠️ <@{target_id}> was not in the approvers list.", thread_ts=thread_ts)
-
-
-def handle_template_command(client, say, channel: str, thread_ts: str | None, user_id: str):
-    """Provide the blank EPIF form and guide for users who prefer manual submission (Phase 3)."""
-    template_dir = config.TEMPLATE_DIR
-    pdf_path = os.path.join(template_dir, "EPIF_TEMPLATE_HIRST.pdf")
-    readme_path = os.path.join(template_dir, "README.md")
-    if not os.path.exists(readme_path):
-        readme_path = os.path.join(template_dir, "README.txt")
-
-    missing = []
-    if not os.path.exists(template_dir):
-        missing.append(f"Directory `{template_dir}`")
-    else:
-        if not os.path.exists(pdf_path):
-            missing.append("`EPIF_TEMPLATE_HIRST.pdf`")
-        if not os.path.exists(readme_path):
-            missing.append("`README.md`")
-
-    if missing:
-        msg_missing = (
-            f"⚠️ *Template files missing:*\n"
-            f"Could not find {', '.join(missing)} in `{template_dir}`.\n"
-            f"Please ensure `EPIF_TEMPLATE_HIRST.pdf` and `README.md` are placed in the `_TEMPLATE` directory."
-        )
-        if thread_ts:
-            say(text=msg_missing, thread_ts=thread_ts)
-        else:
-            say(text=msg_missing)
-        return
-
-    guide_text = (
-        "📄 *Hirst Lab Manual EPIF Submission Kit:*\n\n"
-        "1. Open the attached `EPIF_TEMPLATE_HIRST.pdf` in Adobe Acrobat or your PDF editor.\n"
-        "2. Fill in the required fields: *What*, *Why / URL*, *Amount*, *Vendor*, *Vendor Email*, *Date*, *Room*, *Project ID*, and tick *1 Category* + *Payment Method*.\n"
-        "3. Upload your completed PDF to the purchasing channel and tag Charlie for approval.\n"
-        "4. Once approved, P-Bot will validate and log your request automatically!"
-    )
-
-    if thread_ts:
-        say(text=guide_text, thread_ts=thread_ts)
-    else:
-        say(text=guide_text)
-
+@app.action("start_purchase_interview")
+def handle_start_purchase_interview(ack, body, client):
+    """Open Screen 1 when user clicks 'New Purchase Request' in App Home."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    requester = slack_io.resolve_requester(client, user_id)
+    modal = blocks.build_stage1_view(prefill_name_field=(requester is None), resolved_name=requester, user_id=user_id)
     try:
-        if hasattr(client, "files_upload_v2"):
-            kwargs1 = {
-                "channel": channel,
-                "file": pdf_path,
-                "title": "EPIF_TEMPLATE_HIRST.pdf",
-                "filename": "EPIF_TEMPLATE_HIRST.pdf",
-            }
-            if thread_ts:
-                kwargs1["thread_ts"] = thread_ts
-            client.files_upload_v2(**kwargs1)
-
-            kwargs2 = {
-                "channel": channel,
-                "file": readme_path,
-                "title": "README.md",
-                "filename": "README.md",
-            }
-            if thread_ts:
-                kwargs2["thread_ts"] = thread_ts
-            client.files_upload_v2(**kwargs2)
-        else:
-            kwargs1 = {
-                "channels": channel,
-                "file": pdf_path,
-                "title": "EPIF_TEMPLATE_HIRST.pdf",
-            }
-            if thread_ts:
-                kwargs1["thread_ts"] = thread_ts
-            client.files_upload(**kwargs1)
-
-            kwargs2 = {
-                "channels": channel,
-                "file": readme_path,
-                "title": "README.md",
-            }
-            if thread_ts:
-                kwargs2["thread_ts"] = thread_ts
-            client.files_upload(**kwargs2)
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        log.info("Opened interview modal (Screen 1) from App Home button for user %s", user_id)
     except Exception as e:
-        log.warning("Could not upload template files via Slack API: %s", e)
-        err_msg = f"*(Could not attach files directly: {e})*"
-        if thread_ts:
-            say(text=err_msg, thread_ts=thread_ts)
-        else:
-            say(text=err_msg)
+        log.error("Failed to open interview modal from button: %s", e)
 
 
 # --- Dispatcher Helpers -------------------------------------------------------
@@ -2700,43 +844,43 @@ def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event
     text_lower = text.lower()
 
     if any(kw in text_lower for kw in config.HELP_KEYWORDS):
-        say(text=get_help_message(), thread_ts=thread_ts)
+        say(text=blocks.get_help_message(), thread_ts=thread_ts)
     elif any(kw in text_lower for kw in config.STATUS_KEYWORDS):
-        handle_health_status(client, say, channel, thread_ts)
+        ops.handle_health_status(client, say, channel, thread_ts)
     elif any(kw in text_lower for kw in config.QUEUE_KEYWORDS):
-        handle_queue_status(client, say, channel, thread_ts)
+        ops.handle_queue_status(client, say, channel, thread_ts)
     elif any(kw in text_lower for kw in config.LOGS_KEYWORDS):
-        handle_logs(client, say, channel, thread_ts, user, text)
+        ops.handle_logs(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.UPDATE_KEYWORDS):
-        handle_update(client, say, channel, thread_ts, user)
+        ops.handle_update(client, say, channel, thread_ts, user)
     elif any(kw in text_lower for kw in config.RESTART_KEYWORDS):
-        handle_restart(client, say, channel, thread_ts, user)
+        ops.handle_restart(client, say, channel, thread_ts, user)
     elif any(kw in text_lower for kw in config.PROMOTE_ADMIN_KEYWORDS):
-        handle_promote_admin(client, say, channel, thread_ts, user, text)
+        ops.handle_promote_admin(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.ADD_APPROVER_KEYWORDS):
-        handle_add_approver(client, say, channel, thread_ts, user, text)
+        ops.handle_add_approver(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.REMOVE_APPROVER_KEYWORDS):
-        handle_remove_approver(client, say, channel, thread_ts, user, text)
+        ops.handle_remove_approver(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.REMOVE_VENDOR_KEYWORDS):
-        handle_remove_vendor(client, say, channel, thread_ts, user, text)
+        ops.handle_remove_vendor(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.TEMPLATE_KEYWORDS):
-        handle_template_command(client, say, channel, thread_ts, user)
+        ops.handle_template_command(client, say, channel, thread_ts, user)
     elif any(kw in text_lower for kw in config.QUOTE_KEYWORDS):
-        handle_quote(client, say, channel, thread_ts, event_ts, files)
+        lifecycle.handle_quote(client, say, channel, thread_ts, event_ts, files)
     elif any(kw in text_lower for kw in config.CLAIM_KEYWORDS):
-        handle_claim(client, say, channel, thread_ts, user, event_ts)
+        lifecycle.handle_claim(client, say, channel, thread_ts, user, event_ts)
     elif any(kw in text_lower for kw in config.SUBMIT_KEYWORDS):
-        handle_submission(client, say, channel, thread_ts, user, event_ts, text)
+        lifecycle.handle_submission(client, say, channel, thread_ts, user, event_ts, text)
     elif any(kw in text_lower for kw in config.CONFIRM_KEYWORDS):
-        handle_confirmation(client, say, channel, thread_ts, user, event_ts, text, files)
+        lifecycle.handle_confirmation(client, say, channel, thread_ts, user, event_ts, text, files)
     elif any(kw in text_lower for kw in config.DELIVERED_KEYWORDS):
-        handle_delivery(client, say, channel, thread_ts, user, event_ts, text)
+        lifecycle.handle_delivery(client, say, channel, thread_ts, user, event_ts, text)
     elif config.TRIGGER_KEYWORD in text_lower or direct_file or any(w in text_lower for w in ("check", "test")):
         if not admin.is_approved_reviewer(user):
             log.warning("Unauthorized user %s attempted to approve purchase request", user)
             say(text="🔒 Only Charlie Hirst can approve purchase requests.", thread_ts=thread_ts)
             return
-        handle_epif_processing(
+        lifecycle.handle_epif_processing(
             client, say, channel, thread_ts, user, event_ts,
             direct_file=direct_file, direct_poster=user if direct_file else None
         )
@@ -2796,7 +940,7 @@ def handle_app_home_opened(client, event):
     try:
         client.views_publish(
             user_id=user_id,
-            view=APP_HOME_VIEW,
+            view=blocks.APP_HOME_VIEW,
         )
         log.info("Published App Home view to user %s", user_id)
     except Exception as e:

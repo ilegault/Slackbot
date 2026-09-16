@@ -1,0 +1,26 @@
+[project]
+name = "p-bot"
+version = "0.1.0"
+description = "Hirst Lab purchasing bot for Slack"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# E = pycodestyle errors, F = pyflakes.
+# Deliberately a small starting set. Widen it when the tree is clean, not before —
+# a lint gate that is red on arrival gets ignored, and then it gates nothing.
+select = ["E", "F"]
+ignore = ["E501", "F401", "F541", "F841"]
+
+[tool.ruff.lint.per-file-ignores]
+# Every module in src/ uses the try/except ImportError relative-import shim that
+# makes the PyInstaller build work, which puts imports after a statement.
+"src/*.py" = ["E402"]
+# The entry point puts src/ on sys.path before importing from it.
+"app.py" = ["E402"]
+# Tests put src/ on sys.path before importing from it.
+"tests/*.py" = ["E402"]
+
