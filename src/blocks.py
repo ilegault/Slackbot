@@ -95,8 +95,33 @@ APP_HOME_VIEW = {
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    "• Click the action buttons on the request message: *Approve* (approvers), *Claim* (grad buyers), *Mark Submitted*, *Mark Confirmed*, and *Mark Delivered*.\n"
+                    "• Click the action buttons on the request message: *Approve* or *Decline* (approvers), *Claim* (grad buyers), *Mark Processed*, *Mark Confirmed*, and *Mark Delivered*.\n"
+                    "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
                     "• Drop quote files or confirmation receipts directly into the thread to attach them."
+                ),
+            },
+        },
+        {
+            "type": "divider",
+        },
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "📋 Request Stages",
+                "emoji": True,
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "A purchase request moves through four stages after approval:\n"
+                    "• *Approved* — Charlie has agreed to spend the money; the row is written to the purchasing log.\n"
+                    "• *Processed* — The request has gone to the purchasing team (Workday / ShopUW).\n"
+                    "• *Confirmed* — The order is confirmed by the vendor.\n"
+                    "• *Delivered* — The package is in the lab."
                 ),
             },
         },
@@ -194,7 +219,8 @@ def get_help_message() -> str:
         "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
         "• `/roster-set-name` — Link your Slack user account to your lab name in the roster.\n\n"
         "*🔄 Move a request along (Buttons on the message):*\n"
-        "• Click the action buttons on the request message: *Approve* (approvers), *Claim* (grad buyers), *Mark Submitted*, *Mark Confirmed*, and *Mark Delivered*.\n"
+        "• Click the action buttons on the request message: *Approve* or *Decline* (approvers), *Claim* (grad buyers), *Mark Processed*, *Mark Confirmed*, and *Mark Delivered*.\n"
+        "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
         "• Drop quote files or confirmation receipts directly into the thread to attach them.\n\n"
         "*⚙️ Admins (`@p-bot <command>`):*\n"
         "• `@p-bot health` / `@p-bot status` — View system health, host uptime, and storage status.\n"
@@ -212,7 +238,8 @@ def get_help_message() -> str:
 def build_request_blocks(state: str, request: dict, history: list | None = None) -> list:
     """Generate Block Kit blocks for a purchase request at a given lifecycle state.
 
-    States: posted -> approved -> claimed -> submitted -> confirmed -> delivered
+    States: posted -> approved -> claimed -> processed -> confirmed -> delivered
+    Terminal states with no buttons: declined, cancelled, delivered.
     """
     parsed = request.get("parsed", request)
     requester = request.get("requester")
@@ -276,16 +303,25 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
             ],
         })
 
-    button_mapping = {
+    # Primary (next-step) button for each non-terminal state.
+    primary_buttons = {
         "posted": ("Approve", "req_approve"),
         "approved": ("Claim", "req_claim"),
-        "claimed": ("Mark Submitted", "req_submitted"),
-        "submitted": ("Mark Confirmed", "req_confirmed"),
+        "claimed": ("Mark Processed", "req_processed"),
+        "processed": ("Mark Confirmed", "req_confirmed"),
         "confirmed": ("Mark Delivered", "req_delivered"),
     }
 
-    if state in button_mapping:
-        btn_label, btn_action_id = button_mapping[state]
+    # Secondary destructive button shown alongside the primary (Decline or Cancel).
+    # Not shown for processed/confirmed/delivered — cancel is refused after processed (ADR 0003 decision 5).
+    secondary_buttons = {
+        "posted": ("Decline", "req_decline"),
+        "approved": ("Cancel", "req_cancel"),
+        "claimed": ("Cancel", "req_cancel"),
+    }
+
+    if state in primary_buttons:
+        btn_label, btn_action_id = primary_buttons[state]
         btn_value = json.dumps({
             "state": state,
             "requester": requester,
@@ -293,17 +329,27 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
             "request": request,
             "history": history or [],
         })
+        elements = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": btn_label, "emoji": True},
+                "style": "primary",
+                "action_id": btn_action_id,
+                "value": btn_value,
+            }
+        ]
+        if state in secondary_buttons:
+            sec_label, sec_action_id = secondary_buttons[state]
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": sec_label, "emoji": True},
+                "style": "danger",
+                "action_id": sec_action_id,
+                "value": btn_value,
+            })
         blocks.append({
             "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": btn_label, "emoji": True},
-                    "style": "primary",
-                    "action_id": btn_action_id,
-                    "value": btn_value,
-                }
-            ],
+            "elements": elements,
         })
 
     return blocks

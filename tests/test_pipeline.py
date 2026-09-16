@@ -301,10 +301,10 @@ def test_extract_row_from_text():
 
 
 def test_extract_price_from_text():
-    assert text_rules.extract_price_from_text("Total: $152.49, about to be submitted") == 152.49
-    assert text_rules.extract_price_from_text("submitted for $85.00") == 85.0
+    assert text_rules.extract_price_from_text("Total: $152.49, about to be processed") == 152.49
+    assert text_rules.extract_price_from_text("processed for $85.00") == 85.0
     assert text_rules.extract_price_from_text("price is 120.50") == 120.50
-    assert text_rules.extract_price_from_text("submitted without price") is None
+    assert text_rules.extract_price_from_text("processed without price") is None
 
 
 def test_update_row_and_confirm(workbook, filled):

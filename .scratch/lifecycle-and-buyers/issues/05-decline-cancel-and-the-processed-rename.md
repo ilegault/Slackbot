@@ -6,7 +6,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read `docs/adr/0003-decline-and-cancel.md` before anything in this ticket**, and
 `docs/adr/0002-request-lifecycle-and-surfaces.md` decision 4 for the rename.
@@ -50,43 +50,53 @@ later.
 ## Acceptance criteria
 
 ### Decline
-- [ ] The `posted` state renders a **Decline** button alongside Approve
-- [ ] Decline is restricted to approvers; a non-approver gets an ephemeral denial
+- [x] The `posted` state renders a **Decline** button alongside Approve
+- [x] Decline is restricted to approvers; a non-approver gets an ephemeral denial
       and the message is unchanged
-- [ ] Declining updates the message to show it was declined and by whom, and
+- [x] Declining updates the message to show it was declined and by whom, and
       removes every action button
-- [ ] Declining writes nothing to Excel, posts no alert, and DMs nobody
-- [ ] A test asserts a decline writes no Excel row and posts no alert
+- [x] Declining writes nothing to Excel, posts no alert, and DMs nobody
+- [x] A test asserts a decline writes no Excel row and posts no alert
 
 ### Cancel
-- [ ] The `approved` and `claimed` states render a **Cancel** button alongside the
+- [x] The `approved` and `claimed` states render a **Cancel** button alongside the
       next-step button; `processed`, `confirmed` and `delivered` do not
-- [ ] Cancel is permitted to approvers **and** admins, and refused to buyers
-- [ ] `log_writer` gains a blank-row operation that clears every writable cell in
+- [x] Cancel is permitted to approvers **and** admins, and refused to buyers
+- [x] `log_writer` gains a blank-row operation that clears every writable cell in
       the row, leaving the read-only columns (A, Z) alone, and it goes through the
       lock queue
-- [ ] Cancelling a request blanks its row and updates the message to show it was
+- [x] Cancelling a request blanks its row and updates the message to show it was
       cancelled and by whom
-- [ ] Cancelling a **batch** blanks every row that request wrote
-- [ ] A cancel attempted on a `processed` request is refused with an explicit
+- [x] Cancelling a **batch** blanks every row that request wrote
+- [x] A cancel attempted on a `processed` request is refused with an explicit
       in-thread message naming the reason, and the row is untouched
-- [ ] A test asserts the blanked row's writable cells are empty and columns A and Z
+- [x] A test asserts the blanked row's writable cells are empty and columns A and Z
       are unchanged
-- [ ] A test asserts a cancel after `processed` writes nothing and produces the
+- [x] A test asserts a cancel after `processed` writes nothing and produces the
       refusal message — assert on the row being untouched, not only on the text
-- [ ] A test asserts a buyer's cancel click is refused
-- [ ] A test asserts a multi-EPIF cancel blanks every row, not just the first
+- [x] A test asserts a buyer's cancel click is refused
+- [x] A test asserts a multi-EPIF cancel blanks every row, not just the first
 
 ### The rename
-- [ ] `grep -rin "submitted" src/ tests/` returns nothing but an intentional,
+- [x] `grep -rin "submitted" src/ tests/` returns nothing but an intentional,
       commented alias
-- [ ] The button reads **Mark Processed**; the action id is `req_processed`
-- [ ] `@p-bot processed` works; `@p-bot submitted` still works as a silent alias
+- [x] The button reads **Mark Processed**; the action id is `req_processed`
+- [x] `@p-bot processed` works; `@p-bot submitted` still works as a silent alias
       and is taught nowhere
-- [ ] Help text, App Home and the channel post all use **processed**
-- [ ] App Home carries a definitions section stating the four stages plainly, and
+- [x] Help text, App Home and the channel post all use **processed**
+- [x] App Home carries a definitions section stating the four stages plainly, and
       does **not** link the Purchasing Log
 
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Comments
+
+2026-09-16 — Implemented by agent session.
+
+**Decline**: `handle_decline` added to `lifecycle.py` — updates message to "declined" state (no buttons), no workbook write. `@app.action("req_decline")` listener in `app.py` checks `is_approved_reviewer`. `posted` state block renders Approve + Decline.
+
+**Cancel**: `handle_cancel` added to `lifecycle.py` — checks `_CANCEL_REFUSED_STATES` (processed/confirmed/delivered), finds all rows via `find_all_rows_in_thread` (new in `slack_io.py`), blanks each via queue_worker. `@app.action("req_cancel")` checks `is_approved_reviewer or is_admin_user`. `approved` and `claimed` states render primary button + Cancel. `log_writer.blank_row` was already present.
+
+**The rename**: `SUBMIT_KEYWORDS` → `PROCESSED_KEYWORDS` in config.py ("submitted"/"submit" kept as silent aliases). Button label "Mark Submitted" → "Mark Processed", action id `req_submitted` → `req_processed`, handler renamed, state name "submitted" → "processed" throughout. `handle_submission` → `handle_processed`. App Home gains definitions section (Approved/Processed/Confirmed/Delivered). All 19 previous occurrences of "submitted" in src/ cleared; 2 intentional backwards-compat aliases remain.
+
+**Tests**: 5 new tests in `tests/test_05_decline_cancel.py`. Existing tests in `test_onboarding_and_commands.py` updated to match new action IDs and button counts. Gate: 101 passed, 31 skipped, 0 failures. `ruff check .` clean.

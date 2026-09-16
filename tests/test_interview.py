@@ -164,6 +164,6 @@ def test_match_faq():
     # Messages without question markers (should NOT match)
     assert interview.match_faq("I am using fund 133 for this order") is None
     assert interview.match_faq("@p-bot confirmed") is None
-    assert interview.match_faq("submitted $150.00 for project id") is None
+    assert interview.match_faq("processed $150.00 for project id") is None
     assert interview.match_faq("") is None
 
