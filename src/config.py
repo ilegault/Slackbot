@@ -200,9 +200,6 @@ VALID_REQUESTERS = {
     "Copeland", "Erich", "Finn", "Eddie", "Katarina", "Keyvan",
 }
 
-# Grad students who have Workday / purchasing admin permissions
-GRAD_STUDENT_BUYERS = {"Isaac", "Dylan", "Smeet", "Finn"}
-
 # Slack user id -> the exact name in the Requester Name dropdown.
 # Fill these in with real IDs (find them in Slack: profile -> More -> Copy member ID).
 SLACK_USER_TO_REQUESTER = {
@@ -240,6 +237,8 @@ REMOVE_VENDOR_KEYWORDS = ("remove vendor", "delete vendor")
 PROMOTE_ADMIN_KEYWORDS = ("promote-admin", "promote admin", "add-admin", "add admin")
 ADD_APPROVER_KEYWORDS = ("add-approver", "add approver")
 REMOVE_APPROVER_KEYWORDS = ("remove-approver", "remove approver")
+ADD_BUYER_KEYWORDS = ("add-buyer", "add buyer")
+REMOVE_BUYER_KEYWORDS = ("remove-buyer", "remove buyer")
 
 # --- Phase 4 Staged Purchasing Interview Constants ----------------------------
 # The categories for which Asset ID and Name of System are required (Screen 3)

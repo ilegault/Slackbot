@@ -29,9 +29,60 @@ def test_roster_first_run_seeding(temp_roster_file):
     assert "requesters" in data
     assert "admins" in data
     assert "approvers" in data
+    assert "buyers" in data
+    assert data["buyers"] == []
     assert "vendors" in data
     assert "U07L2RFEPJ9" in data["approvers"]
     assert "Fisher Scientific" in data["vendors"]
+
+
+def test_roster_backfill_missing_buyers_key(tmp_path, monkeypatch):
+    """A roster JSON without a 'buyers' key loads cleanly and get_buyers returns []."""
+    test_roster = str(tmp_path / "legacy_roster.json")
+    legacy_data = {
+        "requesters": {"U1": "Isaac"},
+        "admins": ["U1"],
+        "approvers": ["U07L2RFEPJ9"],
+        "vendors": ["Fisher Scientific"],
+    }
+    with open(test_roster, "w", encoding="utf-8") as f:
+        json.dump(legacy_data, f)
+    monkeypatch.setattr(roster, "ROSTER_PATH", test_roster)
+
+    # Must not raise KeyError, must return []
+    assert roster.get_buyers() == []
+
+    # Verify backfill was saved to disk
+    with open(test_roster, "r", encoding="utf-8") as f:
+        disk_data = json.load(f)
+    assert "buyers" in disk_data
+    assert disk_data["buyers"] == []
+
+
+def test_buyer_management():
+    """Test get_buyers, is_buyer, add_buyer, and remove_buyer functions."""
+    assert roster.get_buyers() == []
+    assert roster.is_buyer("U_BUYER1") is False
+    assert roster.is_buyer("") is False
+    assert roster.is_buyer(None) is False
+
+    roster.add_buyer("U_BUYER1")
+    buyers = roster.get_buyers()
+    assert "U_BUYER1" in buyers
+    assert roster.is_buyer("U_BUYER1") is True
+    assert roster.is_buyer("U_OTHER") is False
+
+    # Adding duplicate should not duplicate
+    roster.add_buyer("U_BUYER1")
+    assert roster.get_buyers().count("U_BUYER1") == 1
+
+    removed = roster.remove_buyer("U_BUYER1")
+    assert removed is True
+    assert "U_BUYER1" not in roster.get_buyers()
+    assert roster.is_buyer("U_BUYER1") is False
+
+    # Removing non-existent returns False
+    assert roster.remove_buyer("NONEXISTENT") is False
 
 
 def test_add_and_get_requester(temp_roster_file):

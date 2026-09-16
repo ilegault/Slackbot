@@ -226,11 +226,15 @@ def handle_roster_list_command(ack, body, respond):
     if is_admin:
         admins_list = roster.get_admins() if hasattr(roster, "get_admins") else []
         approvers_list = roster.get_approvers() if hasattr(roster, "get_approvers") else []
+        buyers_list = roster.get_buyers() if hasattr(roster, "get_buyers") else []
         lines.append("*Bot Administrators:*")
         lines.append(", ".join(f"<@{a}>" for a in admins_list) if admins_list else "None")
         lines.append("")
         lines.append("*Purchase Approvers:*")
         lines.append(", ".join(f"<@{a}>" for a in approvers_list) if approvers_list else "None")
+        lines.append("")
+        lines.append("*Purchase Buyers:*")
+        lines.append(", ".join(f"<@{b}>" for b in buyers_list) if buyers_list else "None")
         lines.append("")
 
     count = len(vendors_list)
@@ -863,6 +867,10 @@ def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event
         ops.handle_add_approver(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.REMOVE_APPROVER_KEYWORDS):
         ops.handle_remove_approver(client, say, channel, thread_ts, user, text)
+    elif any(kw in text_lower for kw in config.ADD_BUYER_KEYWORDS):
+        ops.handle_add_buyer(client, say, channel, thread_ts, user, text)
+    elif any(kw in text_lower for kw in config.REMOVE_BUYER_KEYWORDS):
+        ops.handle_remove_buyer(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.REMOVE_VENDOR_KEYWORDS):
         ops.handle_remove_vendor(client, say, channel, thread_ts, user, text)
     elif any(kw in text_lower for kw in config.TEMPLATE_KEYWORDS):
