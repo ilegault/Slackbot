@@ -332,14 +332,18 @@ def test_permission_denial_req_approve():
     body = _make_button_body("req_approve", user_id="U_NON_APPROVER", state="posted")
 
     with patch.object(admin, "is_approved_reviewer", return_value=False), \
+         patch("src.lifecycle.handle_epif_processing") as mock_handle_epif, \
          patch.object(log_writer, "append_row") as mock_append:
         app.handle_req_approve_action(ack, body, respond, client)
 
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only authorized approvers" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
+    mock_handle_epif.assert_not_called()
     mock_append.assert_not_called()
 
 
@@ -371,6 +375,8 @@ def test_permission_denial_req_processed_unassigned():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "must be assigned to a buyer" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
 
@@ -404,6 +410,8 @@ def test_permission_denial_req_processed_non_assignee():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only the assigned buyer" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
 
@@ -422,6 +430,8 @@ def test_permission_denial_req_processed():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_processed.assert_not_called()
@@ -441,6 +451,8 @@ def test_permission_denial_req_confirmed():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_confirmation.assert_not_called()
@@ -460,6 +472,8 @@ def test_permission_denial_req_delivered():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_delivery.assert_not_called()
@@ -479,6 +493,8 @@ def test_permission_denial_req_decline():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only authorized approvers can decline purchase requests" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_decline.assert_not_called()
@@ -499,6 +515,8 @@ def test_permission_denial_req_cancel():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only approvers and admins can cancel purchase requests" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_blank.assert_not_called()
@@ -610,3 +628,42 @@ def test_only_log_writer_opens_workbook_path():
                             pytest.fail(f"{rel_path}:{node.lineno} calls open(WORKBOOK_PATH). Only log_writer may open workbook.")
                         if isinstance(first_arg, ast.Name) and first_arg.id == "WORKBOOK_PATH":
                             pytest.fail(f"{rel_path}:{node.lineno} calls open(WORKBOOK_PATH). Only log_writer may open workbook.")
+
+
+# ---------------------------------------------------------------------------
+# 10. Invariant: no bare respond() in src/app.py (Ticket 12)
+# ---------------------------------------------------------------------------
+
+def test_no_bare_respond_in_app():
+    """Assert no bare respond(text=...) remains in src/app.py.
+
+    Per Ticket 12 / AGENTS.md Invariant 5:
+    A block action's reply through response_url replaces the message it was clicked on
+    unless replace_original=False is specified. Every respond call in src/app.py must
+    either route through slack_io.deny or pass replace_original explicitly.
+    """
+    app_path = os.path.join(SRC_DIR, "app.py")
+    with open(app_path, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=app_path)
+
+    bare_calls = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            is_respond = False
+            if isinstance(func, ast.Name) and func.id == "respond":
+                is_respond = True
+            elif isinstance(func, ast.Attribute) and func.attr == "respond":
+                is_respond = True
+
+            if is_respond:
+                kw_names = [kw.arg for kw in node.keywords]
+                if "replace_original" not in kw_names:
+                    bare_calls.append(f"src/app.py:{node.lineno} calls bare respond() without replace_original")
+
+    assert not bare_calls, (
+        "Discovered bare respond() call(s) without replace_original in src/app.py:\n"
+        + "\n".join(f"  {c}" for c in bare_calls)
+        + "\nPer Ticket 12, all refusals must route through slack_io.deny or pass replace_original explicitly."
+    )
+
