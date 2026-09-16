@@ -5,7 +5,7 @@ cross-cutting guards that no single ticket in this set owns.
 
 **Blocked by:** 02, 03, 04, 05
 
-**Status:** ready-for-agent
+**Status:** done
 
 `docs/adr/0001-tests-first-and-no-muted-failures.md` is binding, and this ticket is
 the one place where it is being applied retroactively: T1–T4 shipped before the
@@ -34,27 +34,39 @@ actually replies.
 
 ## Acceptance criteria
 
-- [ ] All five slash commands are registered — asserted against Bolt's real
+- [x] All five slash commands are registered — asserted against Bolt's real
       listener registry
-- [ ] **No slash-command handler calls `chat_postEphemeral`** — assert the fake
+- [x] **No slash-command handler calls `chat_postEphemeral`** — assert the fake
       client's `chat_postEphemeral` was never called. This is the T1 guard
-- [ ] Exactly one `chat_postEphemeral` call site remains in `src/`, on the
+- [x] Exactly one `chat_postEphemeral` call site remains in `src/`, on the
       message-event path, and a test pins that count
-- [ ] Every command acks before any client call
-- [ ] The `log_request` middleware produces a start record and a completion record,
+- [x] Every command acks before any client call
+- [x] The `log_request` middleware produces a start record and a completion record,
       and a handler that raises still produces the completion record plus the
       exception. This is the T2 guard
-- [ ] A request through the middleware taking over 2 000 ms is logged at WARNING
-- [ ] `build_request_blocks` returns exactly one next-step button per non-final
+- [x] A request through the middleware taking over 2 000 ms is logged at WARNING
+- [x] `build_request_blocks` returns exactly one next-step button per non-final
       state and none for `delivered`, with the expected `action_id`
-- [ ] Every lifecycle button's permission denial leaves the message unchanged and
+- [x] Every lifecycle button's permission denial leaves the message unchanged and
       writes nothing — one test per button, not one test for the set
-- [ ] `/roster-set-name` with a name outside `VALID_REQUESTERS` returns a modal
+- [x] `/roster-set-name` with a name outside `VALID_REQUESTERS` returns a modal
       error and posts **no** alert
-- [ ] A test asserts no module under `src/` other than the root entry point imports
+- [x] A test asserts no module under `src/` other than the root entry point imports
       `app` — the layering guard from ticket 01, kept
-- [ ] A test asserts `log_writer` is the only module that opens `WORKBOOK_PATH`
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] A test asserts `log_writer` is the only module that opens `WORKBOOK_PATH`
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
       with **zero** failures
 
 ## Comments
+
+- 2026-09-16: Implemented comprehensive regression guard suite in `tests/test_regression_guards.py`.
+  - Introspects Bolt's real listener registry (`app.app._listeners`) to ensure all 5 slash commands are registered.
+  - Verifies all 5 slash command handlers call `ack()` strictly prior to any client operations and never call `chat_postEphemeral`.
+  - AST check pins exactly 1 `chat_postEphemeral` call site across all of `src/` (in `src/app.py` line 329 on view/message submission path).
+  - Verifies `log_request` middleware start, completion, and exception records, and tests WARNING emission for requests > 2000 ms.
+  - Verifies `build_request_blocks` returns exactly one primary next-step button for all non-final states (`posted`, `approved`, `claimed`, `processed`, `confirmed`) and zero buttons for `delivered`.
+  - Adds 7 distinct permission denial tests (one per button: `req_approve`, `req_claim`, `req_processed`, `req_confirmed`, `req_delivered`, `req_decline`, `req_cancel`), confirming `chat_update` is not called, no writes occur, and ephemeral responses are sent.
+  - Confirms `/roster-set-name` returns modal validation error and posts zero alerts for unlisted names.
+  - Confirms downward layering invariant (no module in `src/` imports `app`).
+  - Confirms only `log_writer.py` opens `WORKBOOK_PATH` via `zipfile.ZipFile`.
+  - Full test suite passing cleanly (118 passed, 31 skipped).
