@@ -32,10 +32,11 @@ not a licence to act on a request already assigned to someone else.
 
 **Requester** — whoever asked for the purchase. Anyone in the lab. Mapped Slack ID
 → name in the roster's `requesters`. The name goes into the workbook, so it is
-validated — but **not against a fixed list any more.** `config.VALID_REQUESTERS`
-was deleted in ticket 11; `roster.get_valid_requesters()` is the only source. A
-name nobody holds is allowed and goes to an admin for approval; a name another
-member already holds is refused outright. See **Lab member** below.
+validated against `roster.json` as the only source — never against a hardcoded list.
+`config.VALID_REQUESTERS` was deleted in ticket 11; `roster.get_valid_requesters()` reads
+`roster.json`'s `requesters` directly. A name nobody holds is allowed and goes to an
+admin for approval; a name another member already holds is refused outright. See
+**Lab member** below.
 
 **Purchasing guru** — the buyer currently holding purchasing duty. Charlie set up
 a rotating arrangement, Dylan first. This is a **human arrangement, not a role in

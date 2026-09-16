@@ -9,9 +9,14 @@ immediately because all accessors re-read from disk without requiring a bot rest
 Roles are stored as Slack IDs (never display names) so users can be mentioned and
 profile changes do not break permissions.
 
-roster.json is also the source of truth for the Requester Name and Grad Student lists
-on the workbook's Roles & Lists tab. Adding a requester or buyer submits a sync task
-to log_writer through the lock queue so the workbook's dropdowns stay current.
+roster.json is also the single source of truth for valid requester names and the
+Requester Name and Grad Student lists on the workbook's Roles & Lists tab. Adding a
+requester or buyer submits a sync task to log_writer through the lock queue so the
+workbook's dropdowns stay current.
+
+DEFAULT_VALID_REQUESTERS is purely an initial seed for when roster.json does not yet
+exist on disk; get_valid_requesters() returns names in roster.json requesters and
+nothing else, so new lab members can register without gatekeeping against a hardcoded list.
 """
 import json
 import logging
@@ -50,6 +55,12 @@ def _get_initial_seed() -> Dict[str, Any]:
     requesters = {}
     if hasattr(config, "SLACK_USER_TO_REQUESTER") and config.SLACK_USER_TO_REQUESTER:
         requesters.update(config.SLACK_USER_TO_REQUESTER)
+
+    # Seed default valid requesters into unmapped requesters on fresh roster
+    mapped_names = set(requesters.values())
+    for name in DEFAULT_VALID_REQUESTERS:
+        if name not in mapped_names:
+            requesters[name] = name
 
     admins = []
     if hasattr(config, "ADMIN_SLACK_USER_IDS") and config.ADMIN_SLACK_USER_IDS:
@@ -139,11 +150,9 @@ def get_requesters() -> Dict[str, str]:
 
 
 def get_valid_requesters() -> Set[str]:
-    """Return set of valid requester names (both mapped users and lab members)."""
+    """Return set of valid requester names from roster.json."""
     data = load_roster()
-    names = set(data.get("requesters", {}).values())
-    names.update(DEFAULT_VALID_REQUESTERS)
-    return names
+    return set(data.get("requesters", {}).values())
 
 
 def get_admins() -> List[str]:
