@@ -132,7 +132,7 @@ def handle_promote_admin(client, say, channel: str, thread_ts: str, user_id: str
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
-    match = re.search(r"<@([A-Z0-9]+)>", text)
+    match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
         say(text="⚠️ Please mention the user to promote, e.g. `@p-bot promote-admin @user`.", thread_ts=thread_ts)
         return
@@ -210,7 +210,7 @@ def handle_add_approver(client, say, channel: str, thread_ts: str, user_id: str,
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
-    match = re.search(r"<@([A-Z0-9]+)>", text)
+    match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
         say(text="⚠️ Please mention the user to add as approver, e.g. `@p-bot add-approver @user`.", thread_ts=thread_ts)
         return
@@ -230,7 +230,7 @@ def handle_remove_approver(client, say, channel: str, thread_ts: str, user_id: s
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
-    match = re.search(r"<@([A-Z0-9]+)>", text)
+    match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
         say(text="⚠️ Please mention the user to remove from approvers, e.g. `@p-bot remove-approver @user`.", thread_ts=thread_ts)
         return
@@ -243,6 +243,57 @@ def handle_remove_approver(client, say, channel: str, thread_ts: str, user_id: s
         )
     else:
         say(text=f"⚠️ <@{target_id}> was not in the approvers list.", thread_ts=thread_ts)
+
+
+def handle_add_buyer(client, say, channel: str, thread_ts: str, user_id: str, text: str):
+    """Admin command to add a user to the purchase buyer list."""
+    if not admin.is_admin_user(user_id):
+        log.warning("Unauthorized user %s attempted to run '@p-bot add-buyer'", user_id)
+        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
+        return
+
+    match = re.search(r"<@([A-Z0-9_]+)>", text)
+    if not match:
+        say(text="⚠️ Please mention the user to add as buyer, e.g. `@p-bot add-buyer @user`.", thread_ts=thread_ts)
+        return
+
+    target_id = match.group(1)
+    roster.add_buyer(target_id)
+
+    warning = ""
+    requesters = roster.get_requesters() if hasattr(roster, "get_requesters") else {}
+    if target_id not in requesters:
+        warning = (
+            f"\n⚠️ *Warning:* <@{target_id}> does not have a mapped requester name in `roster.json`. "
+            f"Please have them run `/roster-set-name` (or link their account) so their name appears on claimed orders."
+        )
+
+    say(
+        text=f"✅ <@{target_id}> added to purchase buyers in `roster.json`.{warning}",
+        thread_ts=thread_ts,
+    )
+
+
+def handle_remove_buyer(client, say, channel: str, thread_ts: str, user_id: str, text: str):
+    """Admin command to remove a user from the purchase buyer list."""
+    if not admin.is_admin_user(user_id):
+        log.warning("Unauthorized user %s attempted to run '@p-bot remove-buyer'", user_id)
+        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
+        return
+
+    match = re.search(r"<@([A-Z0-9_]+)>", text)
+    if not match:
+        say(text="⚠️ Please mention the user to remove from buyers, e.g. `@p-bot remove-buyer @user`.", thread_ts=thread_ts)
+        return
+
+    target_id = match.group(1)
+    if roster.remove_buyer(target_id):
+        say(
+            text=f"✅ <@{target_id}> removed from purchase buyers in `roster.json`.",
+            thread_ts=thread_ts,
+        )
+    else:
+        say(text=f"⚠️ <@{target_id}> was not in the buyers list.", thread_ts=thread_ts)
 
 
 def handle_template_command(client, say, channel: str, thread_ts: str | None, user_id: str):

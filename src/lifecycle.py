@@ -90,7 +90,7 @@ def finalize_purchase_request(
         except Exception as e:
             log.debug("Could not add checkmark reaction: %s", e)
 
-        is_grad_buyer = requester in config.GRAD_STUDENT_BUYERS
+        is_grad_buyer = roster.is_buyer(notify_target)
         display_requester = f"{requester} (pending name confirmation)" if is_pending_name else (requester or "Requester")
         ping_user = f"<@{notify_target}>" if notify_target else display_requester
         saved_str = f"Saved EPIF to `{saved_path}`.\n\n" if saved_path else ""
@@ -126,7 +126,8 @@ def finalize_purchase_request(
 
         else:
             log.info("Requester %s is undergrad/non-buyer; broadcasting claim request to grad buyers", requester)
-            buyers_list = ", ".join(sorted(config.GRAD_STUDENT_BUYERS))
+            buyers = roster.get_buyers()
+            buyers_list = ", ".join(f"<@{b}>" for b in buyers) if buyers else "None"
             say(
                 text=(
                     f"Logged to row {row}: {parsed['item_description']} — "

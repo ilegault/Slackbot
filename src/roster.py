@@ -1,6 +1,13 @@
-"""Self-service roster management for requesters, admins, approvers, and vendors.
+"""Self-service roster management for requesters, admins, approvers, buyers, and vendors.
 
 Stores data in roster.json with atomic writes.
+
+WHY THIS EXISTS:
+----------------
+Manages lab purchasing roles and permissions. Changes to roster.json take effect
+immediately because all accessors re-read from disk without requiring a bot restart.
+Roles are stored as Slack IDs (never display names) so users can be mentioned and
+profile changes do not break permissions.
 """
 import json
 import logging
@@ -50,6 +57,12 @@ def _get_initial_seed() -> Dict[str, Any]:
             if apprv and apprv not in approvers:
                 approvers.append(apprv)
 
+    buyers = []
+    if hasattr(config, "BUYER_SLACK_USER_IDS") and config.BUYER_SLACK_USER_IDS:
+        for b in config.BUYER_SLACK_USER_IDS:
+            if b and b not in buyers:
+                buyers.append(b)
+
     vendors = list(DEFAULT_WORKDAY_VENDORS)
     if hasattr(config, "WORKDAY_VENDORS") and config.WORKDAY_VENDORS:
         for v in config.WORKDAY_VENDORS:
@@ -60,6 +73,7 @@ def _get_initial_seed() -> Dict[str, Any]:
         "requesters": requesters,
         "admins": admins,
         "approvers": approvers,
+        "buyers": buyers,
         "vendors": sorted(vendors),
     }
 
@@ -84,6 +98,9 @@ def load_roster() -> Dict[str, Any]:
             changed = True
         if "approvers" not in data:
             data["approvers"] = [DEFAULT_APPROVER_ID]
+            changed = True
+        if "buyers" not in data:
+            data["buyers"] = []
             changed = True
         if "vendors" not in data:
             data["vendors"] = list(DEFAULT_WORKDAY_VENDORS)
@@ -137,6 +154,19 @@ def get_approvers() -> List[str]:
     return data.get("approvers", [DEFAULT_APPROVER_ID])
 
 
+def get_buyers() -> List[str]:
+    """Return list of purchase buyer Slack User IDs."""
+    data = load_roster()
+    return data.get("buyers", [])
+
+
+def is_buyer(slack_id: str) -> bool:
+    """Check if a Slack user ID is an authorized purchase buyer."""
+    if not slack_id:
+        return False
+    return slack_id in get_buyers()
+
+
 def get_vendors() -> List[str]:
     """Return sorted list of active Workday punchout/catalog vendor names."""
     data = load_roster()
@@ -182,6 +212,31 @@ def remove_approver(slack_id: str) -> bool:
         approvers.remove(slack_id)
         save_roster(data)
         log.info("Removed approver user: %s", slack_id)
+        return True
+    return False
+
+
+def add_buyer(slack_id: str) -> None:
+    """Add a Slack user ID to the purchase buyer list."""
+    data = load_roster()
+    buyers = data.setdefault("buyers", [])
+    if slack_id not in buyers:
+        buyers.append(slack_id)
+        save_roster(data)
+        log.info("Added buyer user: %s", slack_id)
+
+
+def remove_buyer(slack_id: str) -> bool:
+    """Remove a Slack user ID from the purchase buyer list.
+
+    Returns True if removed, False if not present.
+    """
+    data = load_roster()
+    buyers = data.setdefault("buyers", [])
+    if slack_id in buyers:
+        buyers.remove(slack_id)
+        save_roster(data)
+        log.info("Removed buyer user: %s", slack_id)
         return True
     return False
 

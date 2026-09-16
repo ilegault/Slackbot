@@ -13,7 +13,7 @@ for p in (PROJECT_ROOT, SRC_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from src import app, blocks, config, interview, lifecycle, ops, roster
+from src import admin, app, blocks, config, interview, lifecycle, ops, roster
 
 
 @pytest.fixture(autouse=True)
@@ -984,13 +984,14 @@ def test_screen2_validation_errors():
 # ==============================================================================
 
 def test_roster_list_output_admin_vs_non_admin():
-    """Non-admin sees members and vendors, but approvers/admins are hidden; admin sees all."""
+    """Non-admin sees members and vendors, but approvers/admins/buyers are hidden; admin sees all."""
     ack = MagicMock()
     respond = MagicMock()
 
     roster.add_requester("U_REQ1", "Isaac")
     roster.add_admin("U_ADMIN1")
     roster.add_approver("U07L2RFEPJ9")
+    roster.add_buyer("U_BUYER1")
 
     # 1. Non-admin
     app.handle_roster_list_command(ack, {"user_id": "U_REQ1"}, respond)
@@ -999,6 +1000,7 @@ def test_roster_list_output_admin_vs_non_admin():
     assert "Workday Punchout Vendors" in non_admin_text
     assert "Administrators" not in non_admin_text
     assert "Authorized Approvers" not in non_admin_text
+    assert "Purchase Buyers" not in non_admin_text
 
     # 2. Admin
     respond.reset_mock()
@@ -1006,6 +1008,8 @@ def test_roster_list_output_admin_vs_non_admin():
     admin_text = respond.call_args[1]["text"]
     assert "Administrators" in admin_text
     assert "Purchase Approvers" in admin_text
+    assert "Purchase Buyers" in admin_text
+    assert "<@U_BUYER1>" in admin_text
 
 
 def test_roster_list_empty_requesters_prompt(monkeypatch, tmp_path):
@@ -1130,6 +1134,106 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         blocks_res = update_call["blocks"]
         # No more action buttons on delivered
         assert not any(b.get("type") == "actions" for b in blocks_res)
+
+
+# ==============================================================================
+# BUYER ROSTER & ADMIN COMMAND TESTS (TICKET 02)
+# ==============================================================================
+
+def test_add_buyer_non_admin_refused(monkeypatch, tmp_path):
+    """A non-admin user running add-buyer is refused and nothing is written."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_requester("U_NONADMIN", "Casey")
+    assert not admin.is_admin_user("U_NONADMIN")
+
+    from src import ops
+    ops.handle_add_buyer(client, say, channel="C_OPS", thread_ts="111.22", user_id="U_NONADMIN", text="@p-bot add-buyer <@U_TARGET>")
+
+    say.assert_called_once()
+    assert "restricted to bot administrators" in say.call_args[1]["text"]
+    assert not roster.is_buyer("U_TARGET")
+
+
+def test_add_buyer_admin_warns_no_requester_entry(monkeypatch, tmp_path):
+    """Admin adding a buyer who has no requesters entry adds them and surfaces warning to admin in Slack."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_admin("U_ADMIN")
+    assert admin.is_admin_user("U_ADMIN")
+
+    # U_NEWBUYER has no requester mapping
+    requesters = roster.get_requesters()
+    assert "U_NEWBUYER" not in requesters
+
+    from src import ops
+    ops.handle_add_buyer(client, say, channel="C_OPS", thread_ts="111.22", user_id="U_ADMIN", text="@p-bot add-buyer <@U_NEWBUYER>")
+
+    say.assert_called_once()
+    reply = say.call_args[1]["text"]
+    # Buyer was added
+    assert roster.is_buyer("U_NEWBUYER")
+    assert "added to purchase buyers" in reply
+    # Warning naming user and telling admin to run /roster-set-name
+    assert "<@U_NEWBUYER>" in reply
+    assert "/roster-set-name" in reply
+
+
+def test_add_buyer_admin_no_warning_when_in_requesters(monkeypatch, tmp_path):
+    """Admin adding a buyer who already has a requester mapping succeeds without warning."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_admin("U_ADMIN")
+    roster.add_requester("U_MAPPEDBUYER", "Dylan")
+
+    from src import ops
+    ops.handle_add_buyer(client, say, channel="C_OPS", thread_ts="111.22", user_id="U_ADMIN", text="@p-bot add-buyer <@U_MAPPEDBUYER>")
+
+    say.assert_called_once()
+    reply = say.call_args[1]["text"]
+    assert roster.is_buyer("U_MAPPEDBUYER")
+    assert "added to purchase buyers" in reply
+    assert "/roster-set-name" not in reply
+
+
+def test_remove_buyer_admin_vs_non_admin(monkeypatch, tmp_path):
+    """Admin can remove buyer; non-admin is refused."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_admin("U_ADMIN")
+    roster.add_requester("U_NONADMIN", "Casey")
+    roster.add_buyer("U_TARGETBUYER")
+    assert roster.is_buyer("U_TARGETBUYER")
+
+    from src import ops
+
+    # Non-admin attempt
+    ops.handle_remove_buyer(client, say, channel="C_OPS", thread_ts="111.22", user_id="U_NONADMIN", text="@p-bot remove-buyer <@U_TARGETBUYER>")
+    assert "restricted to bot administrators" in say.call_args[1]["text"]
+    assert roster.is_buyer("U_TARGETBUYER")
+
+    # Admin attempt
+    say.reset_mock()
+    ops.handle_remove_buyer(client, say, channel="C_OPS", thread_ts="111.22", user_id="U_ADMIN", text="@p-bot remove-buyer <@U_TARGETBUYER>")
+    assert "removed from purchase buyers" in say.call_args[1]["text"]
+    assert not roster.is_buyer("U_TARGETBUYER")
+
+
+def test_dispatch_command_add_and_remove_buyer(monkeypatch):
+    """dispatch_command routes add-buyer and remove-buyer to ops handlers."""
+    client = MagicMock()
+    say = MagicMock()
+    roster.add_admin("U_ADMIN")
+
+    # Test dispatch add-buyer
+    app.dispatch_command(client, say, channel="C1", thread_ts="T1", user="U_ADMIN", event_ts="E1", text="@p-bot add-buyer <@U_NEW>")
+    assert roster.is_buyer("U_NEW")
+
+    # Test dispatch remove-buyer
+    say.reset_mock()
+    app.dispatch_command(client, say, channel="C1", thread_ts="T1", user="U_ADMIN", event_ts="E1", text="@p-bot remove-buyer <@U_NEW>")
+    assert not roster.is_buyer("U_NEW")
+
 
 
 

@@ -99,3 +99,22 @@ def test_app_importable_with_dummy_or_missing_tokens():
     )
     assert res.returncode == 0, f"Subprocess failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
 
+
+def test_grad_student_buyers_deleted_and_unreferenced():
+    """Verify config.GRAD_STUDENT_BUYERS is deleted and unreferenced in src/."""
+    from src import config
+    assert not hasattr(config, "GRAD_STUDENT_BUYERS"), "config.GRAD_STUDENT_BUYERS must be deleted."
+
+    for root, _, files in os.walk(SRC_DIR):
+        for fname in files:
+            if not fname.endswith(".py"):
+                continue
+            fpath = os.path.join(root, fname)
+            rel_path = os.path.relpath(fpath, PROJECT_ROOT)
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+            assert "GRAD_STUDENT_BUYERS" not in content, (
+                f"{rel_path} still references GRAD_STUDENT_BUYERS."
+            )
+
+

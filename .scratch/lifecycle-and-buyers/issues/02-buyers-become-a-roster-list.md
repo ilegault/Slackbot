@@ -6,7 +6,7 @@ from Slack by an admin like every other roster list.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 Read `docs/adr/0002-request-lifecycle-and-surfaces.md` decision 5 first.
 `docs/adr/0001-tests-first-and-no-muted-failures.md` is binding.
@@ -42,25 +42,25 @@ names and not IDs:
 
 ## Acceptance criteria
 
-- [ ] `"buyers": []` is in the roster schema in `_get_initial_seed()`, storing
+- [x] `"buyers": []` is in the roster schema in `_get_initial_seed()`, storing
       Slack IDs exactly as `approvers` does
-- [ ] `load_roster` backfills a missing `buyers` key; a roster JSON without it
+- [x] `load_roster` backfills a missing `buyers` key; a roster JSON without it
       loads and `get_buyers()` returns `[]` rather than raising
-- [ ] `get_buyers()`, `add_buyer(slack_id)`, `remove_buyer(slack_id)` and
+- [x] `get_buyers()`, `add_buyer(slack_id)`, `remove_buyer(slack_id)` and
       `is_buyer(slack_id)` exist in `roster.py`, mirroring the approver functions
-- [ ] `is_buyer` takes an ID; there is no name-based variant anywhere
-- [ ] Admin-only `@p-bot add-buyer @user` and `@p-bot remove-buyer @user` exist
+- [x] `is_buyer` takes an ID; there is no name-based variant anywhere
+- [x] Admin-only `@p-bot add-buyer @user` and `@p-bot remove-buyer @user` exist
       alongside the approver keywords, with the same permission check
-- [ ] `/roster-list` output has a **Purchase Buyers** section
-- [ ] `config.GRAD_STUDENT_BUYERS` is deleted, and every read of it is gone
+- [x] `/roster-list` output has a **Purchase Buyers** section
+- [x] `config.GRAD_STUDENT_BUYERS` is deleted, and every read of it is gone
       (`grep -rn GRAD_STUDENT_BUYERS src/` returns nothing)
-- [ ] `add-buyer` on a user with no `requesters` entry adds the buyer **and**
+- [x] `add-buyer` on a user with no `requesters` entry adds the buyer **and**
       surfaces the warning to the admin in Slack
-- [ ] A test asserts `get_buyers()` returns `[]` for a roster with no `buyers` key
-- [ ] A test asserts the no-requester-entry warning **reaches the admin**, not just
+- [x] A test asserts `get_buyers()` returns `[]` for a roster with no `buyers` key
+- [x] A test asserts the no-requester-entry warning **reaches the admin**, not just
       that the roster write happened
-- [ ] A test asserts `add-buyer` from a non-admin is refused and writes nothing
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] A test asserts `add-buyer` from a non-admin is refused and writes nothing
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Human step, not part of this ticket
 
@@ -69,3 +69,6 @@ Slack session and the real IDs. After deploying, Isaac runs `@p-bot add-buyer` f
 each and confirms each has a requester name.
 
 ## Comments
+
+- 2026-09-15: Replaced `config.GRAD_STUDENT_BUYERS` with `buyers` list in `roster.json`. Added `get_buyers()`, `add_buyer(slack_id)`, `remove_buyer(slack_id)`, and `is_buyer(slack_id)` in `src/roster.py`. Backfill implemented for legacy rosters. Added admin `@p-bot add-buyer` and `@p-bot remove-buyer` commands with requester-missing warnings and permission gates. Updated `/roster-list` with `Purchase Buyers` section. Added AST check in `tests/test_layering_and_isolation.py` guaranteeing no remaining references to `GRAD_STUDENT_BUYERS`. All gate checks pass.
+
