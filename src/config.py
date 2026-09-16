@@ -77,6 +77,9 @@ APPROVER_SLACK_USER_IDS = {"U07L2RFEPJ9"}
 # Channel ID or Admin User ID where startup, crash, and system health alerts should be sent
 ADMIN_ALERT_CHANNEL = os.environ.get("ADMIN_ALERT_CHANNEL", "").strip()
 
+# Channel ID where new purchase requests are posted for lab review (Ticket 15)
+PURCHASING_CHANNEL = os.environ.get("PURCHASING_CHANNEL", "").strip()
+
 # --- External Heartbeat (Dead-Man's Switch) -----------------------------------
 HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "").strip()
 try:

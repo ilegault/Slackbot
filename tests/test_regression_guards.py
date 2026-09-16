@@ -19,8 +19,9 @@ These regression guards enforce cross-cutting invariants across the bot:
 5. Every lifecycle button's permission denial leaves the message unchanged and writes
    nothing — tested independently per button.
 6. /roster-set-name modal returns an error and emits no alert for unrecognized names.
-7. Downward layering is maintained (no module in src/ imports app).
 8. Only log_writer opens WORKBOOK_PATH (via zipfile.ZipFile).
+9. Downward layering is maintained (no module in src/ imports app).
+10. os.environ is read nowhere in src/ outside config.py (Ticket 15).
 """
 import ast
 import json
@@ -610,3 +611,85 @@ def test_only_log_writer_opens_workbook_path():
                             pytest.fail(f"{rel_path}:{node.lineno} calls open(WORKBOOK_PATH). Only log_writer may open workbook.")
                         if isinstance(first_arg, ast.Name) and first_arg.id == "WORKBOOK_PATH":
                             pytest.fail(f"{rel_path}:{node.lineno} calls open(WORKBOOK_PATH). Only log_writer may open workbook.")
+
+
+# ---------------------------------------------------------------------------
+# 10. Invariant: os.environ is read nowhere in src/ outside config.py (Ticket 15)
+# ---------------------------------------------------------------------------
+
+def test_os_environ_read_nowhere_outside_config():
+    """Assert os.environ is read nowhere in src/ except config.py.
+
+    Per Ticket 15 / AGENTS.md Invariant 4:
+    'Every constant has one home. Tunables, column letters, callback IDs and
+    role lists live in config.py or the roster, never as a literal in a handler.'
+
+    Grandfathered reads per Ticket 15 Out-of-Scope (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, USERNAME).
+    Fails if any new inline read is added outside config.py.
+    """
+    ALLOWED_BASELINE = {
+        ("src/app.py", "SLACK_BOT_TOKEN"),
+        ("src/app.py", "SLACK_APP_TOKEN"),
+        ("src/slack_io.py", "SLACK_BOT_TOKEN"),
+        ("src/path_validator.py", "USERNAME"),
+    }
+
+    discovered_reads = []
+
+    for root, _, files in os.walk(SRC_DIR):
+        for fname in files:
+            if not fname.endswith(".py") or fname == "config.py":
+                continue
+            fpath = os.path.join(root, fname)
+            rel_path = os.path.relpath(fpath, PROJECT_ROOT).replace("\\", "/")
+
+            with open(fpath, "r", encoding="utf-8") as f:
+                tree = ast.parse(f.read(), filename=fpath)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    # os.environ.get("VAR")
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr == "get"
+                        and isinstance(func.value, ast.Attribute)
+                        and func.value.attr == "environ"
+                        and isinstance(func.value.value, ast.Name)
+                        and func.value.value.id == "os"
+                    ):
+                        var_name = node.args[0].value if node.args and isinstance(node.args[0], ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.environ.get('{var_name}')"))
+
+                    # os.getenv("VAR")
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr == "getenv"
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "os"
+                    ):
+                        var_name = node.args[0].value if node.args and isinstance(node.args[0], ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.getenv('{var_name}')"))
+
+                # Catch direct subscript read: os.environ["VAR"]
+                if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+                    val = node.value
+                    if (
+                        isinstance(val, ast.Attribute)
+                        and val.attr == "environ"
+                        and isinstance(val.value, ast.Name)
+                        and val.value.id == "os"
+                    ):
+                        slice_node = node.slice
+                        var_name = slice_node.value if isinstance(slice_node, ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.environ['{var_name}']"))
+
+    assert not discovered_reads, (
+        "Discovered unapproved inline environment variable read(s) in src/:\n"
+        + "\n".join(f"  {r[0]}:{r[1]} -> {r[2]}" for r in discovered_reads)
+        + "\nPer Invariant 4, all constants must live in config.py."
+    )
+

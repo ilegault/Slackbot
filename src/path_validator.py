@@ -1,4 +1,11 @@
-"""Validate and configure storage paths at startup.
+"""Validate and configure storage paths and channels at startup.
+
+WHY THIS EXISTS:
+----------------
+T15: PURCHASING_CHANNEL is a constant with a home in config.py. If unset,
+the bot must fail loudly at startup rather than silently falling back to the
+admin alert channel or DMing the requester. This module performs the operator-facing
+validation check.
 
 If storage paths don't exist, prompts the user to either:
   1. Locate them manually (search OneDrive)
@@ -14,6 +21,22 @@ except ImportError:
     import config
 
 log = logging.getLogger("p-bot")
+
+
+def check_purchasing_channel() -> bool:
+    """Validate that PURCHASING_CHANNEL is configured.
+
+    Returns True if configured, False otherwise.
+    Logs an operator-facing error if unset.
+    """
+    channel = getattr(config, "PURCHASING_CHANNEL", "").strip()
+    if not channel:
+        log.error("PURCHASING_CHANNEL is unset; purchase requests cannot be posted.")
+        print("❌ PURCHASING_CHANNEL is not set in environment or .env")
+        return False
+    print(f"✅ PURCHASING_CHANNEL configured: {channel}")
+    return True
+
 
 STORAGE_PATHS = {
     "PURCHASING_LOG_PATH": {
@@ -158,6 +181,10 @@ def validate_and_configure() -> bool:
         print(f"   {config.QUOTES_DIR}")
     else:
         print("✅ Quotes directory found")
+
+    # Check Purchasing Channel (Ticket 15)
+    if not check_purchasing_channel():
+        all_valid = False
 
     if all_valid:
         print("\n✅ All storage paths are accessible!")
