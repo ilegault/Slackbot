@@ -58,7 +58,7 @@ def resolve_requester(client, user_id: str | None) -> str | None:
             if hasattr(roster, "get_valid_requesters"):
                 valid_set = roster.get_valid_requesters()
             else:
-                valid_set = getattr(config, "VALID_REQUESTERS", set())
+                valid_set = set()
             valid_map = {r.lower(): r for r in valid_set}
             # Try exact match first
             for cand in candidates:

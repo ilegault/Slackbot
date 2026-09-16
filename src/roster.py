@@ -8,6 +8,10 @@ Manages lab purchasing roles and permissions. Changes to roster.json take effect
 immediately because all accessors re-read from disk without requiring a bot restart.
 Roles are stored as Slack IDs (never display names) so users can be mentioned and
 profile changes do not break permissions.
+
+roster.json is also the source of truth for the Requester Name and Grad Student lists
+on the workbook's Roles & Lists tab. Adding a requester or buyer submits a sync task
+to log_writer through the lock queue so the workbook's dropdowns stay current.
 """
 import json
 import logging
@@ -34,8 +38,8 @@ DEFAULT_WORKDAY_VENDORS = [
 ]
 
 DEFAULT_VALID_REQUESTERS = [
-    "Isaac", "Smeet", "Dylan", "Charlie H.", "Alex", "Casey", "Prof. Hirst",
-    "Copeland", "Erich", "Finn", "Eddie", "Katarina", "Keyvan",
+    "Isaac", "Smeet", "Dylan", "Alex", "Casey", "Prof. Hirst",
+    "Erich", "Finn", "Eddie", "Katarina", "Keyvan", "Hansel", "Zehui",
 ]
 
 DEFAULT_APPROVER_ID = "U07L2RFEPJ9"
@@ -173,12 +177,36 @@ def get_vendors() -> List[str]:
     return sorted(data.get("vendors", []))
 
 
+def _trigger_roster_sync() -> None:
+    """Submit a background task to sync roster lists to the Roles & Lists tab."""
+    if not getattr(config, "ROSTER_XLSX_SYNC", True):
+        return
+    wb_path = getattr(config, "WORKBOOK_PATH", None)
+    if not wb_path or not os.path.exists(wb_path):
+        return
+    try:
+        from . import log_writer, queue_worker
+    except ImportError:
+        import log_writer
+        import queue_worker
+
+    try:
+        queue_worker.submit_write_task(
+            action_fn=lambda: log_writer.sync_roster_lists(),
+            task_type="roster_sync",
+            description="Sync roster lists to workbook",
+        )
+    except Exception as e:
+        log.warning("Could not submit roster sync write task: %s", e)
+
+
 def add_requester(slack_id: str, name: str) -> None:
     """Add or update a Slack ID -> Requester Name mapping."""
     data = load_roster()
     data.setdefault("requesters", {})[slack_id] = name.strip()
     save_roster(data)
     log.info("Added requester mapping: %s -> %s", slack_id, name)
+    _trigger_roster_sync()
 
 
 def add_admin(slack_id: str) -> None:
@@ -224,6 +252,7 @@ def add_buyer(slack_id: str) -> None:
         buyers.append(slack_id)
         save_roster(data)
         log.info("Added buyer user: %s", slack_id)
+        _trigger_roster_sync()
 
 
 def remove_buyer(slack_id: str) -> bool:
@@ -237,6 +266,7 @@ def remove_buyer(slack_id: str) -> bool:
         buyers.remove(slack_id)
         save_roster(data)
         log.info("Removed buyer user: %s", slack_id)
+        _trigger_roster_sync()
         return True
     return False
 

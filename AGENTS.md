@@ -513,33 +513,42 @@ This is a **pointer**, not the work. The work is a ticket set.
 - **Read before ticket 08: `docs/adr/0004-assignment-replaces-claim.md`** — it
   supersedes 0002 decision 6
 - Glossary: `CONTEXT.md`
-- Tickets: `.scratch/lifecycle-and-buyers/issues/01…10`
+- Tickets: `.scratch/lifecycle-and-buyers/issues/01…11`
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Tickets 01 through 07 are all `done`.** The lifecycle rebuild shipped: layers
+**Tickets 01 through 09 are all `done`.** The lifecycle rebuild shipped: layers
 split, buyers on the roster, claim, buttons on the PDF-drop path, decline/cancel
-plus the `processed` rename, regression guards, lint gate.
+plus the `processed` rename, regression guards, lint gate — then assignment
+replaced claim, and App Home and the help text were refreshed from one source.
 
-## Next up — ticket 08
+## Next up — ticket 11
 
-**08 — Assignment replaces claim.** Charlie names the responsible buyer in the
-approval message itself (`@Dylan @Purchasing approved`, either order); the claim
-button, keyword, handler and card state are deleted outright. Ticket 03 built
-claim and this removes it — that is deliberate, and ADR 0004 records why. Claim
-never ran in production, so there is nothing to migrate and no shim to write.
+**11 — Mirror the roster into the workbook.** `roster.json` becomes the source of
+truth for the `Requester Name` and `Grad Student` lists on the workbook's
+`Roles & Lists` tab; adding a requester or a buyer appends them to the sheet, so
+the Order Log dropdown stops drifting away from the roster. Append-only, through
+`log_writer` and the queue — invariant 2, no exceptions.
 
-**09 — Refresh App Home and the help text** follows it, and fixes that both
-surfaces still say `@p-bot` when the app is called `@Purchasing`.
+The two lists were reconciled by hand and the tab was given room to grow on
+2026-09-16. The ticket's **"Starting state"** section records exactly what the
+sheet looks like now — the table refs, which rows already exist with their
+styles, and the row-50 floor. Build against it; do not redo it.
+
+It also closes a second copy of the same drift: `/roster-set-name` validates
+against `config.VALID_REQUESTERS`, a hardcoded set that still lists `Charlie H.`
+and `Copeland` and is missing `Hansel` and `Zehui` — two people already in
+`roster.json` whom the registration modal currently refuses.
 
 **10 is a `human-task`:** seeding the buyers roster. An agent must not claim it.
-It is also a **deploy blocker for 08** — with `"buyers": []` every assignment
-Charlie tries is refused.
+Note `roster.json` currently holds three buyers (Isaac, Smeet, Dylan), not the
+four ticket 10 names — **Finn is still missing**, which is also why he is no
+longer in the sheet's Grad Student list.
 
 ## Dependency order
 
 ```
-01…07 (done) ── 08 ── 09
-                 └─── 10 (human-task, after deploy)
+01…09 (done) ── 11
+             └─ 10 (human-task, after deploy)
 ```
 
 ## Rules for working this set

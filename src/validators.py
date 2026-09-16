@@ -73,7 +73,7 @@ def validate(parsed: dict, requester_name=None) -> list:
         problems.append("Tick either the P-card box or the Req/PO box (exactly one).")
 
     # --- the Slack side --------------------------------------------------------
-    valid_requesters = roster.get_valid_requesters() if hasattr(roster, "get_valid_requesters") else getattr(config, "VALID_REQUESTERS", set())
+    valid_requesters = roster.get_valid_requesters() if hasattr(roster, "get_valid_requesters") else set()
     if requester_name is None:
         problems.append(
             "I don't know which lab member you are - your Slack ID isn't in the "
