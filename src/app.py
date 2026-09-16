@@ -430,6 +430,7 @@ def handle_stage2_submit(ack, body, client, view):
     stage2 = {
         "item_description": text_rules._extract_modal_field(values, "block_item_description", "item_description"),
         "purpose": text_rules._extract_modal_field(values, "block_purpose", "purpose"),
+        "link": text_rules._extract_modal_field(values, "block_link", "link"),
         "total_price": text_rules._extract_modal_field(values, "block_total_price", "total_price"),
         "vendor_contact_name": text_rules._extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
         "vendor_contact_email": text_rules._extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),

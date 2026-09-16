@@ -1,6 +1,8 @@
+import json
 import os
 import sys
 from datetime import date
+from unittest.mock import MagicMock
 
 # Determine project root and src directory
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +12,7 @@ for p in (PROJECT_ROOT, SRC_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from src import config, interview
+from src import app, blocks, config, interview, log_writer, roster, validators
 
 
 def test_route_vendor():
@@ -166,4 +168,295 @@ def test_match_faq():
     assert interview.match_faq("@p-bot confirmed") is None
     assert interview.match_faq("processed $150.00 for project id") is None
     assert interview.match_faq("") is None
+
+
+def test_stage2_view_renders_block_link_after_purpose():
+    """Screen 2 renders block_link as optional, positioned immediately after Purpose."""
+    meta = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": "Fisher Scientific",
+        "route": "workday",
+    }
+    view = blocks.build_stage2_view(meta)
+    block_ids = [b.get("block_id") for b in view["blocks"]]
+
+    assert "block_purpose" in block_ids
+    assert "block_link" in block_ids
+
+    purpose_idx = block_ids.index("block_purpose")
+    link_idx = block_ids.index("block_link")
+    assert link_idx == purpose_idx + 1, "block_link must immediately follow block_purpose"
+
+    link_block = view["blocks"][link_idx]
+    assert link_block.get("type") == "input"
+    assert link_block.get("optional") is True, "block_link must be optional"
+
+    element = link_block.get("element", {})
+    assert element.get("type") == "plain_text_input"
+    assert element.get("action_id") == "link"
+
+    label = link_block.get("label", {}).get("text", "").lower()
+    assert "link" in label or "quote" in label or "product" in label
+
+
+def test_submission_omitting_link_produces_purpose_url_fallback():
+    """A submission omitting the link validates and produces parsed['link'] from purpose URL."""
+    stage1 = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": "Fisher Scientific",
+        "vendor_custom": "",
+        "route": "workday",
+    }
+    stage2 = {
+        "item_description": "Box of Nitrile Gloves",
+        "purpose": "Research supplies https://fishersci.com/gloves",
+        "link": None,
+        "total_price": "$145.50",
+        "vendor_contact_name": "Sales Rep",
+        "vendor_contact_email": "sales@fishersci.com",
+        "date_of_purchase": "09/16/26",
+        "delivery_room": "ERB 212",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "category": "Research/Lab Supplies (3105)",
+    }
+
+    parsed = interview.build_parsed_from_stages(stage1, stage2)
+    assert parsed["link"] == "https://fishersci.com/gloves"
+
+    # Validates cleanly (with valid requester)
+    problems = validators.validate(parsed, requester_name="Isaac")
+    assert not problems, f"Unexpected validation problems: {problems}"
+
+
+def test_submission_supplying_link_produces_link_in_parsed_summary_and_column_link():
+    """A submission supplying a link produces that link in parsed, in channel summary, and in COLUMN_LINK."""
+    stage1 = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": "Fisher Scientific",
+        "vendor_custom": "",
+        "route": "workday",
+    }
+    stage2 = {
+        "item_description": "Box of Nitrile Gloves",
+        "purpose": "General lab research",
+        "link": "https://fishersci.com/direct-product-link",
+        "total_price": "$145.50",
+        "vendor_contact_name": "Sales Rep",
+        "vendor_contact_email": "sales@fishersci.com",
+        "date_of_purchase": "09/16/26",
+        "delivery_room": "ERB 212",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "category": "Research/Lab Supplies (3105)",
+    }
+
+    parsed = interview.build_parsed_from_stages(stage1, stage2)
+    assert parsed["link"] == "https://fishersci.com/direct-product-link"
+
+    # Channel summary / card rendering
+    req_payload = {
+        "parsed": {
+            **parsed,
+            "date_of_purchase": parsed["date_of_purchase"].isoformat() if parsed["date_of_purchase"] else None,
+        },
+        "requester": "Isaac",
+    }
+    card_blocks = blocks.build_request_blocks("posted", req_payload)
+    card_text = card_blocks[0]["text"]["text"]
+    assert "• *Link:* https://fishersci.com/direct-product-link" in card_text
+
+    # Excel row writing
+    row = log_writer.build_row(parsed, requester_name="Isaac")
+    assert config.COLUMN_LINK in row
+    assert row[config.COLUMN_LINK] == "https://fishersci.com/direct-product-link"
+
+
+def test_submission_with_neither_link_nor_purpose_url_has_no_link_bullet():
+    """A submission with neither link nor URL validates, and summary contains NO link bullet."""
+    stage1 = {
+        "resolved_name": "Isaac",
+        "user_id": "U123",
+        "vendor_choice": "Fisher Scientific",
+        "vendor_custom": "",
+        "route": "workday",
+    }
+    stage2 = {
+        "item_description": "Box of Nitrile Gloves",
+        "purpose": "General lab research without any URL",
+        "link": "",
+        "total_price": "$145.50",
+        "vendor_contact_name": "Sales Rep",
+        "vendor_contact_email": "sales@fishersci.com",
+        "date_of_purchase": "09/16/26",
+        "delivery_room": "ERB 212",
+        "project_id": "PG000025831",
+        "fund": "133",
+        "category": "Research/Lab Supplies (3105)",
+    }
+
+    parsed = interview.build_parsed_from_stages(stage1, stage2)
+    assert not parsed["link"]
+
+    problems = validators.validate(parsed, requester_name="Isaac")
+    assert not problems, f"Unexpected validation problems: {problems}"
+
+    # Card blocks have NO link bullet, no empty bullet, no (none)
+    req_payload = {
+        "parsed": {
+            **parsed,
+            "date_of_purchase": parsed["date_of_purchase"].isoformat() if parsed["date_of_purchase"] else None,
+        },
+        "requester": "Isaac",
+    }
+    card_blocks = blocks.build_request_blocks("posted", req_payload)
+    card_text = card_blocks[0]["text"]["text"]
+    assert "• *Link:*" not in card_text
+    assert "*Link:*" not in card_text
+
+    # Excel row does NOT contain COLUMN_LINK
+    row = log_writer.build_row(parsed, requester_name="Isaac")
+    assert config.COLUMN_LINK not in row
+
+
+def test_stage2_modal_submit_routes_link_to_card_and_channel_summary(monkeypatch):
+    """Submitting Screen 2 with block_link populates parsed['link'] and channel post text/card."""
+    ack = MagicMock()
+    body = {"user": {"id": "U123"}}
+    client = MagicMock()
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_PURCHASING")
+    monkeypatch.setattr(roster, "get_valid_requesters", lambda: {"Isaac"})
+
+    view_with_link = {
+        "state": {
+            "values": {
+                "block_item_description": {"item_description": {"value": "Box of Gloves"}},
+                "block_purpose": {"purpose": {"value": "General lab use"}},
+                "block_link": {"link": {"value": "https://fishersci.com/direct-gloves"}},
+                "block_total_price": {"total_price": {"value": "120.00"}},
+                "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
+                "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
+                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
+                "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
+                "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
+                "block_fund": {"fund": {"selected_option": {"value": "133"}}},
+                "block_category": {"category": {"selected_option": {"value": "Research/Lab Supplies (3105)"}}},
+            }
+        },
+        "private_metadata": json.dumps({
+            "resolved_name": "Isaac",
+            "user_id": "U123",
+            "vendor_choice": "Fisher Scientific",
+            "vendor_custom": "",
+            "route": "workday",
+        }),
+    }
+
+    app.handle_stage2_submit(ack, body, client, view_with_link)
+    ack.assert_called_once_with()
+    client.chat_postMessage.assert_called()
+
+    call_kwargs = next(c[1] for c in client.chat_postMessage.call_args_list if "metadata" in c[1])
+    parsed = call_kwargs["metadata"]["event_payload"]["parsed"]
+    assert parsed["link"] == "https://fishersci.com/direct-gloves"
+
+    card_text = call_kwargs["blocks"][0]["text"]["text"]
+    assert "• *Link:* https://fishersci.com/direct-gloves" in card_text
+    assert "• *Link:* https://fishersci.com/direct-gloves" in call_kwargs["text"]
+
+
+def test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url(monkeypatch):
+    """Submitting Screen 2 with empty block_link falls back to purpose URL."""
+    ack = MagicMock()
+    body = {"user": {"id": "U123"}}
+    client = MagicMock()
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_PURCHASING")
+    monkeypatch.setattr(roster, "get_valid_requesters", lambda: {"Isaac"})
+
+    view_fallback = {
+        "state": {
+            "values": {
+                "block_item_description": {"item_description": {"value": "Box of Gloves"}},
+                "block_purpose": {"purpose": {"value": "Supplies https://fishersci.com/purpose-gloves"}},
+                "block_link": {"link": {"value": ""}},
+                "block_total_price": {"total_price": {"value": "120.00"}},
+                "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
+                "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
+                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
+                "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
+                "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
+                "block_fund": {"fund": {"selected_option": {"value": "133"}}},
+                "block_category": {"category": {"selected_option": {"value": "Research/Lab Supplies (3105)"}}},
+            }
+        },
+        "private_metadata": json.dumps({
+            "resolved_name": "Isaac",
+            "user_id": "U123",
+            "vendor_choice": "Fisher Scientific",
+            "vendor_custom": "",
+            "route": "workday",
+        }),
+    }
+
+    app.handle_stage2_submit(ack, body, client, view_fallback)
+    ack.assert_called_once_with()
+
+    call_kwargs = next(c[1] for c in client.chat_postMessage.call_args_list if "metadata" in c[1])
+    parsed = call_kwargs["metadata"]["event_payload"]["parsed"]
+    assert parsed["link"] == "https://fishersci.com/purpose-gloves"
+
+    card_text = call_kwargs["blocks"][0]["text"]["text"]
+    assert "• *Link:* https://fishersci.com/purpose-gloves" in card_text
+    assert "• *Link:* https://fishersci.com/purpose-gloves" in call_kwargs["text"]
+
+
+def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch):
+    """Submitting Screen 2 with neither link nor URL produces no link bullet in post or card."""
+    ack = MagicMock()
+    body = {"user": {"id": "U123"}}
+    client = MagicMock()
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_PURCHASING")
+    monkeypatch.setattr(roster, "get_valid_requesters", lambda: {"Isaac"})
+
+    view_no_link = {
+        "state": {
+            "values": {
+                "block_item_description": {"item_description": {"value": "Box of Gloves"}},
+                "block_purpose": {"purpose": {"value": "Plain purpose without link"}},
+                "block_link": {"link": {"value": None}},
+                "block_total_price": {"total_price": {"value": "120.00"}},
+                "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
+                "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
+                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
+                "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
+                "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
+                "block_fund": {"fund": {"selected_option": {"value": "133"}}},
+                "block_category": {"category": {"selected_option": {"value": "Research/Lab Supplies (3105)"}}},
+            }
+        },
+        "private_metadata": json.dumps({
+            "resolved_name": "Isaac",
+            "user_id": "U123",
+            "vendor_choice": "Fisher Scientific",
+            "vendor_custom": "",
+            "route": "workday",
+        }),
+    }
+
+    app.handle_stage2_submit(ack, body, client, view_no_link)
+    ack.assert_called_once_with()
+
+    call_kwargs = next(c[1] for c in client.chat_postMessage.call_args_list if "metadata" in c[1])
+    parsed = call_kwargs["metadata"]["event_payload"]["parsed"]
+    assert not parsed.get("link")
+
+    card_text = call_kwargs["blocks"][0]["text"]["text"]
+    assert "• *Link:*" not in card_text
+    assert "*Link:*" not in card_text
+    assert "• *Link:*" not in call_kwargs["text"]
+    assert "*Link:*" not in call_kwargs["text"]
+
 

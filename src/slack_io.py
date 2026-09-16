@@ -132,7 +132,8 @@ def find_modal_request_in_thread(client, channel: str, thread_ts: str):
                 cat_m = re.search(r"•\s*\*Category:\*\s*(.+)", text)
                 proj_m = re.search(r"•\s*\*Project ID / Fund:\*\s*(\S+)\s*\(Fund\s*(\S+)\)", text)
                 room_m = re.search(r"•\s*\*Delivery Room:\*\s*(.+)", text)
-                purp_m = re.search(r"•\s*\*Purpose:\*\s*([\s\S]+?)(?=\n💡|\n\nReply|$)", text)
+                purp_m = re.search(r"•\s*\*Purpose:\*\s*([\s\S]+?)(?=\n•\s*\*Link:\*|\n💡|\n\nReply|\n\nUse the buttons|$)", text)
+                link_m = re.search(r"•\s*\*Link:\*\s*(.+)", text)
                 name_m = re.search(r"🛒 \*New Purchase Request from (.+?)(?:\s*\(pending name confirmation\))?:", text)
 
                 if item_m and vendor_m and proj_m:
@@ -143,11 +144,12 @@ def find_modal_request_in_thread(client, channel: str, thread_ts: str):
                     user_match = re.search(r"<@([A-Z0-9]+)>", text)
                     poster_id = user_match.group(1) if user_match else None
                     purpose_str = purp_m.group(1).strip() if purp_m else ""
+                    link_val = link_m.group(1).strip() if link_m else epif_parser.first_url(purpose_str)
                     parsed = {
                         "raw_fields": {},
                         "item_description": item_m.group(1).strip(),
                         "purpose": purpose_str,
-                        "link": epif_parser.first_url(purpose_str),
+                        "link": link_val,
                         "total_price": float(total_m.group(1).replace(",", "")) if total_m else None,
                         "total_price_raw": total_m.group(1) if total_m else "",
                         "vendor": vendor_name,

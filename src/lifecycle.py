@@ -345,6 +345,7 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
 
     pay_method = req_payload["parsed"].get("payment_method") or "EPIF"
 
+    link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
     summary_text = (
         f"🛒 *New Purchase Request from {display_name}:*\n"
         f"• *Item:* {parsed.get('item_description', '')}\n"
@@ -353,7 +354,8 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         f"• *Category:* {parsed.get('category', '')}\n"
         f"• *Project ID / Fund:* {parsed.get('project_id', '')} (Fund {parsed.get('fund', '')})\n"
         f"• *Delivery Room:* {parsed.get('delivery_room', '')}\n"
-        f"• *Purpose:* {parsed.get('purpose', '')}\n\n"
+        f"• *Purpose:* {parsed.get('purpose', '')}"
+        f"{link_line}\n\n"
         f"Use the buttons below to approve and track this request."
     )
 
@@ -809,6 +811,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     }
     req_blocks = blocks.build_request_blocks("posted", req_payload)
 
+    link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
     summary_text = (
         f"🛒 *New Purchase Request from {display_name}:*\n"
         f"• *Item:* {parsed['item_description']}\n"
@@ -818,6 +821,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         f"• *Project ID / Fund:* {parsed['project_id']} (Fund {parsed['fund']})\n"
         f"• *Delivery Room:* {parsed['delivery_room']}\n"
         f"• *Purpose:* {parsed['purpose']}"
+        f"{link_line}"
         f"{suggest_note}\n\n"
         f"Use the buttons below to approve and track this request."
     )
