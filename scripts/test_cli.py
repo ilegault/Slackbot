@@ -7,9 +7,9 @@ Usage:
     python test_cli.py --deliver-row 17 --requester Isaac
 """
 import argparse
-from datetime import date
 import os
 import sys
+from datetime import date
 
 if sys.platform == "win32":
     try:

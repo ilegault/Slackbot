@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 
+
 def get_base_dir() -> str:
     """Return project root or executable directory."""
     if getattr(sys, "frozen", False):

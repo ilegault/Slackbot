@@ -3,12 +3,11 @@
 Sends periodic heartbeat pings to external monitoring services (e.g., Healthchecks.io,
 BetterStack) and dispatches boot & crash alerts to the configured Slack admin channel.
 """
-from datetime import datetime
 import logging
 import platform
 import sys
 import threading
-import time
+from datetime import datetime
 from typing import Optional
 
 import requests
@@ -137,7 +136,7 @@ def send_startup_alert(client) -> bool:
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Socket Mode:*\n`Connected`",
+                    "text": "*Socket Mode:*\n`Connected`",
                 },
             ],
         },

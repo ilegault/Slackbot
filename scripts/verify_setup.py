@@ -9,8 +9,8 @@ This script checks:
   - Auto-start configuration (if installed)
 """
 import os
-import sys
 import subprocess
+import sys
 
 if sys.platform == "win32":
     try:
@@ -64,26 +64,26 @@ def check_storage_paths():
     all_valid = True
 
     if path_validator.path_exists(config.WORKBOOK_PATH):
-        print(f"✅ Purchasing-Log.xlsx:")
+        print("✅ Purchasing-Log.xlsx:")
         print(f"   {config.WORKBOOK_PATH}")
     else:
-        print(f"❌ Purchasing-Log.xlsx not found:")
+        print("❌ Purchasing-Log.xlsx not found:")
         print(f"   {config.WORKBOOK_PATH}")
         all_valid = False
 
     if path_validator.path_exists(config.EPIFS_DIR):
-        print(f"✅ EPIFs directory:")
+        print("✅ EPIFs directory:")
         print(f"   {config.EPIFS_DIR}")
     else:
-        print(f"❌ EPIFs directory not found:")
+        print("❌ EPIFs directory not found:")
         print(f"   {config.EPIFS_DIR}")
         all_valid = False
 
     if path_validator.path_exists(config.CONFIRMATIONS_DIR):
-        print(f"✅ Order-Confirmations directory:")
+        print("✅ Order-Confirmations directory:")
         print(f"   {config.CONFIRMATIONS_DIR}")
     else:
-        print(f"❌ Order-Confirmations directory not found:")
+        print("❌ Order-Confirmations directory not found:")
         print(f"   {config.CONFIRMATIONS_DIR}")
         all_valid = False
 

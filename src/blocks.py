@@ -13,13 +13,11 @@ May NOT import:
     - storage writers (log_writer, queue_worker)
     - lifecycle/ops handlers
 """
-from datetime import datetime
 import json
+from datetime import datetime
 
 try:
-    from . import config
-    from . import interview
-    from . import roster
+    from . import config, interview, roster
 except ImportError:
     import config
     import interview

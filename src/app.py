@@ -38,30 +38,32 @@ Flow of operations:
        - "@p-bot update" -> Pull git updates & restart (Admin only)
        - "@p-bot restart" -> Restart bot process (Admin only)
 """
-from datetime import datetime
 import json
 import logging
-from logging.handlers import RotatingFileHandler
 import os
 import sys
 import time
 import traceback
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 try:
-    from . import admin
-    from . import blocks
-    from . import config
-    from . import heartbeat
-    from . import interview
-    from . import lifecycle
-    from . import ops
-    from . import queue_worker
-    from . import roster
-    from . import slack_io
-    from . import text_rules
+    from . import (
+        admin,
+        blocks,
+        config,
+        heartbeat,
+        interview,
+        lifecycle,
+        ops,
+        queue_worker,
+        roster,
+        slack_io,
+        text_rules,
+    )
 except ImportError:
     import admin
     import blocks

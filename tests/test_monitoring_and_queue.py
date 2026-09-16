@@ -7,12 +7,11 @@ Validates the complete specification in docs/MONITORING_AND_QUEUE_SPEC.md:
 4. Heartbeat & Proactive Alerts: startup/crash dispatcher and heartbeat monitor.
 5. Lifecycle Management: update and restart safety checks.
 """
-from datetime import date, datetime
 import os
-import platform
 import shutil
 import sys
 import time
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest

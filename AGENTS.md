@@ -511,7 +511,7 @@ This is a **pointer**, not the work. The work is a ticket set.
 - Read before any lifecycle ticket: `docs/adr/0002-request-lifecycle-and-surfaces.md`
 - Read before ticket 05: `docs/adr/0003-decline-and-cancel.md`
 - Glossary: `CONTEXT.md`
-- Tickets: `.scratch/lifecycle-and-buyers/issues/01…06`
+- Tickets: `.scratch/lifecycle-and-buyers/issues/01…07`
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
 The previous effort (T1–T4: `respond()` everywhere, request logging middleware,

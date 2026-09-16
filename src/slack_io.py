@@ -12,17 +12,15 @@ May NOT import:
     - app.py
     - lifecycle handlers or ops handlers
 """
-from datetime import datetime
 import logging
 import os
 import re
+from datetime import datetime
+
 import requests
 
 try:
-    from . import config
-    from . import epif_parser
-    from . import interview
-    from . import roster
+    from . import config, epif_parser, interview, roster
 except ImportError:
     import config
     import epif_parser

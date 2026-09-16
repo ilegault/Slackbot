@@ -11,33 +11,35 @@ Imports:
 May NOT import:
     - app.py
 """
-from datetime import datetime
 import json
 import logging
 import os
+from datetime import datetime
 
 try:
-    from . import config
-    from . import epif_parser
-    from . import interview
-    from . import log_writer
-    from . import queue_worker
-    from . import roster
-    from . import validators
-    from . import blocks
-    from . import slack_io
-    from . import text_rules
+    from . import (
+        blocks,
+        config,
+        epif_parser,
+        interview,
+        log_writer,
+        queue_worker,
+        roster,
+        slack_io,
+        text_rules,
+        validators,
+    )
 except ImportError:
+    import blocks
     import config
     import epif_parser
     import interview
     import log_writer
     import queue_worker
     import roster
-    import validators
-    import blocks
     import slack_io
     import text_rules
+    import validators
 
 log = logging.getLogger("p-bot")
 

@@ -4,8 +4,7 @@ Every rule returns a sentence a grad student can act on. If the list comes back
 empty, the row is safe to write.
 """
 try:
-    from . import config
-    from . import roster
+    from . import config, roster
 except ImportError:
     import config
     import roster
