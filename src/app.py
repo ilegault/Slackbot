@@ -6,12 +6,11 @@ Flow of operations:
        Someone posts an EPIF pdf in #hirst-lab or a DM
          -> Charlie replies in that thread: "@p-bot approved" (or DMs the bot)
           -> Bot parses & validates EPIF, saves PDF to EPIFs/, logs row in Purchasing-Log.xlsx (via Lock Queue).
-          -> Bot broadcasts claim request in thread to grad buyers.
-          -> Claimer claims request and receives pre-drafted email template via DM.
+          -> Charlie names responsible buyer (@Dylan @Purchasing approved) or leaves unassigned.
+          -> Assigned buyer receives pre-drafted email template via DM.
 
-    2. Claiming (for undergrad purchases):
-       Grad student replies: "@p-bot claim" (or "I will order this")
-         -> Bot tags both grad student and requester in the thread to coordinate cart/punchout.
+    2. Assignment / Handoffs:
+       Buyer replies: "@Purchasing assign" to take an unassigned order, or approver/assignee reassigns.
 
     3. Submission / Cart Adjustments:
        Grad student replies: "@p-bot processed $152.49" (or "submitted" as a silent alias)
@@ -637,60 +636,6 @@ def handle_req_approve_action(ack, body, respond, client):
         log.error("Failed to update message on req_approve: %s", e)
 
 
-@app.action("req_claim")
-def handle_req_claim_action(ack, body, respond, client):
-    """Handle clicking 'Claim' button on purchase request message."""
-    ack()
-    user_id = body.get("user", {}).get("id")
-    channel_id = body.get("channel", {}).get("id")
-    msg_ts = body.get("message", {}).get("ts")
-    thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
-
-    if not roster.is_buyer(user_id):
-        log.warning("Unauthorized user %s attempted to claim purchase request", user_id)
-        respond(text="🔒 Only purchase buyers can claim requests.")
-        return
-
-    requester_name = slack_io.resolve_requester(client, user_id)
-    if not requester_name:
-        log.warning("Unregistered user %s clicked req_claim", user_id)
-        respond(text="🔒 You must be registered in the lab roster to claim requests. Use `/roster-set-name` first.")
-        return
-
-    action = body.get("actions", [{}])[0]
-    val_data = json.loads(action.get("value") or "{}")
-    req_data = val_data.get("request", {})
-    history = list(val_data.get("history", []))
-
-    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    history.append(f"Claimed by {requester_name} on {now_str}")
-
-    def say(text, thread_ts=thread_ts, **kw):
-        client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
-
-    lifecycle.handle_claim(
-        client=client,
-        say=say,
-        channel=channel_id,
-        thread_ts=thread_ts,
-        user_id=user_id,
-        event_ts=msg_ts,
-        req_data=req_data,
-    )
-
-    next_blocks = blocks.build_request_blocks("claimed", req_data, history=history)
-    try:
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text="🛒 Purchase Request (Claimed)",
-            blocks=next_blocks,
-        )
-        log.info("Purchase request message updated to 'claimed' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
-    except Exception as e:
-        log.error("Failed to update message on req_claim: %s", e)
-
-
 @app.action("req_processed")
 def handle_req_processed_action(ack, body, respond, client):
     """Handle clicking 'Mark Processed' button on purchase request message."""
@@ -700,16 +645,27 @@ def handle_req_processed_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+    history = list(val_data.get("history", []))
+
+    assignee_id = req_data.get("assignee_id")
+    if not assignee_id:
+        log.warning("User %s clicked req_processed on unassigned request", user_id)
+        respond(text="⚠️ This request must be assigned to a buyer before it can be marked processed. Use `@Purchasing assign @buyer`.")
+        return
+
+    if not (user_id == assignee_id or admin.is_admin_user(user_id)):
+        log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_processed", user_id, assignee_id)
+        respond(text=f"🔒 Only the assigned buyer (<@{assignee_id}>) or an admin can mark this request processed.")
+        return
+
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_processed", user_id)
         respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
-
-    action = body.get("actions", [{}])[0]
-    val_data = json.loads(action.get("value") or "{}")
-    req_data = val_data.get("request", {})
-    history = list(val_data.get("history", []))
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
     history.append(f"Processed by {requester_name} on {now_str}")
@@ -796,16 +752,22 @@ def handle_req_confirmed_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+    history = list(val_data.get("history", []))
+
+    assignee_id = req_data.get("assignee_id")
+    if not (user_id == assignee_id or admin.is_admin_user(user_id)):
+        log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_confirmed", user_id, assignee_id)
+        respond(text="🔒 Only the assigned buyer or an admin can update this request.")
+        return
+
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_confirmed", user_id)
         respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
-
-    action = body.get("actions", [{}])[0]
-    val_data = json.loads(action.get("value") or "{}")
-    req_data = val_data.get("request", {})
-    history = list(val_data.get("history", []))
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
     history.append(f"Confirmed by {requester_name} on {now_str}")
@@ -846,16 +808,22 @@ def handle_req_delivered_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+    history = list(val_data.get("history", []))
+
+    assignee_id = req_data.get("assignee_id")
+    if not (user_id == assignee_id or admin.is_admin_user(user_id)):
+        log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_delivered", user_id, assignee_id)
+        respond(text="🔒 Only the assigned buyer or an admin can update this request.")
+        return
+
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_delivered", user_id)
         respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
-
-    action = body.get("actions", [{}])[0]
-    val_data = json.loads(action.get("value") or "{}")
-    req_data = val_data.get("request", {})
-    history = list(val_data.get("history", []))
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
     history.append(f"Delivered to {requester_name} on {now_str}")
@@ -902,9 +870,37 @@ def handle_start_purchase_interview(ack, body, client):
 
 # --- Dispatcher Helpers -------------------------------------------------------
 
-def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event_ts: str, text: str, files=None, direct_file=None):
+_CACHED_BOT_USER_ID = None
+
+
+def get_bot_user_id(client, context=None) -> str | None:
+    """Resolve and cache the bot's own Slack user ID."""
+    global _CACHED_BOT_USER_ID
+    if context and context.get("bot_user_id"):
+        _CACHED_BOT_USER_ID = context.get("bot_user_id")
+        return _CACHED_BOT_USER_ID
+    if _CACHED_BOT_USER_ID:
+        return _CACHED_BOT_USER_ID
+    if client:
+        try:
+            auth = client.auth_test()
+            if isinstance(auth, dict) and auth.get("user_id"):
+                _CACHED_BOT_USER_ID = auth.get("user_id")
+                return _CACHED_BOT_USER_ID
+        except Exception as e:
+            log.warning("Failed to get bot_user_id from auth_test: %s", e)
+    return None
+
+
+def dispatch_command(
+    client, say, channel: str, thread_ts: str, user: str, event_ts: str, text: str,
+    files=None, direct_file=None, bot_user_id: str | None = None,
+):
     """Single dispatch point for all app_mention and direct message commands."""
-    text_lower = text.lower()
+    if not bot_user_id:
+        bot_user_id = get_bot_user_id(client)
+    stripped_text, user_mentions, group_mentions = text_rules.parse_mentions(text, bot_user_id=bot_user_id)
+    text_lower = stripped_text.lower()
 
     if any(kw in text_lower for kw in config.HELP_KEYWORDS):
         say(text=blocks.get_help_message(), thread_ts=thread_ts)
@@ -934,17 +930,24 @@ def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event
         ops.handle_template_command(client, say, channel, thread_ts, user)
     elif any(kw in text_lower for kw in config.QUOTE_KEYWORDS):
         lifecycle.handle_quote(client, say, channel, thread_ts, event_ts, files)
-    elif any(kw in text_lower for kw in config.CLAIM_KEYWORDS):
-        if not roster.is_buyer(user):
-            log.warning("Unauthorized user %s attempted to claim purchase request", user)
-            say(text="🔒 Only purchase buyers can claim requests.", thread_ts=thread_ts)
+    elif any(kw in text_lower for kw in config.ASSIGN_KEYWORDS):
+        if group_mentions:
+            say(text=f"⚠️ Cannot assign to a user group (<!subteam^{group_mentions[0]}>). Please name a specific person.", thread_ts=thread_ts)
             return
-        requester_name = slack_io.resolve_requester(client, user)
-        if not requester_name:
-            log.warning("Unregistered user %s attempted to claim via mention", user)
-            say(text="🔒 You must be registered in the lab roster to claim requests. Use `/roster-set-name` first.", thread_ts=thread_ts)
+        if len(user_mentions) > 1:
+            users_str = ", ".join(f"<@{u}>" for u in user_mentions)
+            say(text=f"⚠️ Multiple buyers mentioned ({users_str}). Please name exactly one person to assign this order.", thread_ts=thread_ts)
             return
-        lifecycle.handle_claim(client, say, channel, thread_ts, user, event_ts)
+        target_uid = user_mentions[0] if user_mentions else user
+        lifecycle.handle_assign(
+            client=client,
+            say=say,
+            channel=channel,
+            thread_ts=thread_ts,
+            user_id=user,
+            event_ts=event_ts,
+            target_user_id=target_uid,
+        )
     elif any(kw in text_lower for kw in config.PROCESSED_KEYWORDS):
         lifecycle.handle_processed(client, say, channel, thread_ts, user, event_ts, text)
     elif any(kw in text_lower for kw in config.CONFIRM_KEYWORDS):
@@ -956,27 +959,87 @@ def dispatch_command(client, say, channel: str, thread_ts: str, user: str, event
             log.warning("Unauthorized user %s attempted to approve purchase request", user)
             say(text="🔒 Only Charlie Hirst can approve purchase requests.", thread_ts=thread_ts)
             return
+
+        row = slack_io.find_row_in_thread(client, channel, thread_ts)
+        _, _, _, card_state = slack_io.find_card_in_thread(client, channel, thread_ts)
+        if row is not None or card_state in ("approved", "processed", "confirmed", "delivered"):
+            # Already approved thread: treat as reassignment, do not perform a second Excel write
+            if group_mentions:
+                say(text=f"⚠️ Cannot assign to a user group (<!subteam^{group_mentions[0]}>). Please name a specific person.", thread_ts=thread_ts)
+                return
+            if len(user_mentions) > 1:
+                users_str = ", ".join(f"<@{u}>" for u in user_mentions)
+                say(text=f"⚠️ Multiple buyers mentioned ({users_str}). Please name exactly one person to assign this order.", thread_ts=thread_ts)
+                return
+            target_uid = user_mentions[0] if user_mentions else None
+            if target_uid:
+                lifecycle.handle_assign(
+                    client=client,
+                    say=say,
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    user_id=user,
+                    event_ts=event_ts,
+                    target_user_id=target_uid,
+                )
+            else:
+                say(text="⚠️ This request is already approved. To reassign it, mention a buyer: `@Purchasing assign @buyer`.", thread_ts=thread_ts)
+            return
+
+        # New approval
+        if group_mentions:
+            refusal_msg = f"⚠️ Cannot assign to a user group (<!subteam^{group_mentions[0]}>). Please name a specific person."
+            assignee_id = None
+            assignee_name = None
+        elif len(user_mentions) > 1:
+            users_str = ", ".join(f"<@{u}>" for u in user_mentions)
+            refusal_msg = f"⚠️ Multiple buyers mentioned ({users_str}). Please name exactly one person to assign this order."
+            assignee_id = None
+            assignee_name = None
+        elif len(user_mentions) == 1:
+            cand_id = user_mentions[0]
+            if not roster.is_buyer(cand_id):
+                refusal_msg = f"⚠️ <@{cand_id}> isn't on the buyers list, so I can't assign this to them. An admin can add them: @Purchasing add-buyer <@{cand_id}>"
+                assignee_id = None
+                assignee_name = None
+            else:
+                cand_name = slack_io.resolve_requester(client, cand_id)
+                if not cand_name:
+                    refusal_msg = f"🔒 <@{cand_id}> must be registered in the lab roster to be assigned requests. Use `/roster-set-name` first."
+                    assignee_id = None
+                    assignee_name = None
+                else:
+                    assignee_id = cand_id
+                    assignee_name = cand_name
+                    refusal_msg = None
+        else:
+            assignee_id = None
+            assignee_name = None
+            refusal_msg = None
+
         lifecycle.handle_epif_processing(
             client, say, channel, thread_ts, user, event_ts,
-            direct_file=direct_file, direct_poster=user if direct_file else None
+            direct_file=direct_file, direct_poster=user if direct_file else None,
+            assignee_id=assignee_id, assignee_name=assignee_name, refusal_msg=refusal_msg,
         )
 
 
 @app.event("app_mention")
-def on_mention(event, client, say):
+def on_mention(event, client, say, context=None):
     text = event.get("text", "")
     channel = event["channel"]
     thread_ts = event.get("thread_ts") or event["ts"]
     user = event.get("user")
     event_ts = event["ts"]
     files = event.get("files", [])
+    bot_user_id = context.get("bot_user_id") if context else None
 
     log.info("Received app_mention from user %s in channel %s: '%s'", user, channel, text)
-    dispatch_command(client, say, channel, thread_ts, user, event_ts, text, files=files)
+    dispatch_command(client, say, channel, thread_ts, user, event_ts, text, files=files, bot_user_id=bot_user_id)
 
 
 @app.event("message")
-def on_direct_message(event, client, say):
+def on_direct_message(event, client, say, context=None):
     # Ignore bot's own messages and messages with bot subtype
     if event.get("subtype") == "bot_message" or event.get("bot_id"):
         return
@@ -987,6 +1050,7 @@ def on_direct_message(event, client, say):
     event_ts = event.get("ts")
     text = event.get("text", "")
     channel_type = event.get("channel_type")
+    bot_user_id = context.get("bot_user_id") if context else None
 
     # If it is a Direct Message (DM)
     if channel_type == "im":
@@ -1006,7 +1070,7 @@ def on_direct_message(event, client, say):
 
         dispatch_command(
             client, say, channel, thread_ts, user, event_ts, text,
-            files=files, direct_file=direct_file
+            files=files, direct_file=direct_file, bot_user_id=bot_user_id,
         )
         return
 

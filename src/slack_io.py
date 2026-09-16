@@ -12,6 +12,7 @@ May NOT import:
     - app.py
     - lifecycle handlers or ops handlers
 """
+import json
 import logging
 import os
 import re
@@ -263,3 +264,37 @@ def download_file(file_obj) -> bytes:
 
 def tell(client, user_id: str, text: str):
     client.chat_postMessage(channel=user_id, text=text)
+
+
+def find_card_in_thread(client, channel: str, thread_ts: str) -> tuple[dict | None, str | None, list, str | None]:
+    """Find request card message in thread.
+
+    Returns (req_data, msg_ts, history, current_state).
+    """
+    try:
+        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100, include_all_metadata=True)
+        for msg in reversed(replies.get("messages", [])):
+            blocks_list = msg.get("blocks", [])
+            for b in blocks_list:
+                if b.get("type") == "actions":
+                    for elem in b.get("elements", []):
+                        val_str = elem.get("value")
+                        if val_str:
+                            try:
+                                val_data = json.loads(val_str)
+                                if isinstance(val_data, dict) and "state" in val_data:
+                                    return (
+                                        val_data.get("request", {}),
+                                        msg.get("ts"),
+                                        val_data.get("history", []),
+                                        val_data.get("state"),
+                                    )
+                            except Exception:
+                                pass
+            meta = msg.get("metadata", {})
+            if meta and meta.get("event_type") == "purchase_request":
+                payload = meta.get("event_payload", {})
+                return (payload, msg.get("ts"), [], "posted")
+    except Exception as e:
+        log.warning("Could not search thread for card message: %s", e)
+    return None, None, [], None

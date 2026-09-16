@@ -528,7 +528,7 @@ def test_middleware_logging_on_exception(caplog):
     """Assert Bolt middleware logs incoming request, exception, and completion even if handler raises."""
     body = {
         "type": "block_actions",
-        "actions": [{"action_id": "req_claim"}],
+        "actions": [{"action_id": "req_processed"}],
         "user": {"id": "UERRUSER"},
         "channel": {"id": "CERRCHAN"},
     }
@@ -541,9 +541,9 @@ def test_middleware_logging_on_exception(caplog):
             app.log_request(body, failing_next)
 
     records = [r.message for r in caplog.records]
-    assert any("Incoming block_actions [req_claim] from UERRUSER in CERRCHAN" in msg for msg in records)
-    assert any("Handler raised exception for block_actions [req_claim]" in msg for msg in records)
-    assert any("Completed block_actions [req_claim] from UERRUSER" in msg for msg in records)
+    assert any("Incoming block_actions [req_processed] from UERRUSER in CERRCHAN" in msg for msg in records)
+    assert any("Handler raised exception for block_actions [req_processed]" in msg for msg in records)
+    assert any("Completed block_actions [req_processed] from UERRUSER" in msg for msg in records)
 
 
 def test_build_request_blocks_buttons_per_state():
@@ -562,11 +562,10 @@ def test_build_request_blocks_buttons_per_state():
         "user_id": "U123",
     }
 
-    # posted/approved/claimed get a primary + secondary (Decline or Cancel) button
+    # posted/approved get a primary + secondary (Decline or Cancel) button
     two_button_states = {
         "posted": ("req_approve", "req_decline"),
-        "approved": ("req_claim", "req_cancel"),
-        "claimed": ("req_processed", "req_cancel"),
+        "approved": ("req_processed", "req_cancel"),
     }
     for state, (primary_id, secondary_id) in two_button_states.items():
         blocks_list = blocks.build_request_blocks(state, sample_req)
@@ -618,32 +617,14 @@ def test_req_approve_non_approver_denial():
         client.chat_update.assert_not_called()
 
 
-def test_req_claim_and_keyword_dispatch_same_args():
-    """A req_claim click and an @p-bot claim mention call handle_claim with matching channel and thread_ts."""
-    ack = MagicMock()
-    respond = MagicMock()
+def test_assign_keyword_dispatch():
+    """An @Purchasing assign mention calls handle_assign with matching channel and thread_ts."""
     client = MagicMock()
     say = MagicMock()
     roster.add_requester("UGRADBUYER", "Dylan")
     roster.add_buyer("UGRADBUYER")
 
-    # 1. Button click req_claim
-    button_body = {
-        "user": {"id": "UGRADBUYER"},
-        "channel": {"id": "C_TEST"},
-        "message": {"ts": "5555.66"},
-        "container": {"message_ts": "5555.66", "thread_ts": "5555.66"},
-        "actions": [{"value": json.dumps({"request": {"item_description": "Bolts"}, "history": []})}],
-    }
-    with patch.object(lifecycle, "handle_claim") as mock_claim:
-        app.handle_req_claim_action(ack, button_body, respond, client)
-        ack.assert_called_once()
-        mock_claim.assert_called_once()
-        btn_channel = mock_claim.call_args[1]["channel"]
-        btn_thread = mock_claim.call_args[1]["thread_ts"]
-
-    # 2. Keyword mention @p-bot claim
-    with patch.object(lifecycle, "handle_claim") as mock_claim_kw:
+    with patch.object(lifecycle, "handle_assign") as mock_assign:
         app.dispatch_command(
             client=client,
             say=say,
@@ -651,14 +632,12 @@ def test_req_claim_and_keyword_dispatch_same_args():
             thread_ts="5555.66",
             user="UGRADBUYER",
             event_ts="5555.67",
-            text="@p-bot claim",
+            text="@Purchasing assign",
         )
-        mock_claim_kw.assert_called_once()
-        kw_channel = mock_claim_kw.call_args[0][2]
-        kw_thread = mock_claim_kw.call_args[0][3]
-
-    assert btn_channel == kw_channel == "C_TEST"
-    assert btn_thread == kw_thread == "5555.66"
+        mock_assign.assert_called_once()
+        assert mock_assign.call_args[1]["channel"] == "C_TEST"
+        assert mock_assign.call_args[1]["thread_ts"] == "5555.66"
+        assert mock_assign.call_args[1]["user_id"] == "UGRADBUYER"
 
 
 def test_roster_set_name_modal_submission(monkeypatch):
@@ -1078,28 +1057,16 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         app.handle_req_approve_action(ack, body_approve, respond, client)
         update_call = client.chat_update.call_args[1]
         blocks_res = update_call["blocks"]
-        # Next button must be req_claim
-        actions = next(b for b in blocks_res if b.get("type") == "actions")
-        assert actions["elements"][0]["action_id"] == "req_claim"
-
-    # 2. Claim (by Dylan)
-    ack.reset_mock()
-    client.reset_mock()
-    body_claim = {
-        "user": {"id": "U_BUYER"},
-        "channel": {"id": "C_PURCHASE"},
-        "message": {"ts": "100.00"},
-        "container": {"message_ts": "100.00", "thread_ts": "100.00"},
-        "actions": [{"value": actions["elements"][0]["value"]}],
-    }
-    with patch.object(lifecycle, "handle_claim"):
-        app.handle_req_claim_action(ack, body_claim, respond, client)
-        update_call = client.chat_update.call_args[1]
-        blocks_res = update_call["blocks"]
+        # Next button must be req_processed
         actions = next(b for b in blocks_res if b.get("type") == "actions")
         assert actions["elements"][0]["action_id"] == "req_processed"
+        # Set assignee in value so buyer can process
+        val_data = json.loads(actions["elements"][0]["value"])
+        val_data["request"]["assignee_id"] = "U_BUYER"
+        val_data["request"]["assignee"] = "Dylan"
+        processed_btn_value = json.dumps(val_data)
 
-    # 3. Processed (by Dylan)
+    # 2. Processed (by Dylan)
     ack.reset_mock()
     client.reset_mock()
     body_sub = {
@@ -1107,7 +1074,7 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "channel": {"id": "C_PURCHASE"},
         "message": {"ts": "100.00"},
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
-        "actions": [{"value": actions["elements"][0]["value"]}],
+        "actions": [{"value": processed_btn_value}],
     }
     with patch.object(lifecycle, "handle_processed"):
         app.handle_req_processed_action(ack, body_sub, respond, client)
@@ -1308,11 +1275,10 @@ def test_approved_request_from_buyer_broadcasts_and_sends_no_dm(monkeypatch):
     assert "Laser Optics Mount" in broadcast_text
     assert "$149.99" in broadcast_text
     assert "Thorlabs" in broadcast_text
-    assert "Research/Lab Supplies (3105)" in broadcast_text
-    assert "Saved EPIF to `/lab/EPIFs/epif.pdf`" in broadcast_text
+    assert "Saved EPIF to `epif.pdf`" in broadcast_text
+    assert "/lab/EPIFs" not in broadcast_text
     assert "Needs a Grad Student Buyer to process in Workday / ShopUW." in broadcast_text
-    assert "<@U_BUYER_REQ>" in broadcast_text
-    assert "<@U_OTHER_BUYER>" in broadcast_text
+    assert "Please assign a buyer" in broadcast_text
 
     # Assert NO DM was sent at approval time (client.chat_postMessage never called for DM)
     dm_calls = [
@@ -1320,163 +1286,6 @@ def test_approved_request_from_buyer_broadcasts_and_sends_no_dm(monkeypatch):
         if call[1].get("channel") == "U_BUYER_REQ"
     ]
     assert len(dm_calls) == 0, f"Expected no DM to be sent at approval time, but got: {dm_calls}"
-
-
-def test_req_claim_click_from_non_buyer():
-    """A non-buyer clicking req_claim gets ephemeral denial, no handle_claim call, no chat_update, no DM."""
-    ack = MagicMock()
-    respond = MagicMock()
-    client = MagicMock()
-    roster.add_requester("U_NONBUYER", "Alice")
-    # Note: U_NONBUYER is not added to buyers
-
-    button_body = {
-        "user": {"id": "U_NONBUYER"},
-        "channel": {"id": "C_PURCHASE"},
-        "message": {"ts": "100.00", "thread_ts": "100.00"},
-        "actions": [{"value": json.dumps({"request": {"item_description": "Filters"}, "history": []})}],
-    }
-
-    with patch.object(lifecycle, "handle_claim") as mock_claim:
-        app.handle_req_claim_action(ack, button_body, respond, client)
-        ack.assert_called_once()
-        respond.assert_called_once()
-        deny_text = respond.call_args[1]["text"]
-        assert "Only purchase buyers can claim" in deny_text or "designated buyers" in deny_text
-        mock_claim.assert_not_called()
-        client.chat_update.assert_not_called()
-        client.chat_postMessage.assert_not_called()
-
-
-def test_req_claim_click_unregistered_user_runs_after_buyer_gate():
-    """A buyer who has not set their name in the roster gets the roster registration prompt."""
-    ack = MagicMock()
-    respond = MagicMock()
-    client = MagicMock()
-    roster.add_buyer("U_UNREG_BUYER")
-    # Note: U_UNREG_BUYER is in buyers, but NOT in requesters
-
-    button_body = {
-        "user": {"id": "U_UNREG_BUYER"},
-        "channel": {"id": "C_PURCHASE"},
-        "message": {"ts": "100.00", "thread_ts": "100.00"},
-        "actions": [{"value": json.dumps({"request": {"item_description": "Filters"}, "history": []})}],
-    }
-
-    with patch.object(lifecycle, "handle_claim") as mock_claim:
-        with patch.object(lifecycle.slack_io, "resolve_requester", return_value=None):
-            app.handle_req_claim_action(ack, button_body, respond, client)
-            ack.assert_called_once()
-            respond.assert_called_once()
-            assert "registered in the lab roster" in respond.call_args[1]["text"]
-            mock_claim.assert_not_called()
-
-
-def test_at_pbot_claim_mention_from_non_buyer():
-    """An @p-bot claim mention from a non-buyer is denied and does not call handle_claim."""
-    client = MagicMock()
-    say = MagicMock()
-    roster.add_requester("U_NONBUYER", "Alice")
-
-    with patch.object(lifecycle, "handle_claim") as mock_claim:
-        app.dispatch_command(
-            client=client,
-            say=say,
-            channel="C_PURCHASE",
-            thread_ts="100.00",
-            user="U_NONBUYER",
-            event_ts="100.01",
-            text="@p-bot claim",
-        )
-        say.assert_called_once()
-        deny_text = say.call_args[1]["text"]
-        assert "Only purchase buyers can claim" in deny_text or "designated buyers" in deny_text
-        mock_claim.assert_not_called()
-
-
-def test_claim_as_different_user_than_requester():
-    """Claiming as a different user than requester sends the email draft to the claimer, signed by claimer."""
-    client = MagicMock()
-    say = MagicMock()
-    roster.add_requester("U_CLAIMER", "Dylan")
-    roster.add_buyer("U_CLAIMER")
-
-    req_data = {
-        "item_description": "Spectrometer Grating",
-        "total_price": 520.00,
-        "vendor": "Thorlabs",
-        "project_id": "PG000025831",
-        "fund": "133",
-        "requester": "Alice",
-    }
-
-    with patch.object(lifecycle.slack_io, "find_row_in_thread", return_value=22):
-        with patch.object(lifecycle.log_writer, "get_row_info", return_value=req_data):
-            lifecycle.handle_claim(
-                client=client,
-                say=say,
-                channel="C_PURCHASE",
-                thread_ts="100.00",
-                user_id="U_CLAIMER",
-                event_ts="100.02",
-                req_data=req_data,
-            )
-
-    say.assert_called_once()
-    assert "✋ <@U_CLAIMER> (Dylan) has claimed order for *Spectrometer Grating* (Row 22)!" in say.call_args[1]["text"]
-
-    # Assert DM was sent to the claimer (U_CLAIMER)
-    dm_calls = [
-        call for call in client.chat_postMessage.call_args_list
-        if call[1].get("channel") == "U_CLAIMER"
-    ]
-    assert len(dm_calls) == 1, f"Expected 1 DM to claimer U_CLAIMER, got {len(dm_calls)}"
-    dm_text = dm_calls[0][1]["text"]
-    assert "Dylan" in dm_text
-    assert "All the best,\nDylan" in dm_text
-    assert "All the best,\nAlice" not in dm_text
-    assert "Spectrometer Grating" in dm_text
-
-
-def test_claim_draft_fields_fallback_to_get_row_info():
-    """When req_data is None, handle_claim reads fields from log_writer.get_row_info(row)."""
-    client = MagicMock()
-    say = MagicMock()
-    roster.add_requester("U_CLAIMER2", "Finn")
-    roster.add_buyer("U_CLAIMER2")
-
-    row_info = {
-        "row": 25,
-        "item_description": "Cryogenic Valve",
-        "total_price": 350.00,
-        "vendor": "Swagelok",
-        "project_id": "PG000025831",
-        "fund": "133",
-        "requester": "Charlie",
-    }
-
-    with patch.object(lifecycle.slack_io, "find_row_in_thread", return_value=25):
-        with patch.object(lifecycle.log_writer, "get_row_info", return_value=row_info):
-            lifecycle.handle_claim(
-                client=client,
-                say=say,
-                channel="C_PURCHASE",
-                thread_ts="200.00",
-                user_id="U_CLAIMER2",
-                event_ts="200.02",
-                req_data=None,
-            )
-
-    dm_calls = [
-        call for call in client.chat_postMessage.call_args_list
-        if call[1].get("channel") == "U_CLAIMER2"
-    ]
-    assert len(dm_calls) == 1
-    dm_text = dm_calls[0][1]["text"]
-    assert "Finn" in dm_text
-    assert "All the best,\nFinn" in dm_text
-    assert "Cryogenic Valve" in dm_text
-    assert "Swagelok" in dm_text
 
 
 # --- Ticket 04: Buttons on the PDF-drop path ----------------------------------
@@ -1650,7 +1459,7 @@ def test_pdf_request_approve_button_click_by_approver():
         assert update_kw["channel"] == "C_PURCHASE"
         assert update_kw["ts"] == "300.05"
         actions = next(b for b in update_kw["blocks"] if b.get("type") == "actions")
-        assert actions["elements"][0]["action_id"] == "req_claim"
+        assert actions["elements"][0]["action_id"] == "req_processed"
 
         # Context history line
         context = next(b for b in update_kw["blocks"] if b.get("type") == "context")
@@ -1755,7 +1564,18 @@ def test_pdf_request_walks_from_posted_to_delivered_with_excel_writes(monkeypatc
         thread_messages.append(msg)
         return {"ok": True, "ts": "100.99"}
 
+    def mock_chat_update(channel, ts, blocks=None, text="", **kw):
+        for msg in thread_messages:
+            if msg.get("ts") == ts:
+                if blocks:
+                    msg["blocks"] = blocks
+                if text:
+                    msg["text"] = text
+                break
+        return {"ok": True, "ts": ts}
+
     client.chat_postMessage = mock_chat_postMessage
+    client.chat_update = MagicMock(side_effect=mock_chat_update)
     client.conversations_replies.side_effect = lambda channel, ts, limit=100, **kw: {"ok": True, "messages": list(thread_messages)}
 
     # Roles setup
@@ -1834,8 +1654,8 @@ def test_pdf_request_walks_from_posted_to_delivered_with_excel_writes(monkeypatc
     body_approve = {
         "user": {"id": "U_CHARLIE"},
         "channel": {"id": "C_PURCHASE"},
-        "message": {"ts": "100.10"},
-        "container": {"message_ts": "100.10", "thread_ts": "100.00"},
+        "message": {"ts": "100.99"},
+        "container": {"message_ts": "100.99", "thread_ts": "100.00"},
         "actions": [{"action_id": "req_approve", "value": approve_value}],
     }
     with patch.object(lifecycle.slack_io, "download", return_value=b"%PDF-dummy"):
@@ -1851,24 +1671,24 @@ def test_pdf_request_walks_from_posted_to_delivered_with_excel_writes(monkeypatc
 
     update_approve = client.chat_update.call_args[1]
     actions_approve = next(b for b in update_approve["blocks"] if b.get("type") == "actions")
-    assert actions_approve["elements"][0]["action_id"] == "req_claim"
-    claim_value = actions_approve["elements"][0]["value"]
+    assert actions_approve["elements"][0]["action_id"] == "req_processed"
 
-    # 2. Claim (by Dylan)
+    # 2. Assign (Dylan self-assigns)
     ack.reset_mock()
     client.chat_update.reset_mock()
-    body_claim = {
-        "user": {"id": "U_BUYER"},
-        "channel": {"id": "C_PURCHASE"},
-        "message": {"ts": "100.10"},
-        "container": {"message_ts": "100.10", "thread_ts": "100.00"},
-        "actions": [{"action_id": "req_claim", "value": claim_value}],
-    }
-    app.handle_req_claim_action(ack, body_claim, respond, client)
-    update_claim = client.chat_update.call_args[1]
-    actions_claim = next(b for b in update_claim["blocks"] if b.get("type") == "actions")
-    assert actions_claim["elements"][0]["action_id"] == "req_processed"
-    processed_value = actions_claim["elements"][0]["value"]
+    lifecycle.handle_assign(
+        client=client,
+        say=say,
+        channel="C_PURCHASE",
+        thread_ts="100.00",
+        user_id="U_BUYER",
+        event_ts="100.15",
+        target_user_id="U_BUYER",
+    )
+    update_assign = client.chat_update.call_args[1]
+    actions_assign = next(b for b in update_assign["blocks"] if b.get("type") == "actions")
+    assert actions_assign["elements"][0]["action_id"] == "req_processed"
+    processed_value = actions_assign["elements"][0]["value"]
 
     # 3. Processed (by Dylan) -> writes Date Processed to Col U
     ack.reset_mock()

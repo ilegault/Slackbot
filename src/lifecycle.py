@@ -2,20 +2,19 @@
 
 WHY THIS EXISTS:
 ----------------
-Encapsulates all stage transitions for a purchase request: approval, claiming,
-submission, confirmation, delivery, and quote archiving. Coordinates between
+Encapsulates all stage transitions for a purchase request: approval, assignment,
+processing, confirmation, delivery, and quote archiving. Coordinates between
 Slack client I/O, domain validation, storage write queue, and Block Kit messages.
 
-Per ADR 0002 decisions 1 and 2:
-- An EPIF PDF dropped into a thread builds the purchase request payload where parsed
-  and posts a Block Kit card with the Approve button (state="posted"), eliminating
-  the discrepancy between modal and PDF paths while keeping build_request_blocks unchanged.
-- Approval always broadcasts to grad buyers and waits for a Claim — even for a buyer's
-  own request, because purchasing duty rotates and there is no auto-assign shortcut.
-- The email draft is moved from approval to claim, addressed to and DM'd to the claimer.
+Per ADR 0004:
+- The approver names the responsible buyer in the approval message itself (@Dylan @Purchasing approved).
+- Claim is deleted entirely. Requests without a valid buyer mention are approved and unassigned.
+- Any buyer, approver, or admin can assign an unassigned request (@Purchasing assign).
+- Only the current assignee, an approver, or an admin may reassign an already assigned request.
+- The pre-filled email draft is generated once, at assignment time, and DM'd to the assignee.
 
 Imports:
-    - config, epif_parser, interview, log_writer, queue_worker, roster, validators, blocks, slack_io, text_rules
+    - admin, blocks, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
     - app.py
 """
@@ -26,6 +25,7 @@ from datetime import datetime
 
 try:
     from . import (
+        admin,
         blocks,
         config,
         epif_parser,
@@ -38,6 +38,7 @@ try:
         validators,
     )
 except ImportError:
+    import admin
     import blocks
     import config
     import epif_parser
@@ -57,6 +58,10 @@ def finalize_purchase_request(
     parsed: dict, requester: str | None, notify_target: str | None,
     pdf_bytes: bytes | None = None, file_name: str | None = None,
     is_pending_name: bool = False,
+    assignee_id: str | None = None,
+    assignee_name: str | None = None,
+    refusal_msg: str | None = None,
+    approver: str | None = None,
 ):
     """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF if present, and notify."""
     display_file = file_name or "Purchase Request"
@@ -100,23 +105,89 @@ def finalize_purchase_request(
 
         display_requester = f"{requester} (pending name confirmation)" if is_pending_name else (requester or "Requester")
         ping_user = f"<@{notify_target}>" if notify_target else display_requester
-        saved_str = f"Saved EPIF to `{saved_path}`.\n\n" if saved_path else ""
+        saved_name = os.path.basename(saved_path) if saved_path else None
+        saved_str = f"Saved EPIF to `{saved_name}`.\n\n" if saved_name else ""
 
-        log.info("Broadcasting claim request for %s to grad buyers", requester)
-        buyers = roster.get_buyers()
-        buyers_list = ", ".join(f"<@{b}>" for b in buyers) if buyers else "None"
-        say(
-            text=(
-                f"Logged to row {row}: {parsed['item_description']} — "
-                f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
-                f"({parsed['category']}).\n"
-                f"{saved_str}"
-                f"📢 {ping_user}'s request is approved!\n"
-                f"⚠️ *Needs a Grad Student Buyer to process in Workday / ShopUW.*\n"
-                f"Grad students ({buyers_list}): please click Claim on the request above to take on this order."
-            ),
-            thread_ts=thread_ts,
-        )
+        if assignee_id and assignee_name:
+            say(
+                text=(
+                    f"Logged to row {row}: {parsed['item_description']} — "
+                    f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
+                    f"({parsed['category']}).\n"
+                    f"{saved_str}"
+                    f"📢 {ping_user}'s request is approved!\n"
+                    f"👤 Assigned to <@{assignee_id}> ({assignee_name}) to process in Workday / ShopUW."
+                ),
+                thread_ts=thread_ts,
+            )
+            # DM email draft to assignee (Requirement 8)
+            row_info = log_writer.get_row_info(row) if row else {}
+            draft_data = dict(parsed)
+            for k, v in row_info.items():
+                if k not in draft_data or not draft_data[k]:
+                    draft_data[k] = v
+            email_draft = text_rules.generate_email_draft(draft_data, assignee_name)
+            item_desc = draft_data.get("item_description") or "supplies"
+            row_dm_str = f" in *Row {row}*" if row else ""
+            dm_text = (
+                f"Hi {assignee_name}! You've been assigned the purchase request for *{item_desc}*{row_dm_str}.\n\n"
+                f"📋 *Next Steps:*\n"
+                f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
+                f"```\n{email_draft}\n```\n\n"
+                f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
+            )
+            try:
+                slack_io.tell(client, assignee_id, dm_text)
+            except Exception as e:
+                log.warning("Could not DM assignee %s: %s", assignee_id, e)
+        elif refusal_msg:
+            say(
+                text=(
+                    f"Logged to row {row}: {parsed['item_description']} — "
+                    f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
+                    f"({parsed['category']}).\n"
+                    f"{saved_str}"
+                    f"📢 {ping_user}'s request is approved!\n"
+                    f"{refusal_msg}"
+                ),
+                thread_ts=thread_ts,
+            )
+        else:
+            say(
+                text=(
+                    f"Logged to row {row}: {parsed['item_description']} — "
+                    f"${parsed['total_price']:,.2f} from {parsed['vendor']} "
+                    f"({parsed['category']}).\n"
+                    f"{saved_str}"
+                    f"📢 {ping_user}'s request is approved!\n"
+                    f"⚠️ *Needs a Grad Student Buyer to process in Workday / ShopUW.*\n"
+                    f"Please assign a buyer: `@Purchasing assign @buyer`"
+                ),
+                thread_ts=thread_ts,
+            )
+
+        # Update or post card in thread
+        card_req, card_ts, card_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+        now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+        appr_name = slack_io.resolve_requester(client, approver) or (f"<@{approver}>" if approver else "Approver")
+        if card_ts:
+            req_payload = card_req or {}
+            req_payload["assignee_id"] = assignee_id
+            req_payload["assignee"] = assignee_name
+            hist = list(card_hist)
+            hist.append(f"Approved by {appr_name} on {now_str}")
+            if assignee_id and assignee_name:
+                hist.append(f"Assigned to {assignee_name} on {now_str}")
+            next_blks = blocks.build_request_blocks("approved", req_payload, history=hist)
+            try:
+                client.chat_update(
+                    channel=channel,
+                    ts=card_ts,
+                    text="🛒 Purchase Request (Approved)",
+                    blocks=next_blks,
+                )
+            except Exception as e:
+                log.error("Failed to update card on approval: %s", e)
 
     def on_failure(error):
         log.error("Failed to write to workbook: %s", error)
@@ -135,7 +206,13 @@ def finalize_purchase_request(
     )
 
 
-def handle_epif_processing(client, say, channel: str, thread_ts: str, approver: str, event_ts: str, direct_file=None, direct_poster=None):
+def handle_epif_processing(
+    client, say, channel: str, thread_ts: str, approver: str, event_ts: str,
+    direct_file=None, direct_poster=None,
+    assignee_id: str | None = None,
+    assignee_name: str | None = None,
+    refusal_msg: str | None = None,
+):
     """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving."""
     log.info("Processing EPIF/purchase request from approver/poster: %s in channel: %s", approver or direct_poster, channel)
     if direct_file:
@@ -176,6 +253,10 @@ def handle_epif_processing(client, say, channel: str, thread_ts: str, approver: 
             pdf_bytes=pdf_bytes,
             file_name=file_name,
             is_pending_name=False,
+            assignee_id=assignee_id,
+            assignee_name=assignee_name,
+            refusal_msg=refusal_msg,
+            approver=approver,
         )
         return
 
@@ -195,6 +276,10 @@ def handle_epif_processing(client, say, channel: str, thread_ts: str, approver: 
             pdf_bytes=None,
             file_name=None,
             is_pending_name=is_pending,
+            assignee_id=assignee_id,
+            assignee_name=assignee_name,
+            refusal_msg=refusal_msg,
+            approver=approver,
         )
         return
 
@@ -291,55 +376,114 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         log.error("Failed to post purchase request card to channel %s: %s", channel, e)
 
 
-def handle_claim(
+def handle_assign(
     client, say, channel: str, thread_ts: str, user_id: str, event_ts: str,
+    target_user_id: str | None = None,
     req_data: dict | None = None,
+    msg_ts: str | None = None,
+    history: list | None = None,
 ):
-    """Assign a grad student to an approved order thread and DM email draft to claimer."""
-    grad_name = slack_io.resolve_requester(client, user_id) or "Grad Student"
+    """Assign or reassign a purchase request to a buyer.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0004: Assignment replaces claim. Charlie names the responsible buyer when approving,
+    or a buyer can assign an unassigned order to themselves.
+    Permission per ADR 0004 decision 3:
+    - Unassigned: any buyer, approver, or admin may assign (including buyer naming themselves).
+    - Assigned: approver, admin, or the current assignee only.
+    The pre-filled email draft is generated once and DM'd to the assignee.
+    """
+    card_req, card_ts, card_hist, card_state = slack_io.find_card_in_thread(client, channel, thread_ts)
+    req_data = req_data or card_req or {}
+    msg_ts = msg_ts or card_ts
+    history = history if history is not None else list(card_hist)
+    current_state = card_state or "approved"
+
+    current_assignee = req_data.get("assignee_id")
+
+    # If target_user_id is None, check if caller is assigning themselves
+    if not target_user_id:
+        if roster.is_buyer(user_id):
+            target_user_id = user_id
+        else:
+            say(text="⚠️ Please specify a buyer to assign this order to, e.g. `@Purchasing assign @buyer`.", thread_ts=thread_ts)
+            return False
+
+    # Permission check (ADR 0004 decision 3)
+    if current_assignee:
+        # Assigned: approver, admin, or current assignee only
+        if not (admin.is_approved_reviewer(user_id) or admin.is_admin_user(user_id) or user_id == current_assignee):
+            log.warning("Unauthorized user %s attempted to reassign request assigned to %s", user_id, current_assignee)
+            say(text=f"🔒 This request is already assigned to <@{current_assignee}>. Only the assignee, an approver, or an admin can reassign it.", thread_ts=thread_ts)
+            return False
+    else:
+        # Unassigned: any buyer, approver, or admin may assign
+        if not (roster.is_buyer(user_id) or admin.is_approved_reviewer(user_id) or admin.is_admin_user(user_id)):
+            log.warning("Unauthorized user %s attempted to assign unassigned request", user_id)
+            say(text="🔒 Only buyers, approvers, or admins can assign purchase requests.", thread_ts=thread_ts)
+            return False
+
+    # Target eligibility check (ADR 0004 decision 4)
+    if not roster.is_buyer(target_user_id):
+        log.warning("Target user %s is not on buyers list", target_user_id)
+        say(text=f"⚠️ <@{target_user_id}> isn't on the buyers list, so I can't assign this to them. An admin can add them: @Purchasing add-buyer <@{target_user_id}>", thread_ts=thread_ts)
+        return False
+
+    target_name = slack_io.resolve_requester(client, target_user_id)
+    if not target_name:
+        log.warning("Target user %s not registered in roster", target_user_id)
+        say(text=f"🔒 <@{target_user_id}> must be registered in the lab roster to be assigned requests. Use `/roster-set-name` first.", thread_ts=thread_ts)
+        return False
+
+    # Perform assignment
+    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+    actor_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    req_data["assignee_id"] = target_user_id
+    req_data["assignee"] = target_name
+
+    if current_assignee:
+        history.append(f"Reassigned to {target_name} by {actor_name} on {now_str}")
+    else:
+        history.append(f"Assigned to {target_name} on {now_str}")
+
+    if msg_ts:
+        card_blocks = blocks.build_request_blocks(current_state, req_data, history=history)
+        try:
+            client.chat_update(
+                channel=channel,
+                ts=msg_ts,
+                text=f"🛒 Purchase Request ({current_state.capitalize()})",
+                blocks=card_blocks,
+            )
+        except Exception as e:
+            log.error("Failed to update message on assign: %s", e)
+
+    say(text=f"👤 Assigned to <@{target_user_id}> ({target_name}) to process in Workday / ShopUW.", thread_ts=thread_ts)
+
+    # Email draft DM to assignee (Requirement 8)
     row = slack_io.find_row_in_thread(client, channel, thread_ts)
-    log.info("Claim event by %s (User: %s) for thread %s (Row: %s)", grad_name, user_id, thread_ts, row)
-
-    try:
-        client.reactions_add(channel=channel, timestamp=event_ts, name="raised_hand")
-    except Exception as e:
-        log.debug("Could not add reaction: %s", e)
-
     row_info = log_writer.get_row_info(row) if row else {}
-
-    draft_data = dict(req_data.get("parsed", req_data)) if req_data else {}
+    draft_data = dict(req_data.get("parsed", req_data))
     for k, v in row_info.items():
         if k not in draft_data or not draft_data[k]:
             draft_data[k] = v
-
-    item_desc = draft_data.get("item_description")
-    item_str = f" for *{item_desc}*" if item_desc else ""
-    row_num = row or draft_data.get("row")
-    row_str = f" (Row {row_num})" if row_num else ""
-
-    say(
-        text=(
-            f"✋ <@{user_id}> ({grad_name}) has claimed order{item_str}{row_str}!\n"
-            f"Please coordinate here with the requester for cart/punchout options. "
-            f"Once placed in Workday, click the button on the request message above to mark it processed."
-        ),
-        thread_ts=thread_ts,
-    )
-
-    email_draft = text_rules.generate_email_draft(draft_data, grad_name)
-    display_item = item_desc or "supplies"
-    row_dm_str = f" in *Row {row_num}*" if row_num else ""
+    email_draft = text_rules.generate_email_draft(draft_data, target_name)
+    item_desc = draft_data.get("item_description") or "supplies"
+    row_dm_str = f" in *Row {row}*" if row else ""
     dm_text = (
-        f"Hi {grad_name}! You've claimed the purchase request for *{display_item}*{row_dm_str}.\n\n"
+        f"Hi {target_name}! You've been assigned the purchase request for *{item_desc}*{row_dm_str}.\n\n"
         f"📋 *Next Steps:*\n"
         f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
         f"```\n{email_draft}\n```\n\n"
         f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
     )
     try:
-        slack_io.tell(client, user_id, dm_text)
+        slack_io.tell(client, target_user_id, dm_text)
     except Exception as e:
-        log.warning("Could not DM claimer %s: %s", user_id, e)
+        log.warning("Could not DM assignee %s: %s", target_user_id, e)
+
+    return True
 
 
 def handle_processed(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
@@ -800,7 +944,7 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
 
 
 def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_id: str, req_data: dict, state: str, history: list):
-    """Cancel an approved or claimed purchase request, blanking its Excel row(s).
+    """Cancel an approved purchase request, blanking its Excel row(s).
 
     WHY THIS EXISTS:
         Cancel un-writes the Excel row — the workbook is a log of live approved
