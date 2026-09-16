@@ -270,8 +270,7 @@ def test_build_request_blocks_next_step_buttons():
 
     expected_primary_action = {
         "posted": "req_approve",
-        "approved": "req_claim",
-        "claimed": "req_processed",
+        "approved": "req_processed",
         "processed": "req_confirmed",
         "confirmed": "req_delivered",
     }
@@ -299,7 +298,13 @@ def test_build_request_blocks_next_step_buttons():
 # 6. Lifecycle button permission denials (one test per button)
 # ---------------------------------------------------------------------------
 
-def _make_button_body(action_id: str, user_id: str, state: str = "posted", row: int | None = 15):
+def _make_button_body(action_id: str, user_id: str, state: str = "posted", row: int | None = 15, assignee_id: str | None = None):
+    req_dict = {"item_description": "Widget", "row": row}
+    if assignee_id is not None:
+        req_dict["assignee_id"] = assignee_id
+    elif state != "posted":
+        req_dict["assignee_id"] = user_id
+
     return {
         "user": {"id": user_id},
         "channel": {"id": "C_PURCHASING"},
@@ -311,7 +316,7 @@ def _make_button_body(action_id: str, user_id: str, state: str = "posted", row: 
                 "value": json.dumps({
                     "state": state,
                     "row": row,
-                    "request": {"item_description": "Widget", "row": row},
+                    "request": req_dict,
                     "history": [],
                 }),
             }
@@ -338,23 +343,69 @@ def test_permission_denial_req_approve():
     mock_append.assert_not_called()
 
 
-def test_permission_denial_req_claim():
-    """req_claim clicked by non-buyer leaves message unchanged and writes nothing."""
+def test_permission_denial_req_processed_unassigned():
+    """req_processed clicked on unassigned request is refused."""
     ack = MagicMock()
     respond = MagicMock()
     client = MagicMock()
-    body = _make_button_body("req_claim", user_id="U_NON_BUYER", state="approved")
+    body = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASING"},
+        "message": {"ts": "1000.2000"},
+        "container": {"message_ts": "1000.2000", "thread_ts": "1000.2000"},
+        "actions": [
+            {
+                "action_id": "req_processed",
+                "value": json.dumps({
+                    "state": "approved",
+                    "row": 15,
+                    "request": {"item_description": "Widget", "row": 15},  # no assignee_id
+                    "history": [],
+                }),
+            }
+        ],
+    }
 
-    with patch.object(roster, "is_buyer", return_value=False), \
-         patch("src.lifecycle.handle_claim") as mock_lifecycle_claim:
-        app.handle_req_claim_action(ack, body, respond, client)
+    app.handle_req_processed_action(ack, body, respond, client)
 
     ack.assert_called_once()
     respond.assert_called_once()
-    assert "Only purchase buyers can claim requests" in respond.call_args[1]["text"]
+    assert "must be assigned to a buyer" in respond.call_args[1]["text"]
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
-    mock_lifecycle_claim.assert_not_called()
+
+
+def test_permission_denial_req_processed_non_assignee():
+    """req_processed clicked by user who is not assignee or admin is refused."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    body = {
+        "user": {"id": "U_OTHER_BUYER"},
+        "channel": {"id": "C_PURCHASING"},
+        "message": {"ts": "1000.2000"},
+        "container": {"message_ts": "1000.2000", "thread_ts": "1000.2000"},
+        "actions": [
+            {
+                "action_id": "req_processed",
+                "value": json.dumps({
+                    "state": "approved",
+                    "row": 15,
+                    "request": {"item_description": "Widget", "row": 15, "assignee_id": "U_ASSIGNED_BUYER"},
+                    "history": [],
+                }),
+            }
+        ],
+    }
+
+    with patch.object(admin, "is_admin_user", return_value=False):
+        app.handle_req_processed_action(ack, body, respond, client)
+
+    ack.assert_called_once()
+    respond.assert_called_once()
+    assert "Only the assigned buyer" in respond.call_args[1]["text"]
+    client.chat_update.assert_not_called()
+    client.chat_postMessage.assert_not_called()
 
 
 def test_permission_denial_req_processed():

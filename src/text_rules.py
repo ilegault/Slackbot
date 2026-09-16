@@ -21,6 +21,37 @@ except ImportError:
     import config
 
 
+def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list[str], list[str]]:
+    """Return (text with all mentions removed, user ids excluding the bot, user-group ids).
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0004 decision 1: The approver names the responsible buyer in the approval message itself.
+    Mentions must be parsed into user IDs (excluding the bot itself) and subteam user-group IDs.
+    ADR 0004 decision 8: Mentions are stripped before keywords are matched, so a Slack ID containing
+    substrings like 'log' or 'submit' cannot accidentally route to unrelated command handlers.
+    """
+    user_ids: list[str] = []
+    group_ids: list[str] = []
+
+    # Find user mentions: <@U...>, <@W...>, with optional |label
+    for m in re.finditer(r"<@([UW][A-Za-z0-9_]+)(?:\|[^>]*)?>", text):
+        uid = m.group(1)
+        if bot_user_id is None or uid.upper() != bot_user_id.upper():
+            user_ids.append(uid)
+
+    # Find subteam / user group mentions: <!subteam^S...>, with optional |label
+    for m in re.finditer(r"<!subteam\^([A-Za-z0-9_]+)(?:\|[^>]*)?>", text):
+        group_ids.append(m.group(1))
+
+    # Strip all mentions from text
+    stripped = re.sub(r"<@[UW][A-Za-z0-9_]+(?:\|[^>]*)?>", "", text)
+    stripped = re.sub(r"<!subteam\^[A-Za-z0-9_]+(?:\|[^>]*)?>", "", stripped)
+    stripped = re.sub(r" +", " ", stripped).strip()
+
+    return stripped, user_ids, group_ids
+
+
 def extract_request_info(body: dict) -> tuple[str, str, str | None, str | None, bool]:
     """Extract (kind, identifier, user_id, channel_id, is_verbose_msg) from Slack Bolt request body."""
     if not isinstance(body, dict):

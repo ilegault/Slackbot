@@ -238,7 +238,7 @@ def get_help_message() -> str:
 def build_request_blocks(state: str, request: dict, history: list | None = None) -> list:
     """Generate Block Kit blocks for a purchase request at a given lifecycle state.
 
-    States: posted -> approved -> claimed -> processed -> confirmed -> delivered
+    States: posted -> approved -> processed -> confirmed -> delivered
     Terminal states with no buttons: declined, cancelled, delivered.
     """
     parsed = request.get("parsed", request)
@@ -278,6 +278,16 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
         f"• *Delivery Room:* {delivery_room}",
         f"• *Purpose:* {purpose}",
     ]
+    assignee_id = request.get("assignee_id")
+    assignee = request.get("assignee")
+    if assignee_id:
+        buyer_str = f"<@{assignee_id}> ({assignee})" if assignee else f"<@{assignee_id}>"
+        summary_lines.append(f"• *Buyer:* {buyer_str}")
+    elif assignee:
+        summary_lines.append(f"• *Buyer:* {assignee}")
+    elif state != "posted":
+        summary_lines.append("• *Buyer:* ⚠️ _Unassigned_")
+
     if suggest_note:
         summary_lines.append(suggest_note)
 
@@ -306,8 +316,7 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
     # Primary (next-step) button for each non-terminal state.
     primary_buttons = {
         "posted": ("Approve", "req_approve"),
-        "approved": ("Claim", "req_claim"),
-        "claimed": ("Mark Processed", "req_processed"),
+        "approved": ("Mark Processed", "req_processed"),
         "processed": ("Mark Confirmed", "req_confirmed"),
         "confirmed": ("Mark Delivered", "req_delivered"),
     }
@@ -317,7 +326,6 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
     secondary_buttons = {
         "posted": ("Decline", "req_decline"),
         "approved": ("Cancel", "req_cancel"),
-        "claimed": ("Cancel", "req_cancel"),
     }
 
     if state in primary_buttons:

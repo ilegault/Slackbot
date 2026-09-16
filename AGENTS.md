@@ -502,44 +502,45 @@ someone else's bug fix smuggled into it cannot be reviewed.
 
 _Written by the planning model on 2026-09-16. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: layer the app, then finish the lifecycle
+# Active work: assignment replaces claim
 
 This is a **pointer**, not the work. The work is a ticket set.
 
-- Spec: `.scratch/lifecycle-and-buyers/spec.md`
+- Spec: `.scratch/lifecycle-and-buyers/spec.md` (lifecycle rebuild; its claim
+  sections are superseded by ADR 0004)
 - Binding on all test work: `docs/adr/0001-tests-first-and-no-muted-failures.md`
 - Read before any lifecycle ticket: `docs/adr/0002-request-lifecycle-and-surfaces.md`
-- Read before ticket 05: `docs/adr/0003-decline-and-cancel.md`
+- **Read before ticket 08: `docs/adr/0004-assignment-replaces-claim.md`** — it
+  supersedes 0002 decision 6
 - Glossary: `CONTEXT.md`
-- Tickets: `.scratch/lifecycle-and-buyers/issues/01…07`
+- Tickets: `.scratch/lifecycle-and-buyers/issues/01…10`
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-The previous effort (T1–T4: `respond()` everywhere, request logging middleware,
-lifecycle buttons, surface consistency) has shipped. Its regression guards were
-never written — that is ticket 06 here, not a fresh idea.
+**Tickets 01 through 07 are all `done`.** The lifecycle rebuild shipped: layers
+split, buyers on the roster, claim, buttons on the PDF-drop path, decline/cancel
+plus the `processed` rename, regression guards, lint gate.
 
-## Next up — ticket 01 only
+## Next up — ticket 08
 
-**01 — Split `src/app.py` into layers.** Nothing else starts until it lands.
+**08 — Assignment replaces claim.** Charlie names the responsible buyer in the
+approval message itself (`@Dylan @Purchasing approved`, either order); the claim
+button, keyword, handler and card state are deleted outright. Ticket 03 built
+claim and this removes it — that is deliberate, and ADR 0004 records why. Claim
+never ran in production, so there is nothing to migrate and no shim to write.
 
-`app.py` is 2 855 of the repo's 5 470 lines, and tickets 02, 03, 04 and 05 all
-edit it. Worked against the current file they serialise, they each need the whole
-file in context, and invariant 1 ("one lifecycle operation, one implementation")
-stays a request rather than a structural fact. Ticket 01 is a **pure move** — no
-behaviour change, no renames, no new features — so that the four tickets after it
-touch disjoint files and can be worked in parallel.
+**09 — Refresh App Home and the help text** follows it, and fixes that both
+surfaces still say `@p-bot` when the app is called `@Purchasing`.
+
+**10 is a `human-task`:** seeding the buyers roster. An agent must not claim it.
+It is also a **deploy blocker for 08** — with `"buyers": []` every assignment
+Charlie tries is refused.
 
 ## Dependency order
 
 ```
-01 ──┬─ 02 ── 03 ─┐
-     ├─ 04 ───────┼─ 06
-     └─ 05 ───────┘
+01…07 (done) ── 08 ── 09
+                 └─── 10 (human-task, after deploy)
 ```
-
-- 02 → 03: the claim gate and the broadcast both need buyer Slack IDs.
-- 04 and 05 are independent of 02/03 once 01 lands and can run in parallel with them.
-- 06 is last: it guards everything above it plus the already-shipped T1–T4 surface.
 
 ## Rules for working this set
 
@@ -550,27 +551,27 @@ touch disjoint files and can be worked in parallel.
 
 ## Five requirements that will be quietly violated if read as preferences
 
-1. **Ticket 01 changes no behaviour.** Not one renamed function, not one fixed
-   bug, not one `submitted` → `processed` rename. If the diff contains a change
-   that is not a move plus its import, it is the wrong diff. A refactor with a fix
-   smuggled inside it cannot be reviewed, and this one touches everything.
-2. **A button handler never reimplements a lifecycle operation.** It acks,
+1. **A refused assignment never refuses the approval.** If Charlie names nobody,
+   names two people, names a non-buyer, or names someone with no `requesters`
+   entry, the rows are still written, the EPIFs still archived, the card still
+   posted. The request simply stays unassigned. Approval is the money decision;
+   a missing mention must never cost one.
+2. **Never take the first of several mentions.** Two names is a question to ask,
+   not a tie to break.
+3. **A button handler never reimplements a lifecycle operation.** It acks,
    extracts, permission-checks, and calls the same handler the keyword branch
    calls. If a signature does not fit, adapt the payload or extract a shared core
    — never write a second copy.
-3. **Roles are Slack IDs.** `is_buyer` takes an ID. Do not add a name-based
-   variant "for convenience"; matching on names is the defect ticket 02 removes.
-4. **Cancel un-writes the Excel row, it does not mark it.** The workbook is a log
-   of live approved purchases and their stage, nothing else. A cancelled row is
-   blanked and may be recycled; the cancellation is visible as text in the thread.
-5. **Cancel is refused after a request is processed.** Not silently, not with a
-   generic error — the bot says clearly in-thread that the request has already
-   gone to the purchasing team and cannot be cancelled here.
+4. **Roles are Slack IDs.** `is_buyer` takes an ID. Do not add a name-based
+   variant "for convenience".
+5. **Mentions are stripped before keywords are matched.** A lowercased Slack ID is
+   alphanumeric and can contain `log`, `take` or `submit`. Match on the stripped
+   text, always.
 
 ## One thing this set deliberately does not do
 
-The `submitted` → `processed` rename happens **once**, inside ticket 05, across
-every surface at the same time. Doing it opportunistically inside 02, 03 or 04
-would leave the two words coexisting for however long the set takes, which is the
-exact state ADR 0002 exists to end.
+It does not teach the bot the purchasing rotation. The bot models **a name chosen
+by a person who knows the rotation** — not the rotation itself, not a default
+buyer, not a round-robin. If that turns out to be wrong, it is a new ADR, not a
+constant added to `config`.
 <!-- ACTIVE-PLAN:END -->

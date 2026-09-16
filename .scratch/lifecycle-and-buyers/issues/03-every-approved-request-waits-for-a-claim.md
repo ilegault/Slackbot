@@ -76,3 +76,11 @@ else claims.
 - Added tests for buyer approval broadcast with no DM, non-buyer claim button denial, non-buyer mention denial, unregistered buyer claim button handling, and claimer-addressed email draft generation.
 - Full local gate passed: `ruff check .` clean, `scripts/check_tests_first.py` OK, and `pytest -q` 89 passed (0 failures).
 
+
+### 2026-09-16 Superseded
+This ticket's mechanism was removed by ticket 08 before it ever ran in production
+(`roster.json` shipped `"buyers": []`, and the deploy carrying it failed). The
+approver now names the buyer in the approval message. See
+`docs/adr/0004-assignment-replaces-claim.md`, which supersedes ADR 0002 decision 6.
+**Do not implement from this ticket.** What survives it: the email draft belongs to
+whoever emails purchasing, and the requester is never auto-assigned.

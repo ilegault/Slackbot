@@ -221,7 +221,7 @@ VENDOR_OTHER_OPTION = "Not listed / other"
 WORKDAY_PAYMENT_METHOD = "Workday"
 
 TRIGGER_KEYWORD = "approved"
-CLAIM_KEYWORDS = ("claim", "i will order", "i'll order", "take", "claiming")
+ASSIGN_KEYWORDS = ("assign", "assigned")
 PROCESSED_KEYWORDS = ("processed", "processing", "ordered", "submitted", "submit")  # "submitted"/"submit" are silent backwards-compat aliases
 CONFIRM_KEYWORDS = ("confirmed", "confirm", "package confirmed", "order confirmed")
 DELIVERED_KEYWORDS = ("delivered", "received", "package delivered", "package received")

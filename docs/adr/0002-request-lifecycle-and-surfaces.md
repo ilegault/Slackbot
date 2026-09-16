@@ -88,6 +88,12 @@ grad student should not be a code edit plus a restart.
 
 ### 6. Every approved request waits for a claim
 
+> **Superseded by ADR 0004 (2026-09-16).** The approver names the buyer in the
+> approval message; `claim` is deleted. The rest of this decision — the email
+> draft belonging to whoever emails purchasing, and no auto-assign to the
+> requester — survives in ADR 0004. Kept here for the record; do not implement
+> from it.
+
 Including a request from a buyer themselves. There is no auto-assign shortcut,
 because purchasing duty rotates between grad students (Charlie's arrangement,
 Dylan first) and the person who asked is not necessarily the person whose turn it

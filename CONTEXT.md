@@ -23,9 +23,12 @@ restart, update. Currently Isaac. Stored in the roster's `admins`. Being an admi
 does not grant approval.
 
 **Buyer** (also *purchase buyer*, *grad buyer*) — a grad student who processes an
-approved purchase in Workday or ShopUW. Isaac, Finn, Smeet, Dylan. A buyer
-*claims* a request and then does the ordering. Being a buyer does not grant
-approval. Not yet a roster list — see `config.GRAD_STUDENT_BUYERS` and ticket 02.
+approved purchase in Workday or ShopUW. Isaac, Finn, Smeet, Dylan. A buyer is
+**assigned** a request — by the approver at approval time, or by any buyer while
+the request is still unassigned — and then does the ordering. Being a buyer does
+not grant approval. Stored as Slack IDs in the roster's `buyers`, checked with
+`roster.is_buyer(user_id)`. Membership is what makes a person *nameable*; it is
+not a licence to act on a request already assigned to someone else.
 
 **Requester** — whoever asked for the purchase. Anyone in the lab. Mapped Slack ID
 → name in the roster's `requesters`; the name has to match `VALID_REQUESTERS`
@@ -33,7 +36,9 @@ exactly because it goes into the workbook.
 
 **Purchasing guru** — the buyer currently holding purchasing duty. Charlie set up
 a rotating arrangement, Dylan first. This is a **human arrangement, not a role in
-the bot.** The bot knows buyers; it does not know whose turn it is.
+the bot.** The bot still does not know whose turn it is — it knows the name the
+approver types, and the approver is the person who set the rotation up. See ADR
+0004.
 
 > Avoid "reviewer" as a synonym for approver in anything user-facing.
 > `is_approved_reviewer` keeps the name for now because renaming it is a code
@@ -79,9 +84,20 @@ the App Home definitions, and the silent `@p-bot` keyword aliases.
 **Posted** — a request exists and shows an Approve button, but nobody has
 approved it. The state before `approved`.
 
-**Claimed** — a buyer has taken responsibility for processing this request. Every
-approved request waits for a claim, **including a request from a buyer
-themselves** — there is no auto-assign shortcut, because purchasing duty rotates.
+**Assigned** — a buyer has been named as responsible for processing this request.
+The approver names them in the approval message itself — `@Dylan @Purchasing
+approved`, in either order — and the bot reads the one non-bot `<@U…>` mention in
+it. A named person must already be on the buyers roster.
+
+**Unassigned** — approved, written to the workbook, nobody named yet. A real and
+legitimate state: a missing mention never costs an approval. Any buyer may assign
+an unassigned request, including to themselves; once it is assigned, only an
+approver, an admin or the current assignee may change it.
+
+> **`claim` is dead.** It shipped in ticket 03 and was removed in ticket 08 before
+> it ever ran in production. The word, the button, the keyword and the `claimed`
+> state are all gone — see ADR 0004, which supersedes ADR 0002 decision 6. Do not
+> reintroduce it as a synonym for assigning yourself; that is `assign`.
 
 **Decline** — an approver's "no" on a request that has not been approved. No
 reason, no logging, one click. The point is to reduce friction.
@@ -117,15 +133,17 @@ button clicks carry `channel.id`, `container.message_ts` and
 **Slash command** — `/new-purchase`, `/purchasing-help`, `/blank-template`,
 `/roster-list`, `/roster-set-name`. Things with no target.
 
-**Button** — Approve, Claim, Mark Processed, Mark Confirmed, Mark Delivered,
-Decline, Cancel. Things with a target, rendered on the request message.
+**Button** — Approve, Mark Processed, Mark Confirmed, Mark Delivered, Decline,
+Cancel. Things with a target, rendered on the request message. **Assigning is not
+a button** — a button cannot carry a person, and the mention already does.
 
 **Keyword** — `@p-bot <word>`. Two kinds: **admin ops** (`restart`, `logs`,
 `update`, `health`, `queue`, `promote-admin`, `add-approver`, `remove-approver`,
 `add-buyer`, `remove-buyer`, `remove-vendor`) which are documented and admin-only;
-and **lifecycle aliases** (`approved`, `claim`, `processed`, `confirmed`,
+and **lifecycle aliases** (`approved`, `assign`, `processed`, `confirmed`,
 `delivered`, `quote`) which keep working so Charlie's habits do not break, but are
-taught nowhere.
+taught nowhere. User mentions are stripped from the text *before* a keyword is
+matched, so a Slack ID can never be read as a keyword (ADR 0004 decision 8).
 
 **The request message / the card** — the bot's post in the channel carrying the
 summary, the history block, and one next-step button. It is also the store: state,
@@ -154,8 +172,8 @@ try later" into "written" instead of "lost".
 after ticket 02, buyers). Admin-manageable from Slack; changes take effect
 immediately because every getter re-reads from disk.
 
-**The store** — `src/store.py`. **Currently a word with no referent: nothing
-imports it.** It describes itself as the request index with multi-item batch
+**The store** — `src/store.py`. **Currently a word with no referent: nothing in
+`src/` imports it.** It acquired tests in ticket 06, which does not make it used. It describes itself as the request index with multi-item batch
 mappings and card timestamps, but the request's state actually lives on the
 message. Do not use "the store" to mean that module without saying so.
 
@@ -168,6 +186,7 @@ message. Do not use "the store" to mean that module without saying so.
 | submitted, submit, ordered | **processed** |
 | reviewer (user-facing) | **approver** |
 | grad student (as a permission) | **buyer** |
+| claim, claimed, take, i will order | **assign**, **assigned** |
 | cancel (before approval) | **decline** |
 | decline (after approval) | **cancel** |
 | ticket done / complete / completed | **done** (exactly this) |
