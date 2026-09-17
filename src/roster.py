@@ -175,6 +175,20 @@ def get_buyers() -> List[str]:
     return data.get("buyers", [])
 
 
+def is_admin(slack_id: str) -> bool:
+    """Check if a Slack user ID is an authorized administrator."""
+    if not slack_id:
+        return False
+    return slack_id in get_admins()
+
+
+def is_approver(slack_id: str) -> bool:
+    """Check if a Slack user ID is an authorized purchase request approver."""
+    if not slack_id:
+        return False
+    return slack_id in get_approvers()
+
+
 def is_buyer(slack_id: str) -> bool:
     """Check if a Slack user ID is an authorized purchase buyer."""
     if not slack_id:

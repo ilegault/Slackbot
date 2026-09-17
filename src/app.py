@@ -861,6 +861,22 @@ def handle_start_purchase_interview(ack, body, client):
         log.error("Failed to open interview modal from button: %s", e)
 
 
+@app.action(config.ACTION_OPEN_ROSTER_SET_NAME)
+def handle_open_roster_set_name_action(ack, body, client):
+    """Open /roster-set-name modal when clicked from App Home."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    trigger_id = body.get("trigger_id")
+    current_name = roster.get_requesters().get(user_id) if hasattr(roster, "get_requesters") else None
+
+    modal = blocks.build_roster_set_name_view(user_id, current_name)
+    try:
+        client.views_open(trigger_id=trigger_id, view=modal)
+        log.info("Opened roster-set-name modal from App Home button for user %s", user_id)
+    except Exception as e:
+        log.error("Failed to open /roster-set-name modal from button: %s", e)
+
+
 # --- Dispatcher Helpers -------------------------------------------------------
 
 _CACHED_BOT_USER_ID = None
@@ -1151,7 +1167,7 @@ def handle_app_home_opened(client, event):
     try:
         client.views_publish(
             user_id=user_id,
-            view=blocks.build_app_home_view(),
+            view=blocks.build_app_home_view(user_id=user_id),
         )
         log.info("Published App Home view to user %s", user_id)
     except Exception as e:
