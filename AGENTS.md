@@ -81,11 +81,9 @@ listeners      `@app.command` / `@app.action` / `@app.view` / `@app.event`
 
 **Imports flow downward only:** `listeners → handlers → blocks → storage → domain → config`.
 
-Today `blocks`, `handlers` and `listeners` are all inside one 2 855-line
-`src/app.py`, which is why every open ticket collides with every other one.
-Ticket 01 of the current set splits them. Until it lands, treat the section
-comments in `app.py` as the layer boundaries and do not move code across one
-without saying so.
+`blocks.py` builds UI, `lifecycle.py` and `ops.py` contain handlers, `slack_io.py`
+wraps Slack client calls, and `src/app.py` (~1 150 lines) registers Bolt listeners.
+Nothing imports `app`.
 
 ### Five invariants the whole design rests on
 
@@ -268,9 +266,8 @@ disagree, the workbook is what someone acts on.
 1. **`src/store.py` is dead.** 184 lines describing itself as the request index
    with multi-item batch mappings and card timestamps, imported by nothing. It
    reads like the store and is not the store. See invariant 3.
-2. **`config.GRAD_STUDENT_BUYERS` is a set of display-name strings.** The only
-   role in the system that is not a roster concept. It cannot be mentioned and it
-   needs a code edit plus a restart to change. Ticket 02.
+2. **Roles live in `roster.json`, not in `config.py`.** All role checks use `roster`
+   accessors (`is_buyer`, `is_admin`, etc.).
 3. **The dev `roster.json` is not the server's.** It is gitignored, deliberately.
    Never conclude anything about live roles from the local copy.
 4. **`chat.postEphemeral` fails in a DM with the bot.** It needs channel
@@ -282,13 +279,11 @@ disagree, the workbook is what someone acts on.
 6. **`response_url` is good for 30 minutes and 5 uses.** Ample for a reply; not a
    channel for anything long-running.
 7. **A buyer needs two roster entries.** Membership in `buyers` gets them past the
-   permission check, but the history line ("Claimed by Dylan") comes from
-   `resolve_requester()`, which reads `requesters`. A buyer with no `requesters`
+   permission check, but the history line ("Assigned to Dylan" / "Processed by Dylan")
+   comes from `resolve_requester()`, which reads `requesters`. A buyer with no `requesters`
    entry falls through to a Slack-profile name guess that silently fails for a
    display name that does not line up.
-8. **`master` currently has 16 modified files uncommitted.** Sort that out before
-   branching, and check `.gitattributes` is in effect — this repo had no line-ending
-   normalisation until now.
+8. **Line-ending normalisation is in effect.** `.gitattributes` normalises LF/CRLF.
 
 ---
 

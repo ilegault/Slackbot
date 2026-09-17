@@ -176,7 +176,7 @@ def handle_purchasing_help_command(ack, respond):
     """Display help and command reference ephemerally."""
     ack()
     try:
-        respond(text=blocks.get_help_message())
+        slack_io.deny(respond, blocks.get_help_message())
         log.info("Responded with help message for /purchasing-help")
     except Exception as e:
         log.error("Failed to respond to /purchasing-help: %s", e)
@@ -242,7 +242,7 @@ def handle_roster_list_command(ack, body, respond):
 
     msg_text = "\n".join(lines)
     try:
-        respond(text=msg_text)
+        slack_io.deny(respond, msg_text)
         log.info("Responded to /roster-list for user %s", user_id)
     except Exception as e:
         log.error("Failed to respond to /roster-list: %s", e)
@@ -430,6 +430,7 @@ def handle_stage2_submit(ack, body, client, view):
     stage2 = {
         "item_description": text_rules._extract_modal_field(values, "block_item_description", "item_description"),
         "purpose": text_rules._extract_modal_field(values, "block_purpose", "purpose"),
+        "link": text_rules._extract_modal_field(values, "block_link", "link"),
         "total_price": text_rules._extract_modal_field(values, "block_total_price", "total_price"),
         "vendor_contact_name": text_rules._extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
         "vendor_contact_email": text_rules._extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),
@@ -476,7 +477,7 @@ def handle_approve_new_requester_action(ack, body, respond, client):
 
     if not admin.is_admin_user(approver_id):
         log.warning("Non-admin %s attempted to approve new requester", approver_id)
-        respond(text="🔒 Only bot administrators can approve new lab members.")
+        slack_io.deny(respond, "🔒 Only bot administrators can approve new lab members.")
         return
 
     val_str = body.get("actions", [{}])[0].get("value", "{}")
@@ -516,7 +517,7 @@ def handle_approve_new_admin_action(ack, body, respond, client):
 
     if not admin.is_admin_user(approver_id):
         log.warning("Non-admin %s attempted to approve admin promotion", approver_id)
-        respond(text="🔒 Only bot administrators can approve admin promotions.")
+        slack_io.deny(respond, "🔒 Only bot administrators can approve admin promotions.")
         return
 
     val_str = body.get("actions", [{}])[0].get("value", "{}")
@@ -555,7 +556,7 @@ def handle_approve_new_vendor_action(ack, body, respond, client):
 
     if not admin.is_admin_user(approver_id):
         log.warning("Non-admin %s attempted to approve vendors", approver_id)
-        respond(text="🔒 Only bot administrators can approve vendors.")
+        slack_io.deny(respond, "🔒 Only bot administrators can approve vendors.")
         return
 
     val_str = body.get("actions", [{}])[0].get("value", "{}")
@@ -594,7 +595,7 @@ def handle_req_approve_action(ack, body, respond, client):
     msg_ts = body.get("message", {}).get("ts")
     if not admin.is_approved_reviewer(user_id):
         log.warning("Unauthorized user %s attempted to approve purchase request", user_id)
-        respond(text="🔒 Only authorized approvers can approve purchase requests.")
+        slack_io.deny(respond, "🔒 Only authorized approvers can approve purchase requests.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -654,18 +655,18 @@ def handle_req_processed_action(ack, body, respond, client):
     assignee_id = req_data.get("assignee_id")
     if not assignee_id:
         log.warning("User %s clicked req_processed on unassigned request", user_id)
-        respond(text="⚠️ This request must be assigned to a buyer before it can be marked processed. Use `@Purchasing assign @buyer`.")
+        slack_io.deny(respond, "⚠️ This request must be assigned to a buyer before it can be marked processed. Use `@Purchasing assign @buyer`.")
         return
 
     if not (user_id == assignee_id or admin.is_admin_user(user_id)):
         log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_processed", user_id, assignee_id)
-        respond(text=f"🔒 Only the assigned buyer (<@{assignee_id}>) or an admin can mark this request processed.")
+        slack_io.deny(respond, f"🔒 Only the assigned buyer (<@{assignee_id}>) or an admin can mark this request processed.")
         return
 
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_processed", user_id)
-        respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
+        slack_io.deny(respond, "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
@@ -707,7 +708,7 @@ def handle_req_decline_action(ack, body, respond, client):
 
     if not admin.is_approved_reviewer(user_id):
         log.warning("Unauthorized user %s attempted to decline purchase request", user_id)
-        respond(text="🔒 Only authorized approvers can decline purchase requests.")
+        slack_io.deny(respond, "🔒 Only authorized approvers can decline purchase requests.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -729,7 +730,7 @@ def handle_req_cancel_action(ack, body, respond, client):
 
     if not (admin.is_approved_reviewer(user_id) or admin.is_admin_user(user_id)):
         log.warning("Unauthorized user %s attempted to cancel purchase request", user_id)
-        respond(text="🔒 Only approvers and admins can cancel purchase requests.")
+        slack_io.deny(respond, "🔒 Only approvers and admins can cancel purchase requests.")
         return
 
     action = body.get("actions", [{}])[0]
@@ -761,13 +762,13 @@ def handle_req_confirmed_action(ack, body, respond, client):
     assignee_id = req_data.get("assignee_id")
     if not (user_id == assignee_id or admin.is_admin_user(user_id)):
         log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_confirmed", user_id, assignee_id)
-        respond(text="🔒 Only the assigned buyer or an admin can update this request.")
+        slack_io.deny(respond, "🔒 Only the assigned buyer or an admin can update this request.")
         return
 
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_confirmed", user_id)
-        respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
+        slack_io.deny(respond, "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
@@ -817,13 +818,13 @@ def handle_req_delivered_action(ack, body, respond, client):
     assignee_id = req_data.get("assignee_id")
     if not (user_id == assignee_id or admin.is_admin_user(user_id)):
         log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_delivered", user_id, assignee_id)
-        respond(text="🔒 Only the assigned buyer or an admin can update this request.")
+        slack_io.deny(respond, "🔒 Only the assigned buyer or an admin can update this request.")
         return
 
     requester_name = slack_io.resolve_requester(client, user_id)
     if not requester_name:
         log.warning("Unregistered user %s clicked req_delivered", user_id)
-        respond(text="🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
+        slack_io.deny(respond, "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
