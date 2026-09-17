@@ -327,7 +327,7 @@ def test_stage2_modal_submit_routes_link_to_card_and_channel_summary(monkeypatch
     ack = MagicMock()
     body = {"user": {"id": "U123"}}
     client = MagicMock()
-    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_PURCHASING")
+    monkeypatch.setattr(config, "PURCHASING_CHANNEL", "C_PURCHASING")
     monkeypatch.setattr(roster, "get_valid_requesters", lambda: {"Isaac"})
 
     view_with_link = {
@@ -373,7 +373,7 @@ def test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url(monkeypatch
     ack = MagicMock()
     body = {"user": {"id": "U123"}}
     client = MagicMock()
-    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_PURCHASING")
+    monkeypatch.setattr(config, "PURCHASING_CHANNEL", "C_PURCHASING")
     monkeypatch.setattr(roster, "get_valid_requesters", lambda: {"Isaac"})
 
     view_fallback = {
@@ -418,7 +418,7 @@ def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch
     ack = MagicMock()
     body = {"user": {"id": "U123"}}
     client = MagicMock()
-    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_PURCHASING")
+    monkeypatch.setattr(config, "PURCHASING_CHANNEL", "C_PURCHASING")
     monkeypatch.setattr(roster, "get_valid_requesters", lambda: {"Isaac"})
 
     view_no_link = {

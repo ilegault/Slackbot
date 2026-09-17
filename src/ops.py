@@ -16,12 +16,13 @@ import os
 import re
 
 try:
-    from . import admin, config, queue_worker, roster
+    from . import admin, config, queue_worker, roster, slack_io
 except ImportError:
     import admin
     import config
     import queue_worker
     import roster
+    import slack_io
 
 log = logging.getLogger("p-bot")
 
@@ -384,3 +385,66 @@ def handle_template_command(client, say, channel: str, thread_ts: str | None, us
             say(text=err_msg, thread_ts=thread_ts)
         else:
             say(text=err_msg)
+
+
+def handle_approve_new_requester(client, approver_id: str, channel_id: str, msg_ts: str, slack_id: str, name: str):
+    """Admin approved a new requester in the alerts channel."""
+    roster.add_requester(slack_id, name)
+    client.chat_update(
+        channel=channel_id,
+        ts=msg_ts,
+        text=f"✅ Approved by <@{approver_id}>: <@{slack_id}> added as '{name}' (Takes effect on next `@p-bot restart`).",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> added as *{name}* in `roster.json`.\n_Note: Requires `@p-bot restart` to reload._",
+                },
+            }
+        ],
+    )
+    slack_io.tell(client, slack_id, f"🎉 You're approved as '{name}'! The next `@p-bot restart` will pick this up.")
+    log.info("Admin %s approved new requester %s (%s)", approver_id, slack_id, name)
+
+
+def handle_approve_new_admin(client, approver_id: str, channel_id: str, msg_ts: str, slack_id: str):
+    """Admin approved an admin promotion in the alerts channel."""
+    roster.add_admin(slack_id)
+    client.chat_update(
+        channel=channel_id,
+        ts=msg_ts,
+        text=f"✅ Approved by <@{approver_id}>: <@{slack_id}> promoted to bot administrator.",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> promoted to bot administrator in `roster.json`.\n_Note: Requires `@p-bot restart` to reload._",
+                },
+            }
+        ],
+    )
+    slack_io.tell(client, slack_id, "🎉 You have been added as a P-Bot administrator! The next `@p-bot restart` will pick this up.")
+    log.info("Admin %s approved admin promotion for %s", approver_id, slack_id)
+
+
+def handle_approve_new_vendor(client, approver_id: str, channel_id: str, msg_ts: str, vendor_name: str):
+    """Admin approved adding a vendor to the catalog in the alerts channel."""
+    roster.add_vendor(vendor_name)
+    client.chat_update(
+        channel=channel_id,
+        ts=msg_ts,
+        text=f"✅ Approved by <@{approver_id}>: Vendor '{vendor_name}' added to Workday catalog list.",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"✅ *Approved by <@{approver_id}>:* Vendor *{vendor_name}* added to Workday catalog in `roster.json`.\n_Note: Requires `@p-bot restart` to reload in dropdowns._",
+                },
+            }
+        ],
+    )
+    log.info("Admin %s approved new vendor '%s'", approver_id, vendor_name)
+

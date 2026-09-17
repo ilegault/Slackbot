@@ -7,7 +7,7 @@ before.
 
 **Blocked by:** 12
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read before starting:** `docs/adr/0002-request-lifecycle-and-surfaces.md` —
 specifically what it means by the workbook being the final reference.
@@ -76,23 +76,23 @@ that are already right, and deletes the racing duplicate.
 
 ## Acceptance criteria
 
-- [ ] `handle_processed`, `handle_confirmation` and `handle_delivery` each accept
+- [x] `handle_processed`, `handle_confirmation` and `handle_delivery` each accept
       `card_ts`, `req_data` and `history`, and render the card inside `on_success`
-- [ ] A `handle_processed` call that cannot identify a row posts its reply and
+- [x] A `handle_processed` call that cannot identify a row posts its reply and
       calls `chat_update` **not at all** — assert on the absence
-- [ ] A `handle_processed` whose queued write fails: the thread gets the error and
+- [x] A `handle_processed` whose queued write fails: the thread gets the error and
       the card still reads `approved` — asserted on the rendered blocks, not a flag
-- [ ] A successful `handle_processed`: the card reads `processed` and history
+- [x] A successful `handle_processed`: the card reads `processed` and history
       gained **exactly one** line
-- [ ] The same three criteria hold for `handle_confirmation` and `handle_delivery`
-- [ ] An approval whose EPIF fails validation writes no row and leaves the card on
+- [x] The same three criteria hold for `handle_confirmation` and `handle_delivery`
+- [x] An approval whose EPIF fails validation writes no row and leaves the card on
       its previous state — asserted on the blocks
-- [ ] A test with the workbook locked asserts the card stays on the previous stage
+- [x] A test with the workbook locked asserts the card stays on the previous stage
       and the thread carries the delayed-write message
-- [ ] `chat_update` appears nowhere in `src/app.py` (source scan)
-- [ ] `handle_cancel` is unchanged and its existing tests still pass untouched
-- [ ] `AGENTS.md` §2 and §9 trap 8 describe the repo as it is
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `chat_update` appears nowhere in `src/app.py` (source scan)
+- [x] `handle_cancel` is unchanged and its existing tests still pass untouched
+- [x] `AGENTS.md` §2 and §9 trap 8 describe the repo as it is
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Out of scope
 
@@ -101,3 +101,14 @@ that are already right, and deletes the racing duplicate.
 - `handle_cancel`. Requirement 6.
 - The Approve button's payload handling — that is ticket 14, which edits the same
   listener immediately after this one.
+
+## Comments
+
+### 2026-09-17 — Ticket 13 implementation complete
+- Added `card_ts`, `req_data`, and `history` parameters to `lifecycle.handle_processed`, `handle_confirmation`, and `handle_delivery`.
+- Moved card update rendering and history line appending inside each write's `on_success` callback in `src/lifecycle.py`.
+- Moved alert button channel message updates out of `src/app.py` into dedicated handler functions in `src/ops.py` (`handle_approve_new_requester`, `handle_approve_new_admin`, `handle_approve_new_vendor`).
+- Removed all `chat_update` calls from `src/app.py` (source scan asserts 0 occurrences).
+- Added `tests/test_13_card_follows_write.py` with 12 tests validating card behaviour on write success, write failure, refusal/missing row, locked workbook delays, and approval validation failures.
+- Updated `AGENTS.md` §2 line count and invariant 4.
+- All quality gates pass: `ruff check .`, `python scripts/check_tests_first.py`, and `pytest -q` (216 passed, 31 skipped).
