@@ -25,9 +25,11 @@ import tempfile
 from typing import Any, Dict, List, Set
 
 try:
-    from . import config
+    from . import config, text_rules
 except ImportError:
     import config
+    import text_rules
+
 
 log = logging.getLogger("p-bot.roster")
 
@@ -212,10 +214,30 @@ def _trigger_roster_sync() -> None:
 def add_requester(slack_id: str, name: str) -> None:
     """Add or update a Slack ID -> Requester Name mapping."""
     data = load_roster()
-    data.setdefault("requesters", {})[slack_id] = name.strip()
+    reqs = data.setdefault("requesters", {})
+    clean_name = name.strip()
+    norm_name = text_rules.normalize_requester_name(clean_name)
+    # Remove unmapped seed placeholder if present
+    for k, v in list(reqs.items()):
+        if k == v and text_rules.normalize_requester_name(v) == norm_name:
+            reqs.pop(k, None)
+    reqs[slack_id] = clean_name
     save_roster(data)
-    log.info("Added requester mapping: %s -> %s", slack_id, name)
+    log.info("Added requester mapping: %s -> %s", slack_id, clean_name)
     _trigger_roster_sync()
+
+
+
+def rename_requester(slack_id: str, new_name: str) -> None:
+    """Rename an existing requester in the roster and trigger workbook sync.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 19: Provides an explicit semantic helper for renaming an existing lab member,
+    delegating to add_requester so atomic persistence and sync_roster_lists fire.
+    """
+    add_requester(slack_id, new_name)
+
 
 
 def add_admin(slack_id: str) -> None:

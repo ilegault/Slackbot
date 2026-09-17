@@ -240,3 +240,18 @@ def generate_email_draft(parsed: dict, requester_name: str) -> str:
         f"All the best,\n"
         f"{requester_name}"
     )
+
+
+def normalize_requester_name(name: str) -> str:
+    """Normalize a requester name for comparison: lowercase, stripped punctuation, collapsed whitespace.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 19: Comparing requester names for impersonation guards and normalization-only
+    corrections requires ignoring case, leading/trailing whitespace, internal spacing,
+    and punctuation (e.g. 'Isaac' vs '  isaac ' vs 'Prof. Hirst' vs 'Prof Hirst').
+    """
+    s = name.lower()
+    s = re.sub(r"[^\w\s]", "", s)
+    return " ".join(s.split())
+

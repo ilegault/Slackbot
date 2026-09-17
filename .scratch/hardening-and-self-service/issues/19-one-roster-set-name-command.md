@@ -7,7 +7,7 @@ outright and never reaches an admin.
 
 **Blocked by:** 12, 18
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read before starting:** `CONTEXT.md`'s **Register** entry (this ticket is what
 finally implements it) and `docs/adr/0001-tests-first-and-no-muted-failures.md`,
@@ -73,25 +73,25 @@ impersonation.
 
 ## Acceptance criteria
 
-- [ ] `blocks.build_roster_set_name_view(user_id, current_name)` exists, is pure,
+- [x] `blocks.build_roster_set_name_view(user_id, current_name)` exists, is pure,
       and is asserted on without faking `views_open`
-- [ ] The modal shows the submitter's current registered name; for an unregistered
+- [x] The modal shows the submitter's current registered name; for an unregistered
       user it says so — asserted on the **specific name**, not on block count
-- [ ] The modal does not contain the full lab roster
-- [ ] Submitting a name **another member holds**: a field error, and **nothing
+- [x] The modal does not contain the full lab roster
+- [x] Submitting a name **another member holds**: a field error, and **nothing
       posted to `ADMIN_ALERT_CHANNEL`** — assert on the absence
-- [ ] Submitting `"  isaac "` from the user registered as `Isaac`: applied
+- [x] Submitting `"  isaac "` from the user registered as `Isaac`: applied
       immediately, `roster.json` updated, nothing posted to the alert channel
-- [ ] Submitting a brand-new name from an **unregistered** user: the alert channel
+- [x] Submitting a brand-new name from an **unregistered** user: the alert channel
       gets one message with an `approve_new_requester` button carrying that name,
       and `roster.json` is **unchanged until it is clicked**
-- [ ] Clicking that button registers the name and triggers `sync_roster_lists`
-- [ ] Submitting a different name from a **registered** user: a rename request
+- [x] Clicking that button registers the name and triggers `sync_roster_lists`
+- [x] Submitting a different name from a **registered** user: a rename request
       reaches the alert channel naming **both** names
-- [ ] Each of the four outcomes tells the submitter which one happened
-- [ ] `chat_postEphemeral` appears nowhere in `src/`, and the invariant 5 guard
+- [x] Each of the four outcomes tells the submitter which one happened
+- [x] `chat_postEphemeral` appears nowhere in `src/`, and the invariant 5 guard
       test asserts zero
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Out of scope
 
@@ -101,3 +101,19 @@ impersonation.
 - Any change to how `approve_new_requester` itself is rendered beyond carrying the
   rename payload.
 - A tombstone or history of previous names. Not asked for.
+
+## Comments
+
+### 2026-09-17 — Landed Ticket 19
+
+- Moved the roster-set-name modal into `blocks.build_roster_set_name_view(user_id, current_name, channel_id)` (pure Block Kit builder showing current registered name or unregistered prompt, omitting full roster dump).
+- Implemented four submission outcomes in strict order in `app.handle_roster_set_name_submit`:
+  1. Impersonation guard: if another lab member already holds the name (normalized for case/whitespace/punctuation), returns field error in modal and posts no alert.
+  2. Normalization-only update: if user is registered and the change differs only by case/whitespace/punctuation, applies immediately via `roster.add_requester`, notifies user via DM, and posts no alert.
+  3. Rename: if user is registered and submits a new name, posts alert to `ADMIN_ALERT_CHANNEL` naming both old and new names with button carrying `{"slack_id", "old_name", "new_name"}` and notifies user.
+  4. Registration: if user is not registered, posts alert to `ADMIN_ALERT_CHANNEL` with `approve_new_requester` button and notifies user that request is waiting on an admin.
+- Added `ops.handle_approve_rename_requester` and `roster.rename_requester` which delegates to `roster.add_requester` to trigger `_trigger_roster_sync()`.
+- Updated `handle_approve_new_requester_action` to dispatch rename vs new member based on `old_name`.
+- Eliminated `chat_postEphemeral` completely from `src/` (0 call sites remaining) and updated invariant 5 guard test.
+- Full local gate passing: `ruff check .`, `python scripts/check_tests_first.py`, and `pytest -q` (253 passed, 31 skipped, 0 failures).
+

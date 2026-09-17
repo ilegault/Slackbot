@@ -393,19 +393,43 @@ def handle_approve_new_requester(client, approver_id: str, channel_id: str, msg_
     client.chat_update(
         channel=channel_id,
         ts=msg_ts,
-        text=f"✅ Approved by <@{approver_id}>: <@{slack_id}> added as '{name}' (Takes effect on next `@p-bot restart`).",
+        text=f"✅ Approved by <@{approver_id}>: <@{slack_id}> added as '{name}'.",
         blocks=[
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> added as *{name}* in `roster.json`.\n_Note: Requires `@p-bot restart` to reload._",
+                    "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> added as *{name}* in `roster.json`.",
                 },
             }
         ],
     )
-    slack_io.tell(client, slack_id, f"🎉 You're approved as '{name}'! The next `@p-bot restart` will pick this up.")
+    slack_io.tell(client, slack_id, f"🎉 You're approved as '{name}'!")
     log.info("Admin %s approved new requester %s (%s)", approver_id, slack_id, name)
+
+
+def handle_approve_rename_requester(
+    client, approver_id: str, channel_id: str, msg_ts: str, slack_id: str, old_name: str, new_name: str
+):
+    """Admin approved renaming a requester in the alerts channel."""
+    roster.rename_requester(slack_id, new_name)
+    client.chat_update(
+        channel=channel_id,
+        ts=msg_ts,
+        text=f"✅ Approved by <@{approver_id}>: <@{slack_id}> renamed from '{old_name}' to '{new_name}'.",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> renamed from *{old_name}* to *{new_name}* in `roster.json`.",
+                },
+            }
+        ],
+    )
+    slack_io.tell(client, slack_id, f"🎉 Your name change from '{old_name}' to '{new_name}' was approved!")
+    log.info("Admin %s approved renaming requester %s from '%s' to '%s'", approver_id, slack_id, old_name, new_name)
+
 
 
 def handle_approve_new_admin(client, approver_id: str, channel_id: str, msg_ts: str, slack_id: str):

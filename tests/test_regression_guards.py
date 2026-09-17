@@ -8,17 +8,16 @@ built its text correctly, and failed at the last step because it called
 chat_postEphemeral where it had no channel membership.
 
 These regression guards enforce cross-cutting invariants across the bot:
-1. All slash commands are registered in Bolt's real listener registry, ack first,
+1: All slash commands are registered in Bolt's real listener registry, ack first,
    and never call chat_postEphemeral.
-2. chat_postEphemeral is restricted to exactly one call site in src/ (on the
-   view/message path where no response_url is available).
+2. chat_postEphemeral appears nowhere in src/ (Ticket 19 removes the final view-submission call site).
 3. The log_request middleware logs start and completion records, handles exceptions
    without swallowing them, and emits a WARNING for requests taking > 2000 ms.
 4. build_request_blocks returns exactly one primary next-step button per non-final
    state and none for terminal delivered.
 5. Every lifecycle button's permission denial leaves the message unchanged and writes
    nothing — tested independently per button.
-6. /roster-set-name modal returns an error and emits no alert for unrecognized names.
+6. /roster-set-name modal returns a field error and emits no alert when submitting a name already held by another member.
 8. Only log_writer opens WORKBOOK_PATH (via zipfile.ZipFile).
 9. Downward layering is maintained (no module in src/ imports app).
 10. os.environ is read nowhere in src/ outside config.py (Ticket 15).
@@ -159,14 +158,15 @@ def test_slash_commands_ack_before_client_and_never_call_post_ephemeral():
 # 3. Pin exactly one chat_postEphemeral call site in src/
 # ---------------------------------------------------------------------------
 
-def test_exactly_one_chat_post_ephemeral_call_site_in_src():
-    """Pin that exactly one chat_postEphemeral call site remains in src/.
+def test_zero_chat_post_ephemeral_call_sites_in_src():
+    """Pin that zero chat_postEphemeral call sites remain in src/.
 
-    Per AGENTS.md Invariant 5:
-    'chat.postEphemeral requires the bot to be a member of the channel and fails
-    with channel_not_found otherwise — including in a DM with the bot. Exactly
-    one chat_postEphemeral call may remain, on the plain-message-event path where
-    there is no response_url.'
+    Per AGENTS.md Invariant 5 and Ticket 19:
+    chat_postEphemeral requires channel membership and fails with channel_not_found
+    otherwise — including in a DM with the bot.
+    With Ticket 19 removing the roster-set-name view submission site, zero
+    chat_postEphemeral calls remain in src/. All slash commands, block actions,
+    and views use respond(...) or slack_io helpers.
     """
     call_sites = []
     for root, _, files in os.walk(SRC_DIR):
@@ -183,11 +183,9 @@ def test_exactly_one_chat_post_ephemeral_call_site_in_src():
                     if isinstance(func, ast.Attribute) and func.attr == "chat_postEphemeral":
                         call_sites.append((rel_path, node.lineno))
 
-    assert len(call_sites) == 1, (
-        f"Expected exactly 1 chat_postEphemeral call site in src/, found {len(call_sites)}: {call_sites}"
+    assert len(call_sites) == 0, (
+        f"Expected exactly 0 chat_postEphemeral call sites in src/, found {len(call_sites)}: {call_sites}"
     )
-    # Verify it is in app.py
-    assert call_sites[0][0] == "src/app.py"
 
 
 # ---------------------------------------------------------------------------
@@ -527,33 +525,36 @@ def test_permission_denial_req_cancel():
 # 7. /roster-set-name invalid name returns modal error and posts NO alert
 # ---------------------------------------------------------------------------
 
-def test_roster_set_name_invalid_name_returns_error_and_posts_no_alert(monkeypatch):
-    """/roster-set-name with a name outside VALID_REQUESTERS returns a modal error and posts no alert."""
+def test_roster_set_name_already_held_name_returns_error_and_posts_no_alert(monkeypatch):
+    """/roster-set-name with a name another member holds returns a modal error and posts no alert."""
     ack = MagicMock()
     client = MagicMock()
     monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ADMIN_ALERTS")
 
+    # Register Isaac under a lab member Slack ID
+    roster.add_requester("U_MEMBER", "Isaac")
     view_invalid = {
         "state": {
             "values": {
                 "block_proposed_name": {
-                    "proposed_name": {"value": "CompletelyFakeNonExistentName"}
+                    "proposed_name": {"value": "Isaac"}
                 }
             }
         },
         "private_metadata": json.dumps({"user_id": "U_UNKNOWN", "channel_id": "C_MAIN"}),
     }
 
+
     app.handle_roster_set_name_submit(ack, {"user": {"id": "U_UNKNOWN"}}, client, view_invalid)
 
     ack.assert_called_once()
     assert ack.call_args[1]["response_action"] == "errors"
     assert "block_proposed_name" in ack.call_args[1]["errors"]
-    assert "is not recognized" in ack.call_args[1]["errors"]["block_proposed_name"]
+    assert "already held" in ack.call_args[1]["errors"]["block_proposed_name"]
 
     # Assert no alert was posted anywhere
     client.chat_postMessage.assert_not_called()
-    client.chat_postEphemeral.assert_not_called()
+
 
 
 # ---------------------------------------------------------------------------

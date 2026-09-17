@@ -256,38 +256,9 @@ def handle_roster_set_name_command(ack, body, client):
     trigger_id = body.get("trigger_id")
     user_id = body.get("user_id")
     channel_id = body.get("channel_id")
+    current_name = roster.get_requesters().get(user_id) if hasattr(roster, "get_requesters") else None
 
-    valid_list = ", ".join(sorted(roster.get_valid_requesters()))
-    modal = {
-        "type": "modal",
-        "callback_id": config.ROSTER_SET_NAME_CALLBACK_ID,
-        "title": {"type": "plain_text", "text": "Set Roster Name"},
-        "submit": {"type": "plain_text", "text": "Submit"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "private_metadata": json.dumps({"user_id": user_id, "channel_id": channel_id}),
-        "blocks": [
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"💡 *Note:* Your name must match one of the existing lab names:\n`{valid_list}`",
-                    }
-                ],
-            },
-            {
-                "type": "input",
-                "block_id": "block_proposed_name",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "proposed_name",
-                    "placeholder": {"type": "plain_text", "text": "e.g. Isaac, Dylan, Smeet"},
-                },
-                "label": {"type": "plain_text", "text": "Your Name in Lab Requester List"},
-            },
-        ],
-    }
-
+    modal = blocks.build_roster_set_name_view(user_id, current_name, channel_id=channel_id)
     try:
         client.views_open(trigger_id=trigger_id, view=modal)
     except Exception as e:
@@ -298,50 +269,103 @@ def handle_roster_set_name_command(ack, body, client):
 
 @app.view(config.ROSTER_SET_NAME_CALLBACK_ID)
 def handle_roster_set_name_submit(ack, body, client, view):
-    """Process submission of /roster-set-name modal."""
+    """Process submission of /roster-set-name modal.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 19: One command covering register, correct and rename.
+    Four outcomes in strict order:
+    1. Name another member holds -> field error in modal, nothing to alert channel (impersonation guard).
+    2. Normalization-only change to own name -> applied immediately, nothing to alert channel.
+    3. Different name for registered user (rename) -> alert channel for admin approval.
+    4. Any name for unregistered user (registration) -> alert channel for admin approval.
+    """
     values = view.get("state", {}).get("values", {})
     metadata = json.loads(view.get("private_metadata") or "{}")
     user_id = metadata.get("user_id") or body.get("user", {}).get("id")
-    channel_id = metadata.get("channel_id")
 
     name_val = str(text_rules._extract_modal_field(values, "block_proposed_name", "proposed_name") or "").strip()
     if not name_val:
         ack(response_action="errors", errors={"block_proposed_name": "Please enter your name."})
         return
 
-    # Validate against roster.get_valid_requesters()
-    valid_requesters = roster.get_valid_requesters()
-    valid_map = {r.lower(): r for r in valid_requesters}
-    if name_val.lower() not in valid_map:
-        valid_list = ", ".join(sorted(valid_requesters))
-        ack(response_action="errors", errors={"block_proposed_name": f"Name '{name_val}' is not recognized. Must match one of: {valid_list}"})
-        return
-
-    matched_name = valid_map[name_val.lower()]
-
-    # Check if user is ALREADY in the roster
     requesters = roster.get_requesters() if hasattr(roster, "get_requesters") else {}
+    norm_proposed = text_rules.normalize_requester_name(name_val)
+
+    # 1. Impersonation guard: Name another member already holds
+    for other_id, other_name in requesters.items():
+        if other_id != user_id and other_id != other_name and text_rules.normalize_requester_name(other_name) == norm_proposed:
+            ack(
+                response_action="errors",
+                errors={"block_proposed_name": f"The name '{name_val}' is already held by another lab member."},
+            )
+            return
+
+
+    # 2. Normalization-only change to submitter's own name
+    if user_id in requesters:
+        current_name = requesters[user_id]
+        if text_rules.normalize_requester_name(current_name) == norm_proposed:
+            roster.add_requester(user_id, name_val)
+            ack()
+            slack_io.tell(client, user_id, f"✅ Your name has been updated to *{name_val}*.")
+            log.info("User %s updated name normalization from '%s' to '%s'", user_id, current_name, name_val)
+            return
+
+    # 3. Different name for user already registered (Rename)
     if user_id in requesters:
         current_name = requesters[user_id]
         ack()
-        msg = f"You are already registered in the roster as *{current_name}*."
-        if channel_id:
+        if config.ADMIN_ALERT_CHANNEL:
             try:
-                client.chat_postEphemeral(channel=channel_id, user=user_id, text=msg)
-            except Exception:
-                slack_io.tell(client, user_id, msg)
-        else:
-            slack_io.tell(client, user_id, msg)
+                client.chat_postMessage(
+                    channel=config.ADMIN_ALERT_CHANNEL,
+                    text=f"⚠️ User <@{user_id}> requested to change their roster name from '{current_name}' to '{name_val}'.",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": (
+                                    f"⚠️ *Lab Member Rename Approval Needed:*\n"
+                                    f"User: <@{user_id}> (`{user_id}`)\n"
+                                    f"Current Name: *{current_name}*\n"
+                                    f"Proposed New Name: *{name_val}*\n"
+                                    f"Approve renaming in `roster.json`?"
+                                ),
+                            },
+                        },
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "type": "button",
+                                    "text": {"type": "plain_text", "text": "Approve Rename"},
+                                    "style": "primary",
+                                    "action_id": "approve_new_requester",
+                                    "value": json.dumps({"slack_id": user_id, "old_name": current_name, "new_name": name_val}),
+                                }
+                            ],
+                        },
+                    ],
+                )
+            except Exception as e:
+                log.warning("Could not post rename alert to admin channel: %s", e)
+        slack_io.tell(
+            client,
+            user_id,
+            f"Your request to change your roster name from *{current_name}* to *{name_val}* has been sent to admins for approval.",
+        )
+        log.info("User %s requested rename from '%s' to '%s'", user_id, current_name, name_val)
         return
 
-    # User not in roster yet -> ack and post to ADMIN_ALERT_CHANNEL reusing approve_new_requester
+    # 4. Any name for user not in roster (Registration)
     ack()
-
     if config.ADMIN_ALERT_CHANNEL:
         try:
             client.chat_postMessage(
                 channel=config.ADMIN_ALERT_CHANNEL,
-                text=f"⚠️ User <@{user_id}> requested to link their Slack account to '{matched_name}'.",
+                text=f"⚠️ User <@{user_id}> requested to link their Slack account to '{name_val}'.",
                 blocks=[
                     {
                         "type": "section",
@@ -350,7 +374,7 @@ def handle_roster_set_name_submit(ack, body, client, view):
                             "text": (
                                 f"⚠️ *New Lab Member Approval Needed:*\n"
                                 f"User: <@{user_id}> (`{user_id}`)\n"
-                                f"Proposed Requester Name: *{matched_name}*\n"
+                                f"Proposed Requester Name: *{name_val}*\n"
                                 f"Approve adding them to `roster.json`?"
                             ),
                         },
@@ -363,7 +387,7 @@ def handle_roster_set_name_submit(ack, body, client, view):
                                 "text": {"type": "plain_text", "text": "Approve New Member"},
                                 "style": "primary",
                                 "action_id": "approve_new_requester",
-                                "value": json.dumps({"slack_id": user_id, "name": matched_name}),
+                                "value": json.dumps({"slack_id": user_id, "name": name_val}),
                             }
                         ],
                     },
@@ -372,7 +396,13 @@ def handle_roster_set_name_submit(ack, body, client, view):
         except Exception as e:
             log.warning("Could not post new requester alert to admin channel: %s", e)
 
-    slack_io.tell(client, user_id, f"Your request to link your Slack account as *{matched_name}* has been sent to admins for approval.")
+    slack_io.tell(
+        client,
+        user_id,
+        f"Your request to link your Slack account as *{name_val}* is waiting on an admin for approval.",
+    )
+    log.info("User %s requested new member registration as '%s'", user_id, name_val)
+
 
 
 @app.view(config.STAGE1_CALLBACK_ID)
@@ -485,10 +515,15 @@ def handle_approve_new_requester_action(ack, body, respond, client):
     try:
         val_data = json.loads(val_str)
         slack_id = val_data["slack_id"]
-        name = val_data["name"]
-        ops.handle_approve_new_requester(client, approver_id, channel_id, msg_ts, slack_id, name)
+        old_name = val_data.get("old_name")
+        new_name = val_data.get("new_name") or val_data.get("name")
+        if old_name:
+            ops.handle_approve_rename_requester(client, approver_id, channel_id, msg_ts, slack_id, old_name, new_name)
+        else:
+            ops.handle_approve_new_requester(client, approver_id, channel_id, msg_ts, slack_id, new_name)
     except Exception as e:
-        log.error("Failed to approve new requester: %s", e)
+        log.error("Failed to approve requester: %s", e)
+
 
 
 @app.action("approve_new_admin")

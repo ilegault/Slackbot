@@ -673,3 +673,60 @@ def build_stage3_view(meta: dict) -> dict:
             },
         ],
     }
+
+
+def build_roster_set_name_view(
+    user_id: str,
+    current_name: str | None = None,
+    channel_id: str | None = None,
+) -> dict:
+    """Build the /roster-set-name Block Kit modal view.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 19: Pure Block Kit builder for the roster-set-name modal.
+    Shows the submitter's current registered name (or that they are not registered yet),
+    without printing the hardcoded lab roster list which was invalidated when
+    get_valid_requesters() was changed to read the roster directly.
+    """
+    if current_name:
+        status_text = f"You are currently registered in the roster as *{current_name}*."
+    else:
+        status_text = "You are not yet registered in the lab roster."
+
+    meta = {"user_id": user_id}
+    if channel_id:
+        meta["channel_id"] = channel_id
+
+    return {
+        "type": "modal",
+        "callback_id": config.ROSTER_SET_NAME_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Set Roster Name"},
+        "submit": {"type": "plain_text", "text": "Submit"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(meta),
+        "blocks": [
+            {
+                "type": "context",
+                "block_id": "block_roster_status",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"💡 {status_text}",
+                    }
+                ],
+            },
+            {
+                "type": "input",
+                "block_id": "block_proposed_name",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "proposed_name",
+                    "placeholder": {"type": "plain_text", "text": "e.g. First Last"},
+                },
+                "label": {"type": "plain_text", "text": "Your Name in Lab Requester List"},
+            },
+
+        ],
+    }
+
