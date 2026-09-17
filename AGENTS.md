@@ -82,7 +82,7 @@ listeners      `@app.command` / `@app.action` / `@app.view` / `@app.event`
 **Imports flow downward only:** `listeners → handlers → blocks → storage → domain → config`.
 
 `blocks.py` builds UI, `lifecycle.py` and `ops.py` contain handlers, `slack_io.py`
-wraps Slack client calls, and `src/app.py` (~1 150 lines) registers Bolt listeners.
+wraps Slack client calls, and `src/app.py` (~1 050 lines) registers Bolt listeners.
 Nothing imports `app`.
 
 ### Five invariants the whole design rests on
@@ -106,10 +106,8 @@ Nothing imports `app`.
    imports it.** Do not build on it without an ADR saying it is now the store.
 4. **Every constant has one home.** Tunables, column letters, callback IDs and
    role lists live in `config.py` or the roster, never as a literal in a handler.
-   `config.GRAD_STUDENT_BUYERS = {"Isaac", "Dylan", "Smeet", "Finn"}` is the live
-   violation: a role list hardcoded as display-name strings, which is why buyers
-   cannot be @-mentioned and why adding one requires a code edit and a restart.
-   Ticket 02 removes it.
+   Roles live in `roster.json`, checked via role accessors (`is_buyer`, `is_admin`),
+   never hardcoded as name strings.
 5. **Every reply goes out the way that works everywhere.** Slash commands and
    block actions carry a `response_url`; use Bolt's `respond(...)`.
    `chat.postEphemeral` requires the bot to be a member of the channel and fails

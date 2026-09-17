@@ -278,6 +278,8 @@ def get_row_info(row: int, workbook_path: str = None) -> dict:
 def find_latest_unconfirmed_row_for_requester(requester_name: str, workbook_path: str = None) -> int | None:
     """Find the most recent row for a requester where Date Confirmed (Col V) is empty."""
     path = workbook_path or config.WORKBOOK_PATH
+    if not path or not os.path.exists(path):
+        return None
     with zipfile.ZipFile(path) as archive:
         sheet_xml = archive.read(config.SHEET_XML).decode("utf-8")
 

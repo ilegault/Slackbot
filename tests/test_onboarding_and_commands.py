@@ -1047,7 +1047,17 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "requester": "Isaac",
     }
 
-    # 1. Approve (by Charlie)
+    # Synchronously execute write tasks through lifecycle handlers
+    def sync_submit(action_fn, channel, thread_ts, user_id, task_type, description, success_callback, failure_callback, client=None):
+        res = action_fn()
+        success_callback(res)
+
+    monkeypatch.setattr(lifecycle.queue_worker, "submit_write_task", sync_submit)
+    monkeypatch.setattr(lifecycle.log_writer, "update_row", lambda row, vals, workbook_path=None: 42)
+    monkeypatch.setattr(lifecycle.log_writer, "get_row_info", lambda row: {"row": row, "item_description": "Microcontroller Board"})
+    monkeypatch.setattr(lifecycle.slack_io, "find_row_in_thread", lambda client, ch, ts: 42)
+
+    # 1. Approve (by Charlie) -> delegate to handle_epif_processing
     body_approve = {
         "user": {"id": "U_CHARLIE"},
         "channel": {"id": "C_PURCHASE"},
@@ -1055,7 +1065,11 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": json.dumps({"request": base_req, "history": []})}],
     }
-    with patch.object(lifecycle, "handle_epif_processing"):
+    def fake_epif_processing(client, say, channel, thread_ts, approver, event_ts, **kw):
+        appr_blocks = blocks.build_request_blocks("approved", base_req, history=["Approved by Charlie H. on 09/16/26 10:00"])
+        client.chat_update(channel=channel, ts=thread_ts, text="🛒 Purchase Request (Approved)", blocks=appr_blocks)
+
+    with patch.object(lifecycle, "handle_epif_processing", side_effect=fake_epif_processing):
         app.handle_req_approve_action(ack, body_approve, respond, client)
         update_call = client.chat_update.call_args[1]
         blocks_res = update_call["blocks"]
@@ -1068,7 +1082,7 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         val_data["request"]["assignee"] = "Dylan"
         processed_btn_value = json.dumps(val_data)
 
-    # 2. Processed (by Dylan)
+    # 2. Processed (by Dylan) -> handle_processed runs on_success and updates card
     ack.reset_mock()
     client.reset_mock()
     body_sub = {
@@ -1078,14 +1092,13 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": processed_btn_value}],
     }
-    with patch.object(lifecycle, "handle_processed"):
-        app.handle_req_processed_action(ack, body_sub, respond, client)
-        update_call = client.chat_update.call_args[1]
-        blocks_res = update_call["blocks"]
-        actions = next(b for b in blocks_res if b.get("type") == "actions")
-        assert actions["elements"][0]["action_id"] == "req_confirmed"
+    app.handle_req_processed_action(ack, body_sub, respond, client)
+    update_call = client.chat_update.call_args[1]
+    blocks_res = update_call["blocks"]
+    actions = next(b for b in blocks_res if b.get("type") == "actions")
+    assert actions["elements"][0]["action_id"] == "req_confirmed"
 
-    # 4. Confirmed (by Dylan)
+    # 4. Confirmed (by Dylan) -> handle_confirmation runs on_success and updates card
     ack.reset_mock()
     client.reset_mock()
     body_conf = {
@@ -1095,14 +1108,13 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": actions["elements"][0]["value"]}],
     }
-    with patch.object(lifecycle, "handle_confirmation"):
-        app.handle_req_confirmed_action(ack, body_conf, respond, client)
-        update_call = client.chat_update.call_args[1]
-        blocks_res = update_call["blocks"]
-        actions = next(b for b in blocks_res if b.get("type") == "actions")
-        assert actions["elements"][0]["action_id"] == "req_delivered"
+    app.handle_req_confirmed_action(ack, body_conf, respond, client)
+    update_call = client.chat_update.call_args[1]
+    blocks_res = update_call["blocks"]
+    actions = next(b for b in blocks_res if b.get("type") == "actions")
+    assert actions["elements"][0]["action_id"] == "req_delivered"
 
-    # 5. Delivered (by Dylan)
+    # 5. Delivered (by Dylan) -> handle_delivery runs on_success and updates card
     ack.reset_mock()
     client.reset_mock()
     body_deliv = {
@@ -1112,12 +1124,11 @@ def test_all_lifecycle_buttons_state_machine(monkeypatch):
         "container": {"message_ts": "100.00", "thread_ts": "100.00"},
         "actions": [{"value": actions["elements"][0]["value"]}],
     }
-    with patch.object(lifecycle, "handle_delivery"):
-        app.handle_req_delivered_action(ack, body_deliv, respond, client)
-        update_call = client.chat_update.call_args[1]
-        blocks_res = update_call["blocks"]
-        # No more action buttons on delivered
-        assert not any(b.get("type") == "actions" for b in blocks_res)
+    app.handle_req_delivered_action(ack, body_deliv, respond, client)
+    update_call = client.chat_update.call_args[1]
+    blocks_res = update_call["blocks"]
+    # No more action buttons on delivered
+    assert not any(b.get("type") == "actions" for b in blocks_res)
 
 
 # ==============================================================================
@@ -1455,17 +1466,8 @@ def test_pdf_request_approve_button_click_by_approver():
         assert mock_epif.call_args[1]["thread_ts"] == "300.00"
         assert mock_epif.call_args[1]["approver"] == "U_CHARLIE"
 
-        # Chat update called to rewrite message to 'approved'
-        client.chat_update.assert_called_once()
-        update_kw = client.chat_update.call_args[1]
-        assert update_kw["channel"] == "C_PURCHASE"
-        assert update_kw["ts"] == "300.05"
-        actions = next(b for b in update_kw["blocks"] if b.get("type") == "actions")
-        assert actions["elements"][0]["action_id"] == "req_processed"
-
-        # Context history line
-        context = next(b for b in update_kw["blocks"] if b.get("type") == "context")
-        assert "Approved by Charlie H. on" in context["elements"][0]["text"]
+        # Per Ticket 13, listener does not call chat_update; card update is handled in finalize_purchase_request.on_success
+        client.chat_update.assert_not_called()
 
 
 def test_pdf_request_approve_button_click_by_non_approver_denial():

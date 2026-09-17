@@ -13,6 +13,11 @@ Per ADR 0004:
 - Only the current assignee, an approver, or an admin may reassign an already assigned request.
 - The pre-filled email draft is generated once, at assignment time, and DM'd to the assignee.
 
+Per Ticket 13:
+- The card follows the write, not the click. handle_processed, handle_confirmation,
+  and handle_delivery each render the card and append history inside on_success.
+  Write failures and refusal branches never advance the card.
+
 Per Ticket 15:
 - PURCHASING_CHANNEL is read from config.py; silent fallback to ADMIN_ALERT_CHANNEL or DM is removed.
 
@@ -491,7 +496,10 @@ def handle_assign(
     return True
 
 
-def handle_processed(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
+def handle_processed(
+    client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str,
+    card_ts: str | None = None, req_data: dict | None = None, history: list | None = None,
+):
     """Mark an order as Processed in Workday (Col U) and optionally update Total Price (Col H)."""
     user_name = slack_io.resolve_requester(client, user_id) or "Buyer"
     row = text_rules.extract_row_from_text(text)
@@ -541,6 +549,35 @@ def handle_processed(client, say, channel: str, thread_ts: str, user_id: str, ev
             thread_ts=thread_ts,
         )
 
+        target_card_ts = card_ts
+        target_req = dict(req_data) if req_data else {}
+        target_hist = list(history) if history is not None else []
+        if not target_card_ts and thread_ts:
+            found_req, found_ts, found_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+            if found_ts:
+                target_card_ts = found_ts
+                if not target_req and found_req:
+                    target_req = found_req
+                if not target_hist and found_hist:
+                    target_hist = list(found_hist)
+
+        now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+        actor_name = user_name or slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+        target_hist.append(f"Processed by {actor_name} on {now_str}")
+
+        if target_card_ts:
+            next_blocks = blocks.build_request_blocks("processed", target_req, history=target_hist)
+            try:
+                client.chat_update(
+                    channel=channel,
+                    ts=target_card_ts,
+                    text="🛒 Purchase Request (Processed)",
+                    blocks=next_blocks,
+                )
+                log.info("Purchase request message updated to 'processed' by %s in channel %s (ts: %s)", user_id, channel, target_card_ts)
+            except Exception as e:
+                log.error("Failed to update message on req_processed: %s", e)
+
     def on_failure(error):
         log.error("Error updating Order Log for row %d: %s", row, error)
         say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
@@ -558,7 +595,10 @@ def handle_processed(client, say, channel: str, thread_ts: str, user_id: str, ev
     )
 
 
-def handle_confirmation(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str, files=None):
+def handle_confirmation(
+    client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str, files=None,
+    card_ts: str | None = None, req_data: dict | None = None, history: list | None = None,
+):
     """Mark an order as Confirmed in Purchasing-Log.xlsx (Col V) and save confirmation files."""
     requester_name = slack_io.resolve_requester(client, user_id)
     row = text_rules.extract_row_from_text(text)
@@ -612,6 +652,35 @@ def handle_confirmation(client, say, channel: str, thread_ts: str, user_id: str,
 
         say(text=conf_msg, thread_ts=thread_ts)
 
+        target_card_ts = card_ts
+        target_req = dict(req_data) if req_data else {}
+        target_hist = list(history) if history is not None else []
+        if not target_card_ts and thread_ts:
+            found_req, found_ts, found_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+            if found_ts:
+                target_card_ts = found_ts
+                if not target_req and found_req:
+                    target_req = found_req
+                if not target_hist and found_hist:
+                    target_hist = list(found_hist)
+
+        now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+        actor_name = requester_name or slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+        target_hist.append(f"Confirmed by {actor_name} on {now_str}")
+
+        if target_card_ts:
+            next_blocks = blocks.build_request_blocks("confirmed", target_req, history=target_hist)
+            try:
+                client.chat_update(
+                    channel=channel,
+                    ts=target_card_ts,
+                    text="🛒 Purchase Request (Confirmed)",
+                    blocks=next_blocks,
+                )
+                log.info("Purchase request message updated to 'confirmed' by %s in channel %s (ts: %s)", user_id, channel, target_card_ts)
+            except Exception as e:
+                log.error("Failed to update message on req_confirmed: %s", e)
+
     def on_failure(error):
         log.error("Error updating Order Log for row %d: %s", row, error)
         say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
@@ -629,7 +698,10 @@ def handle_confirmation(client, say, channel: str, thread_ts: str, user_id: str,
     )
 
 
-def handle_delivery(client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str):
+def handle_delivery(
+    client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str,
+    card_ts: str | None = None, req_data: dict | None = None, history: list | None = None,
+):
     """Mark an order as Delivered in Purchasing-Log.xlsx (Col W) and record Received By (Col X)."""
     requester_name = slack_io.resolve_requester(client, user_id) or "Lab Member"
     row = text_rules.extract_row_from_text(text)
@@ -671,6 +743,35 @@ def handle_delivery(client, say, channel: str, thread_ts: str, user_id: str, eve
             text=f"📦 Order{item_str} (Row {row}) has been marked as *Delivered* (Date: {today.strftime('%m/%d/%y')}, Received By: {requester_name}).",
             thread_ts=thread_ts,
         )
+
+        target_card_ts = card_ts
+        target_req = dict(req_data) if req_data else {}
+        target_hist = list(history) if history is not None else []
+        if not target_card_ts and thread_ts:
+            found_req, found_ts, found_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+            if found_ts:
+                target_card_ts = found_ts
+                if not target_req and found_req:
+                    target_req = found_req
+                if not target_hist and found_hist:
+                    target_hist = list(found_hist)
+
+        now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+        actor_name = requester_name or slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+        target_hist.append(f"Delivered to {actor_name} on {now_str}")
+
+        if target_card_ts:
+            next_blocks = blocks.build_request_blocks("delivered", target_req, history=target_hist)
+            try:
+                client.chat_update(
+                    channel=channel,
+                    ts=target_card_ts,
+                    text="🛒 Purchase Request (Delivered)",
+                    blocks=next_blocks,
+                )
+                log.info("Purchase request message updated to 'delivered' by %s in channel %s (ts: %s)", user_id, channel, target_card_ts)
+            except Exception as e:
+                log.error("Failed to update message on req_delivered: %s", e)
 
     def on_failure(error):
         log.error("Error updating Order Log for row %d: %s", row, error)

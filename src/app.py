@@ -43,7 +43,6 @@ import os
 import sys
 import time
 import traceback
-from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 from slack_bolt import App
@@ -487,24 +486,7 @@ def handle_approve_new_requester_action(ack, body, respond, client):
         val_data = json.loads(val_str)
         slack_id = val_data["slack_id"]
         name = val_data["name"]
-        roster.add_requester(slack_id, name)
-
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text=f"✅ Approved by <@{approver_id}>: <@{slack_id}> added as '{name}' (Takes effect on next `@p-bot restart`).",
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> added as *{name}* in `roster.json`.\n_Note: Requires `@p-bot restart` to reload._",
-                    },
-                }
-            ],
-        )
-        slack_io.tell(client, slack_id, f"🎉 You're approved as '{name}'! The next `@p-bot restart` will pick this up.")
-        log.info("Admin %s approved new requester %s (%s)", approver_id, slack_id, name)
+        ops.handle_approve_new_requester(client, approver_id, channel_id, msg_ts, slack_id, name)
     except Exception as e:
         log.error("Failed to approve new requester: %s", e)
 
@@ -526,24 +508,7 @@ def handle_approve_new_admin_action(ack, body, respond, client):
     try:
         val_data = json.loads(val_str)
         slack_id = val_data["slack_id"]
-        roster.add_admin(slack_id)
-
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text=f"✅ Approved by <@{approver_id}>: <@{slack_id}> promoted to bot administrator.",
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> promoted to bot administrator in `roster.json`.\n_Note: Requires `@p-bot restart` to reload._",
-                    },
-                }
-            ],
-        )
-        slack_io.tell(client, slack_id, "🎉 You have been added as a P-Bot administrator! The next `@p-bot restart` will pick this up.")
-        log.info("Admin %s approved admin promotion for %s", approver_id, slack_id)
+        ops.handle_approve_new_admin(client, approver_id, channel_id, msg_ts, slack_id)
     except Exception as e:
         log.error("Failed to approve admin promotion: %s", e)
 
@@ -565,24 +530,9 @@ def handle_approve_new_vendor_action(ack, body, respond, client):
     try:
         val_data = json.loads(val_str)
         vendor_name = val_data["vendor"]
-        roster.add_vendor(vendor_name)
-
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text=f"✅ Approved by <@{approver_id}>: Vendor '{vendor_name}' added to Workday catalog list.",
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"✅ *Approved by <@{approver_id}>:* Vendor *{vendor_name}* added to Workday catalog in `roster.json`.\n_Note: Requires `@p-bot restart` to reload in dropdowns._",
-                    },
-                }
-            ],
-        )
-        log.info("Admin %s approved new vendor '%s'", approver_id, vendor_name)
+        ops.handle_approve_new_vendor(client, approver_id, channel_id, msg_ts, vendor_name)
     except Exception as e:
+        log.error("Failed to approve new vendor: %s", e)
         log.error("Failed to approve vendor: %s", e)
 
 
@@ -603,17 +553,12 @@ def handle_req_approve_action(ack, body, respond, client):
     action = body.get("actions", [{}])[0]
     val_data = json.loads(action.get("value") or "{}")
     req_data = val_data.get("request", {})
-    history = list(val_data.get("history", []))
     thread_ts = (
         body.get("container", {}).get("thread_ts")
         or val_data.get("thread_ts")
         or req_data.get("thread_ts")
         or msg_ts
     )
-
-    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
-    history.append(f"Approved by {user_name} on {now_str}")
 
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
@@ -626,18 +571,6 @@ def handle_req_approve_action(ack, body, respond, client):
         approver=user_id,
         event_ts=msg_ts,
     )
-
-    next_blocks = blocks.build_request_blocks("approved", req_data, history=history)
-    try:
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text="🛒 Purchase Request (Approved)",
-            blocks=next_blocks,
-        )
-        log.info("Purchase request message updated to 'approved' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
-    except Exception as e:
-        log.error("Failed to update message on req_approve: %s", e)
 
 
 @app.action("req_processed")
@@ -671,9 +604,6 @@ def handle_req_processed_action(ack, body, respond, client):
         slack_io.deny(respond, "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
-    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    history.append(f"Processed by {requester_name} on {now_str}")
-
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
@@ -685,19 +615,10 @@ def handle_req_processed_action(ack, body, respond, client):
         user_id=user_id,
         event_ts=msg_ts,
         text="",
+        card_ts=msg_ts,
+        req_data=req_data,
+        history=history,
     )
-
-    next_blocks = blocks.build_request_blocks("processed", req_data, history=history)
-    try:
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text="🛒 Purchase Request (Processed)",
-            blocks=next_blocks,
-        )
-        log.info("Purchase request message updated to 'processed' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
-    except Exception as e:
-        log.error("Failed to update message on req_processed: %s", e)
 
 
 @app.action("req_decline")
@@ -773,9 +694,6 @@ def handle_req_confirmed_action(ack, body, respond, client):
         slack_io.deny(respond, "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
-    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    history.append(f"Confirmed by {requester_name} on {now_str}")
-
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
@@ -788,19 +706,10 @@ def handle_req_confirmed_action(ack, body, respond, client):
         event_ts=msg_ts,
         text="",
         files=None,
+        card_ts=msg_ts,
+        req_data=req_data,
+        history=history,
     )
-
-    next_blocks = blocks.build_request_blocks("confirmed", req_data, history=history)
-    try:
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text="🛒 Purchase Request (Confirmed)",
-            blocks=next_blocks,
-        )
-        log.info("Purchase request message updated to 'confirmed' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
-    except Exception as e:
-        log.error("Failed to update message on req_confirmed: %s", e)
 
 
 @app.action("req_delivered")
@@ -829,9 +738,6 @@ def handle_req_delivered_action(ack, body, respond, client):
         slack_io.deny(respond, "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
         return
 
-    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    history.append(f"Delivered to {requester_name} on {now_str}")
-
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
@@ -843,19 +749,10 @@ def handle_req_delivered_action(ack, body, respond, client):
         user_id=user_id,
         event_ts=msg_ts,
         text="",
+        card_ts=msg_ts,
+        req_data=req_data,
+        history=history,
     )
-
-    next_blocks = blocks.build_request_blocks("delivered", req_data, history=history)
-    try:
-        client.chat_update(
-            channel=channel_id,
-            ts=msg_ts,
-            text="🛒 Purchase Request (Delivered)",
-            blocks=next_blocks,
-        )
-        log.info("Purchase request message updated to 'delivered' by %s in channel %s (ts: %s)", user_id, channel_id, msg_ts)
-    except Exception as e:
-        log.error("Failed to update message on req_delivered: %s", e)
 
 
 @app.action("start_purchase_interview")
