@@ -65,7 +65,8 @@ def build_parsed_from_stages(
     Returns exactly 19 keys matching the AcroForm parser.
     """
     purpose = str(stage2.get("purpose") or "").strip()
-    link = stage2.get("link") or epif_parser.first_url(purpose)
+    raw_link = stage2.get("link")
+    link = str(raw_link).strip() if (raw_link and str(raw_link).strip()) else epif_parser.first_url(purpose)
 
     raw_price = stage2.get("total_price")
     if raw_price is None:

@@ -13,6 +13,9 @@ Per ADR 0004:
 - Only the current assignee, an approver, or an admin may reassign an already assigned request.
 - The pre-filled email draft is generated once, at assignment time, and DM'd to the assignee.
 
+Per Ticket 15:
+- PURCHASING_CHANNEL is read from config.py; silent fallback to ADMIN_ALERT_CHANNEL or DM is removed.
+
 Imports:
     - admin, blocks, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -345,6 +348,7 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
 
     pay_method = req_payload["parsed"].get("payment_method") or "EPIF"
 
+    link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
     summary_text = (
         f"🛒 *New Purchase Request from {display_name}:*\n"
         f"• *Item:* {parsed.get('item_description', '')}\n"
@@ -353,7 +357,8 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         f"• *Category:* {parsed.get('category', '')}\n"
         f"• *Project ID / Fund:* {parsed.get('project_id', '')} (Fund {parsed.get('fund', '')})\n"
         f"• *Delivery Room:* {parsed.get('delivery_room', '')}\n"
-        f"• *Purpose:* {parsed.get('purpose', '')}\n\n"
+        f"• *Purpose:* {parsed.get('purpose', '')}"
+        f"{link_line}\n\n"
         f"Use the buttons below to approve and track this request."
     )
 
@@ -792,8 +797,11 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
 
     ack()
 
-    # Determine posting channel
-    post_channel = os.environ.get("PURCHASING_CHANNEL") or config.ADMIN_ALERT_CHANNEL or user_id
+    # Determine posting channel (Ticket 15: reads from config, no silent fallback)
+    post_channel = config.PURCHASING_CHANNEL
+    if not post_channel:
+        log.error("PURCHASING_CHANNEL is not configured; refusing to post purchase request.")
+        return
     display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or f"<@{user_id}>")
     suggest_note = f"\n💡 *Note:* Suggested new vendor: `{custom_vendor}`" if (vendor_choice == config.VENDOR_SUGGEST_OPTION and custom_vendor) else ""
 
@@ -809,6 +817,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     }
     req_blocks = blocks.build_request_blocks("posted", req_payload)
 
+    link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
     summary_text = (
         f"🛒 *New Purchase Request from {display_name}:*\n"
         f"• *Item:* {parsed['item_description']}\n"
@@ -818,6 +827,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         f"• *Project ID / Fund:* {parsed['project_id']} (Fund {parsed['fund']})\n"
         f"• *Delivery Room:* {parsed['delivery_room']}\n"
         f"• *Purpose:* {parsed['purpose']}"
+        f"{link_line}"
         f"{suggest_note}\n\n"
         f"Use the buttons below to approve and track this request."
     )

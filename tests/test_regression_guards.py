@@ -19,8 +19,9 @@ These regression guards enforce cross-cutting invariants across the bot:
 5. Every lifecycle button's permission denial leaves the message unchanged and writes
    nothing — tested independently per button.
 6. /roster-set-name modal returns an error and emits no alert for unrecognized names.
-7. Downward layering is maintained (no module in src/ imports app).
 8. Only log_writer opens WORKBOOK_PATH (via zipfile.ZipFile).
+9. Downward layering is maintained (no module in src/ imports app).
+10. os.environ is read nowhere in src/ outside config.py (Ticket 15).
 """
 import ast
 import json
@@ -332,14 +333,18 @@ def test_permission_denial_req_approve():
     body = _make_button_body("req_approve", user_id="U_NON_APPROVER", state="posted")
 
     with patch.object(admin, "is_approved_reviewer", return_value=False), \
+         patch("src.lifecycle.handle_epif_processing") as mock_handle_epif, \
          patch.object(log_writer, "append_row") as mock_append:
         app.handle_req_approve_action(ack, body, respond, client)
 
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only authorized approvers" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
+    mock_handle_epif.assert_not_called()
     mock_append.assert_not_called()
 
 
@@ -371,6 +376,8 @@ def test_permission_denial_req_processed_unassigned():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "must be assigned to a buyer" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
 
@@ -404,6 +411,8 @@ def test_permission_denial_req_processed_non_assignee():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only the assigned buyer" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
 
@@ -422,6 +431,8 @@ def test_permission_denial_req_processed():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_processed.assert_not_called()
@@ -441,6 +452,8 @@ def test_permission_denial_req_confirmed():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_confirmation.assert_not_called()
@@ -460,6 +473,8 @@ def test_permission_denial_req_delivered():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_delivery.assert_not_called()
@@ -479,6 +494,8 @@ def test_permission_denial_req_decline():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only authorized approvers can decline purchase requests" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_decline.assert_not_called()
@@ -499,6 +516,8 @@ def test_permission_denial_req_cancel():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only approvers and admins can cancel purchase requests" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_blank.assert_not_called()
@@ -610,3 +629,85 @@ def test_only_log_writer_opens_workbook_path():
                             pytest.fail(f"{rel_path}:{node.lineno} calls open(WORKBOOK_PATH). Only log_writer may open workbook.")
                         if isinstance(first_arg, ast.Name) and first_arg.id == "WORKBOOK_PATH":
                             pytest.fail(f"{rel_path}:{node.lineno} calls open(WORKBOOK_PATH). Only log_writer may open workbook.")
+
+
+# ---------------------------------------------------------------------------
+# 10. Invariant: os.environ is read nowhere in src/ outside config.py (Ticket 15)
+# ---------------------------------------------------------------------------
+
+def test_os_environ_read_nowhere_outside_config():
+    """Assert os.environ is read nowhere in src/ except config.py.
+
+    Per Ticket 15 / AGENTS.md Invariant 4:
+    'Every constant has one home. Tunables, column letters, callback IDs and
+    role lists live in config.py or the roster, never as a literal in a handler.'
+
+    Grandfathered reads per Ticket 15 Out-of-Scope (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, USERNAME).
+    Fails if any new inline read is added outside config.py.
+    """
+    ALLOWED_BASELINE = {
+        ("src/app.py", "SLACK_BOT_TOKEN"),
+        ("src/app.py", "SLACK_APP_TOKEN"),
+        ("src/slack_io.py", "SLACK_BOT_TOKEN"),
+        ("src/path_validator.py", "USERNAME"),
+    }
+
+    discovered_reads = []
+
+    for root, _, files in os.walk(SRC_DIR):
+        for fname in files:
+            if not fname.endswith(".py") or fname == "config.py":
+                continue
+            fpath = os.path.join(root, fname)
+            rel_path = os.path.relpath(fpath, PROJECT_ROOT).replace("\\", "/")
+
+            with open(fpath, "r", encoding="utf-8") as f:
+                tree = ast.parse(f.read(), filename=fpath)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    # os.environ.get("VAR")
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr == "get"
+                        and isinstance(func.value, ast.Attribute)
+                        and func.value.attr == "environ"
+                        and isinstance(func.value.value, ast.Name)
+                        and func.value.value.id == "os"
+                    ):
+                        var_name = node.args[0].value if node.args and isinstance(node.args[0], ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.environ.get('{var_name}')"))
+
+                    # os.getenv("VAR")
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr == "getenv"
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "os"
+                    ):
+                        var_name = node.args[0].value if node.args and isinstance(node.args[0], ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.getenv('{var_name}')"))
+
+                # Catch direct subscript read: os.environ["VAR"]
+                if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+                    val = node.value
+                    if (
+                        isinstance(val, ast.Attribute)
+                        and val.attr == "environ"
+                        and isinstance(val.value, ast.Name)
+                        and val.value.id == "os"
+                    ):
+                        slice_node = node.slice
+                        var_name = slice_node.value if isinstance(slice_node, ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.environ['{var_name}']"))
+
+    assert not discovered_reads, (
+        "Discovered unapproved inline environment variable read(s) in src/:\n"
+        + "\n".join(f"  {r[0]}:{r[1]} -> {r[2]}" for r in discovered_reads)
+        + "\nPer Invariant 4, all constants must live in config.py."
+    )
+

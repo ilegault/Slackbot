@@ -261,6 +261,9 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
         f"• *Delivery Room:* {delivery_room}",
         f"• *Purpose:* {purpose}",
     ]
+    link = parsed.get("link")
+    if link:
+        summary_lines.append(f"• *Link:* {link}")
     assignee_id = request.get("assignee_id")
     assignee = request.get("assignee")
     if assignee_id:
@@ -487,6 +490,17 @@ def build_stage2_view(meta: dict) -> dict:
                 "placeholder": {"type": "plain_text", "text": "Why needed for research, and product URL (https://...)"},
             },
             "label": {"type": "plain_text", "text": "Purpose / Why Necessary & Link"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_link",
+            "optional": True,
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "link",
+                "placeholder": {"type": "plain_text", "text": "https://... (vendor product page or quote link)"},
+            },
+            "label": {"type": "plain_text", "text": "Product Page / Quote Link"},
         },
         {
             "type": "input",
