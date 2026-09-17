@@ -538,6 +538,61 @@ def handle_approve_new_vendor_action(ack, body, respond, client):
 
 # --- Lifecycle Interactive Action Handlers (T2) -------------------------------
 
+@app.action("req_assign_select")
+def handle_req_assign_select_action(ack, body, respond, client):
+    """Handle selecting a buyer from the users_select picker on the posted card (ADR 0005).
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0005: A dropdown beside Approve on the posted card allows approvers to pick a buyer
+    directly. Selecting a buyer does not approve anything; it re-renders the card with
+    assignee_id set, updating the sibling Approve button's value so that when Approve is
+    subsequently clicked, the assignment is carried into the row write and notification.
+    The handler recovers the request payload from the sibling Approve button's value in
+    body["message"]["blocks"], requiring no new state file.
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+    msg_ts = body.get("message", {}).get("ts")
+    thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
+
+    action = body.get("actions", [{}])[0]
+    selected_user = action.get("selected_user")
+
+    # Recover the request payload from the sibling Approve button's value in body["message"]["blocks"]
+    req_data = {}
+    history = []
+    current_state = "posted"
+    for block in body.get("message", {}).get("blocks", []):
+        for el in block.get("elements", []):
+            if el.get("action_id") == "req_approve":
+                val_data = json.loads(el.get("value") or "{}")
+                req_data = val_data.get("request", {})
+                history = list(val_data.get("history", []))
+                current_state = val_data.get("state", "posted")
+                break
+        if req_data:
+            break
+
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
+
+    lifecycle.handle_assign(
+        client=client,
+        say=say,
+        channel=channel_id,
+        thread_ts=thread_ts,
+        user_id=user_id,
+        event_ts=msg_ts,
+        target_user_id=selected_user,
+        req_data=req_data,
+        msg_ts=msg_ts,
+        history=history,
+        current_state=current_state,
+    )
+
+
 @app.action("req_approve")
 def handle_req_approve_action(ack, body, respond, client):
     """Handle clicking 'Approve' button on purchase request message."""
@@ -571,6 +626,7 @@ def handle_req_approve_action(ack, body, respond, client):
         approver=user_id,
         event_ts=msg_ts,
         posted_payload=req_data or None,
+        card_ts=msg_ts,
     )
 
 
@@ -863,7 +919,7 @@ def dispatch_command(
             return
 
         row = slack_io.find_row_in_thread(client, channel, thread_ts)
-        _, _, _, card_state = slack_io.find_card_in_thread(client, channel, thread_ts)
+        card_req, card_ts, card_hist, card_state = slack_io.find_card_in_thread(client, channel, thread_ts)
         if row is not None or card_state in ("approved", "processed", "confirmed", "delivered"):
             # Already approved thread: treat as reassignment, do not perform a second Excel write
             if group_mentions:
@@ -889,6 +945,10 @@ def dispatch_command(
             return
 
         # New approval
+        picked_buyer_id = card_req.get("assignee_id") if card_req else None
+        picked_buyer_name = card_req.get("assignee") if card_req else None
+
+        input_note = None
         if group_mentions:
             refusal_msg = f"⚠️ Cannot assign to a user group (<!subteam^{group_mentions[0]}>). Please name a specific person."
             assignee_id = None
@@ -914,6 +974,24 @@ def dispatch_command(
                     assignee_id = cand_id
                     assignee_name = cand_name
                     refusal_msg = None
+                    if picked_buyer_id:
+                        input_note = "Using mentioned buyer instead of dropdown selection."
+        elif picked_buyer_id:
+            if not roster.is_buyer(picked_buyer_id):
+                refusal_msg = f"⚠️ <@{picked_buyer_id}> isn't on the buyers list, so I can't assign this to them. An admin can add them: @Purchasing add-buyer <@{picked_buyer_id}>"
+                assignee_id = None
+                assignee_name = None
+            else:
+                cand_name = picked_buyer_name or slack_io.resolve_requester(client, picked_buyer_id)
+                if not cand_name:
+                    refusal_msg = f"🔒 <@{picked_buyer_id}> must be registered in the lab roster to be assigned requests. Use `/roster-set-name` first."
+                    assignee_id = None
+                    assignee_name = None
+                else:
+                    assignee_id = picked_buyer_id
+                    assignee_name = cand_name
+                    refusal_msg = None
+                    input_note = "Assigned via dropdown selection."
         else:
             assignee_id = None
             assignee_name = None
@@ -923,6 +1001,7 @@ def dispatch_command(
             client, say, channel, thread_ts, user, event_ts,
             direct_file=direct_file, direct_poster=user if direct_file else None,
             assignee_id=assignee_id, assignee_name=assignee_name, refusal_msg=refusal_msg,
+            input_note=input_note,
         )
     else:
         # Unknown word

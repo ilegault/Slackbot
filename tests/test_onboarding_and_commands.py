@@ -574,9 +574,10 @@ def test_build_request_blocks_buttons_per_state():
         action_blocks = [b for b in blocks_list if b.get("type") == "actions"]
         assert len(action_blocks) == 1, f"state={state}: expected 1 actions block"
         elements = action_blocks[0].get("elements", [])
-        assert len(elements) == 2, f"state={state}: expected 2 buttons (primary + secondary)"
-        assert elements[0].get("action_id") == primary_id, f"state={state}: primary button"
-        assert elements[1].get("action_id") == secondary_id, f"state={state}: secondary button"
+        button_elements = [e for e in elements if e.get("type") == "button"]
+        assert len(button_elements) == 2, f"state={state}: expected 2 buttons (primary + secondary)"
+        assert button_elements[0].get("action_id") == primary_id, f"state={state}: primary button"
+        assert button_elements[1].get("action_id") == secondary_id, f"state={state}: secondary button"
 
     # processed/confirmed get only the primary button (cancel not allowed after processed)
     one_button_states = {

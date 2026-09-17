@@ -301,4 +301,7 @@ ROSTER_SET_NAME_CALLBACK_ID = "roster_set_name_submit"
 MAX_ITEM_DESCRIPTION_LEN = 150
 MAX_PURPOSE_LEN = 900
 
+# Action IDs for Block Kit elements (Ticket 17)
+ACTION_REQ_ASSIGN_SELECT = "req_assign_select"
+
 
