@@ -528,7 +528,7 @@ def build_stage2_view(meta: dict) -> dict:
             "element": {
                 "type": "plain_text_input",
                 "action_id": "vendor_contact_email",
-                "placeholder": {"type": "plain_text", "text": "e.g. sales@vendor.com or info@vendor.com"},
+                "placeholder": {"type": "plain_text", "text": "e.g. rep@vendor.com or info@vendor.com"},
             },
             "label": {"type": "plain_text", "text": "Vendor Contact Email"},
         },

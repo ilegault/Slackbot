@@ -13,8 +13,15 @@ disappeared from the channel, replaced by a padlock error visible only to that u
 `deny()` ensures all permission refusals and informational responses use
 response_type="ephemeral" and replace_original=False, leaving the request card intact.
 
+Ticket 14:
+Deletes the regex-based prose parsing branch that scraped bot summary text and
+invented dummy vendor emails. Replaces thread modal search with
+find_request_metadata_in_thread to read structured Slack message metadata only.
+Narrows find_row_in_thread to match only 'Logged to row N', preventing false
+matches on bare row numbers or fund/price numbers in human conversation.
+
 Imports:
-    - config, epif_parser, interview, roster, text_rules
+    - config, epif_parser, roster, text_rules
 May NOT import:
     - app.py
     - lifecycle handlers or ops handlers
@@ -28,11 +35,10 @@ from datetime import datetime
 import requests
 
 try:
-    from . import config, epif_parser, interview, roster
+    from . import config, epif_parser, roster
 except ImportError:
     import config
     import epif_parser
-    import interview
     import roster
 
 log = logging.getLogger("p-bot")
@@ -123,8 +129,8 @@ def find_epif_in_thread(client, channel: str, thread_ts: str):
     return None, None
 
 
-def find_modal_request_in_thread(client, channel: str, thread_ts: str):
-    """Find a modal purchase request posted in the thread if present."""
+def find_request_metadata_in_thread(client, channel: str, thread_ts: str):
+    """Find a purchase request posted via Slack metadata in the thread if present."""
     try:
         replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100, include_all_metadata=True)
         for msg in replies.get("messages", []):
@@ -135,56 +141,8 @@ def find_modal_request_in_thread(client, channel: str, thread_ts: str):
                 if parsed.get("date_of_purchase") and isinstance(parsed["date_of_purchase"], str):
                     parsed["date_of_purchase"] = epif_parser.parse_date(parsed["date_of_purchase"])
                 return parsed, payload.get("requester"), payload.get("user_id"), payload.get("is_pending_name", False)
-
-            text = msg.get("text", "")
-            if "🛒 *New Purchase Request" in text:
-                item_m = re.search(r"•\s*\*Item:\*\s*(.+)", text)
-                total_m = re.search(r"•\s*\*Total:\*\s*\$?([0-9,]+(?:\.[0-9]{1,2})?)", text)
-                vendor_m = re.search(r"•\s*\*Vendor:\*\s*(.+?)(?:\s*\((.*?)\))?$", text, re.M)
-                cat_m = re.search(r"•\s*\*Category:\*\s*(.+)", text)
-                proj_m = re.search(r"•\s*\*Project ID / Fund:\*\s*(\S+)\s*\(Fund\s*(\S+)\)", text)
-                room_m = re.search(r"•\s*\*Delivery Room:\*\s*(.+)", text)
-                purp_m = re.search(r"•\s*\*Purpose:\*\s*([\s\S]+?)(?=\n•\s*\*Link:\*|\n💡|\n\nReply|\n\nUse the buttons|$)", text)
-                link_m = re.search(r"•\s*\*Link:\*\s*(.+)", text)
-                name_m = re.search(r"🛒 \*New Purchase Request from (.+?)(?:\s*\(pending name confirmation\))?:", text)
-
-                if item_m and vendor_m and proj_m:
-                    vendor_name = vendor_m.group(1).strip()
-                    pay_method = vendor_m.group(2).strip() if vendor_m.group(2) else None
-                    is_pending = "(pending name confirmation)" in text
-                    requester_name = name_m.group(1).strip() if name_m else None
-                    user_match = re.search(r"<@([A-Z0-9]+)>", text)
-                    poster_id = user_match.group(1) if user_match else None
-                    purpose_str = purp_m.group(1).strip() if purp_m else ""
-                    link_val = link_m.group(1).strip() if link_m else epif_parser.first_url(purpose_str)
-                    parsed = {
-                        "raw_fields": {},
-                        "item_description": item_m.group(1).strip(),
-                        "purpose": purpose_str,
-                        "link": link_val,
-                        "total_price": float(total_m.group(1).replace(",", "")) if total_m else None,
-                        "total_price_raw": total_m.group(1) if total_m else "",
-                        "vendor": vendor_name,
-                        "vendor_contact_name": "",
-                        "vendor_contact_email": "sales@vendor.com",
-                        "date_of_purchase": datetime.now().date(),
-                        "name_of_system": "",
-                        "delivery_room": room_m.group(1).strip() if room_m else "",
-                        "project_id": proj_m.group(1).strip(),
-                        "fund": proj_m.group(2).strip(),
-                        "asset_id": "",
-                        "pi_of_funding": "",
-                        "end_user": "",
-                        "category": cat_m.group(1).strip() if cat_m else "Research/Lab Supplies (3105)",
-                        "category_error": None,
-                        "payment_method": (
-                            pay_method
-                            or ("Workday" if interview.route_vendor(vendor_name) == "workday" else "P-card")
-                        ),
-                    }
-                    return parsed, requester_name, poster_id, is_pending
     except Exception as e:
-        log.warning("Could not search thread for modal request: %s", e)
+        log.warning("Could not search thread for modal request metadata: %s", e)
     return None, None, None, False
 
 
@@ -195,9 +153,6 @@ def find_row_in_thread(client, channel: str, thread_ts: str) -> int | None:
         for msg in reversed(replies.get("messages", [])):
             text = msg.get("text", "")
             match = re.search(r"Logged to row\s*(\d+)", text, re.I)
-            if match:
-                return int(match.group(1))
-            match = re.search(r"Row\s*#?\s*(\d+)", text, re.I)
             if match:
                 return int(match.group(1))
     except Exception as e:

@@ -18,6 +18,11 @@ Per Ticket 13:
   and handle_delivery each render the card and append history inside on_success.
   Write failures and refusal branches never advance the card.
 
+Per Ticket 14:
+- The Approve button uses posted_payload directly instead of re-reading Slack.
+  Resolution order in handle_epif_processing: direct_file -> PDF in thread -> posted_payload -> metadata lookup.
+  Regex prose parsing is removed; the thread search is replaced by find_request_metadata_in_thread.
+
 Per Ticket 15:
 - PURCHASING_CHANNEL is read from config.py; silent fallback to ADMIN_ALERT_CHANNEL or DM is removed.
 
@@ -220,8 +225,17 @@ def handle_epif_processing(
     assignee_id: str | None = None,
     assignee_name: str | None = None,
     refusal_msg: str | None = None,
+    posted_payload: dict | None = None,
 ):
-    """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving."""
+    """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving.
+
+    Per Ticket 14, resolution order is:
+      1. direct_file
+      2. PDF attachment in thread
+      3. posted_payload (from Approve button value)
+      4. Slack metadata lookup via find_request_metadata_in_thread
+      5. Informational message that no request was found
+    """
     log.info("Processing EPIF/purchase request from approver/poster: %s in channel: %s", approver or direct_poster, channel)
     if direct_file:
         file_obj, poster = direct_file, direct_poster
@@ -268,10 +282,46 @@ def handle_epif_processing(
         )
         return
 
-    # Modal Purchase Request in Thread Path
-    parsed_req, modal_req_name, modal_user_id, is_pending = slack_io.find_modal_request_in_thread(client, channel, thread_ts)
+    # Button Action Payload Path (Ticket 14)
+    if posted_payload:
+        if "parsed" in posted_payload:
+            parsed_req = dict(posted_payload["parsed"])
+            modal_req_name = posted_payload.get("requester")
+            modal_user_id = posted_payload.get("user_id")
+            is_pending = posted_payload.get("is_pending_name", False)
+        else:
+            parsed_req = dict(posted_payload)
+            modal_req_name = posted_payload.get("requester")
+            modal_user_id = posted_payload.get("user_id")
+            is_pending = posted_payload.get("is_pending_name", False)
+
+        if parsed_req.get("date_of_purchase") and isinstance(parsed_req["date_of_purchase"], str):
+            parsed_req["date_of_purchase"] = epif_parser.parse_date(parsed_req["date_of_purchase"])
+
+        log.info("Found posted payload for purchase request: %s from %s", parsed_req.get("item_description"), modal_req_name)
+        finalize_purchase_request(
+            client=client,
+            say=say,
+            channel=channel,
+            thread_ts=thread_ts,
+            event_ts=event_ts,
+            parsed=parsed_req,
+            requester=modal_req_name,
+            notify_target=modal_user_id or approver,
+            pdf_bytes=None,
+            file_name=None,
+            is_pending_name=is_pending,
+            assignee_id=assignee_id,
+            assignee_name=assignee_name,
+            refusal_msg=refusal_msg,
+            approver=approver,
+        )
+        return
+
+    # Modal Purchase Request in Thread Path via Slack Metadata (for keyword approvals)
+    parsed_req, modal_req_name, modal_user_id, is_pending = slack_io.find_request_metadata_in_thread(client, channel, thread_ts)
     if parsed_req:
-        log.info("Found modal purchase request in thread: %s from %s", parsed_req.get("item_description"), modal_req_name)
+        log.info("Found modal purchase request metadata in thread: %s from %s", parsed_req.get("item_description"), modal_req_name)
         finalize_purchase_request(
             client=client,
             say=say,
