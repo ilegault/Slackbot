@@ -7,7 +7,10 @@ already is.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-progress
+
+**Status:** done
+======
+
 
 **Read before starting:** `docs/adr/0001-tests-first-and-no-muted-failures.md`
 (binding) and `tests/test_interview.py` for the existing seam.
@@ -49,16 +52,17 @@ and that is all.**
 
 ## Acceptance criteria
 
-- [ ] Screen 2 renders `block_link` as optional, positioned after Purpose
-- [ ] A submission **omitting** the link validates and produces `parsed["link"]`
+
+- [x] Screen 2 renders `block_link` as optional, positioned after Purpose
+- [x] A submission **omitting** the link validates and produces `parsed["link"]`
       from the purpose-URL fallback — asserted on the resulting value
-- [ ] A submission **supplying** a link produces that link in `parsed`, in the
+- [x] A submission **supplying** a link produces that link in `parsed`, in the
       channel summary, and in `COLUMN_LINK` of the written row — all three
-- [ ] A submission with neither a link field nor a URL in the purpose validates,
+- [x] A submission with neither a link field nor a URL in the purpose validates,
       and the summary contains **no** link bullet — assert on the absence
-- [ ] The EPIF path's `COLUMN_LINK` behaviour is unchanged and its existing tests
+- [x] The EPIF path's `COLUMN_LINK` behaviour is unchanged and its existing tests
       pass untouched
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Out of scope
 
@@ -66,3 +70,19 @@ and that is all.**
 - Multiple links. One optional field.
 - Any change to `Purchasing-Log.xlsx` structure. `COLUMN_LINK` already exists.
 - Re-litigating requirement 4 for the EPIF path.
+
+
+## Comments
+
+### 2026-09-16 Implementation Summary
+- **Screen 2 modal**: added `block_link` optional plain text input after `block_purpose` in `blocks.build_stage2_view`.
+- **Extraction**: added extraction of `block_link` into `stage2["link"]` in `app.handle_stage2_submit`.
+- **Domain parser**: stripped whitespace and maintained fallback to `epif_parser.first_url(purpose)` in `interview.build_parsed_from_stages`.
+- **Card & Summary presentation**: rendered `• *Link:* {link}` only when present in `blocks.build_request_blocks`, `lifecycle.post_epif_request_card`, and `lifecycle._process_interview_completion`.
+- **Slack thread scraper**: updated `purp_m` regex termination boundary and added `link_m` regex in `slack_io.find_modal_request_in_thread`.
+- **Tests**: added 7 unit and integration tests to `tests/test_interview.py` covering Screen 2 rendering, purpose URL fallback, link supply across parsed / summary / Excel row, absence of link bullets when omitted, and modal submit lifecycle integration.
+- **Local Gate**:
+  - `ruff check .`: All checks passed.
+  - `python scripts/check_tests_first.py`: OK (source changes accompanied by test additions).
+  - `pytest -q`: 176 passed, 31 skipped (100% pass, zero failures).
+
