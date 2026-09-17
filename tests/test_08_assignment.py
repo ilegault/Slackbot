@@ -39,6 +39,7 @@ def clean_roster(tmp_path, monkeypatch):
     roster.add_requester("U_DYLAN", "Dylan")
     roster.add_requester("U_SMEET", "Smeet")
     roster.add_requester("U_STUDENT", "Student")
+    roster.add_requester("U_ISAAC", "Isaac")
 
 
 def make_valid_parsed(**overrides):
