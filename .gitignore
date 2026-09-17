@@ -33,7 +33,9 @@ dist/
 # .scratch/ is deliberately NOT here: ticket files travel with the branch, so a
 # draft PR is a complete handoff. See docs/agents/issue-tracker.md.
 .claude/
-Claude outputs/
+.agents
+run_agent1.bat
+run_agent2.bat
 
 # The request index store is not in use; if it ever runs, its file is local state.
 requests.json
