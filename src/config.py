@@ -231,6 +231,7 @@ VENDOR_OTHER_OPTION = "Not listed / other"
 WORKDAY_PAYMENT_METHOD = "Workday"
 
 TRIGGER_KEYWORD = "approved"
+APPROVAL_KEYWORDS = (TRIGGER_KEYWORD,)
 ASSIGN_KEYWORDS = ("assign", "assigned")
 PROCESSED_KEYWORDS = ("processed", "processing", "ordered", "submitted", "submit")  # "submitted"/"submit" are silent backwards-compat aliases
 CONFIRM_KEYWORDS = ("confirmed", "confirm", "package confirmed", "order confirmed")
@@ -249,6 +250,28 @@ ADD_APPROVER_KEYWORDS = ("add-approver", "add approver")
 REMOVE_APPROVER_KEYWORDS = ("remove-approver", "remove approver")
 ADD_BUYER_KEYWORDS = ("add-buyer", "add buyer")
 REMOVE_BUYER_KEYWORDS = ("remove-buyer", "remove buyer")
+
+ALL_KEYWORD_TUPLES = (
+    APPROVAL_KEYWORDS,
+    ASSIGN_KEYWORDS,
+    PROCESSED_KEYWORDS,
+    CONFIRM_KEYWORDS,
+    DELIVERED_KEYWORDS,
+    QUOTE_KEYWORDS,
+    HELP_KEYWORDS,
+    STATUS_KEYWORDS,
+    QUEUE_KEYWORDS,
+    LOGS_KEYWORDS,
+    UPDATE_KEYWORDS,
+    RESTART_KEYWORDS,
+    TEMPLATE_KEYWORDS,
+    REMOVE_VENDOR_KEYWORDS,
+    PROMOTE_ADMIN_KEYWORDS,
+    ADD_APPROVER_KEYWORDS,
+    REMOVE_APPROVER_KEYWORDS,
+    ADD_BUYER_KEYWORDS,
+    REMOVE_BUYER_KEYWORDS,
+)
 
 # --- Phase 4 Staged Purchasing Interview Constants ----------------------------
 # The categories for which Asset ID and Name of System are required (Screen 3)

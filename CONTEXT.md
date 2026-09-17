@@ -174,7 +174,10 @@ person — it can, and the earlier reasoning was never checked.
 and **lifecycle aliases** (`approved`, `assign`, `processed`, `confirmed`,
 `delivered`, `quote`) which keep working so Charlie's habits do not break, but are
 taught nowhere. User mentions are stripped from the text *before* a keyword is
-matched, so a Slack ID can never be read as a keyword (ADR 0004 decision 8).
+matched, so a Slack ID can never be read as a keyword (ADR 0004 decision 8). The
+first word after the mention is matched exactly against the canonical vocabulary
+(no substring matching); two-word admin phrases match on the first two words. An
+unknown word produces a reply naming the words the bot understands.
 
 **The request message / the card** — the bot's post in the channel carrying the
 summary, the history block, and one next-step button. It is also the store: state,
