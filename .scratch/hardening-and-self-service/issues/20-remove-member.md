@@ -96,4 +96,4 @@ The two meanings must stay distinct: `remove-buyer` means "off purchasing duty",
   - Sends exactly one alert to `ADMIN_ALERT_CHANNEL` naming the sheet, table, and exact cell reference of the orphaned dropdown entry.
 - Added `config.REMOVE_MEMBER_KEYWORDS = ("remove-member", "remove member")` and wired in `app.dispatch_command`.
 - Added test suite in `tests/test_20_remove_member.py` covering all 9 acceptance criteria.
-- Gate verified: `ruff check .` clean, `check_tests_first.py` clean, `pytest -q` 254 passed, 31 skipped.
+- Gate verified: `ruff check .` clean, `check_tests_first.py` clean, `pytest -q` 262 passed, 31 skipped.
