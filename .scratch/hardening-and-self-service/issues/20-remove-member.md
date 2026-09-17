@@ -7,7 +7,7 @@ cell so a human can delete it.
 
 **Blocked by:** 16, 18
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read before starting:** `CONTEXT.md` on **remove a role vs remove a member** —
 it is already written correctly; implement to it. Ticket 11 requirement 2 (the
@@ -54,22 +54,22 @@ The two meanings must stay distinct: `remove-buyer` means "off purchasing duty",
 
 ## Acceptance criteria
 
-- [ ] `roster.remove_member` on a user holding all three roles removes the ID from
+- [x] `roster.remove_member` on a user holding all three roles removes the ID from
       **all four lists in one save**, and a re-read from disk confirms it
-- [ ] `remove_member` on the **last admin** is refused, `roster.json` is
+- [x] `remove_member` on the **last admin** is refused, `roster.json` is
       byte-identical afterwards, and the reply says why
-- [ ] `remove_member` on the **last approver**, likewise
-- [ ] A non-admin issuing `remove-member` is denied ephemerally and no write occurs
-- [ ] After a removal, **one** message reaches `ADMIN_ALERT_CHANNEL` naming the
+- [x] `remove_member` on the **last approver**, likewise
+- [x] A non-admin issuing `remove-member` is denied ephemerally and no write occurs
+- [x] After a removal, **one** message reaches `ADMIN_ALERT_CHANNEL` naming the
       sheet, the table and the **cell reference** of the orphaned dropdown entry
-- [ ] After a removal, the workbook is **byte-identical** — the mirror is
+- [x] After a removal, the workbook is **byte-identical** — the mirror is
       append-only and a removal writes nothing to it
-- [ ] After a removal, `validators.validate` rejects that name
-- [ ] `@Purchasing remove-member @user` matches as a two-word keyword and
+- [x] After a removal, `validators.validate` rejects that name
+- [x] `@Purchasing remove-member @user` matches as a two-word keyword and
       `@Purchasing remove-buyer @user` still strips only the buyer role, leaving the
       `requesters` entry intact — assert both in the same test
-- [ ] `REMOVE_MEMBER_KEYWORDS` lives in `config.py` and appears nowhere else as a literal
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `REMOVE_MEMBER_KEYWORDS` lives in `config.py` and appears nowhere else as a literal
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Out of scope
 
@@ -78,3 +78,22 @@ The two meanings must stay distinct: `remove-buyer` means "off purchasing duty",
 - Reassigning or cancelling the removed member's in-flight requests. Not asked
   for; note it in `## Comments` if it comes up.
 - Surfacing `remove-member` in App Home and `/purchasing-help`. Ticket 22.
+
+## Comments
+
+### 2026-09-17
+
+- Implemented `roster.remove_member(slack_id)`:
+  - Hard-deletes `requesters` entry and strips `admins`, `approvers`, and `buyers` in one atomic save.
+  - Lockout guard: raises `ValueError` before any disk write if removing the user would leave the roster with zero admins or zero approvers.
+  - Returns summary dict with `slack_id`, `name`, `roles`, `roles_removed`, and `requester_removed`.
+  - Leaves workbook untouched (workbook mirror remains append-only).
+- Implemented `log_writer.find_requester_cell(name, workbook_path)`:
+  - Reads workbook zip read-only to locate the cell reference (e.g. `D14`) of the requester in `Roles & Lists` sheet `Requesters` table.
+- Implemented `ops.handle_remove_member`:
+  - Admin-only command. Non-admin users are denied ephemerally via `slack_io.deny`.
+  - Calls `roster.remove_member` and catches lockout refusals, replying with the refusal reason.
+  - Sends exactly one alert to `ADMIN_ALERT_CHANNEL` naming the sheet, table, and exact cell reference of the orphaned dropdown entry.
+- Added `config.REMOVE_MEMBER_KEYWORDS = ("remove-member", "remove member")` and wired in `app.dispatch_command`.
+- Added test suite in `tests/test_20_remove_member.py` covering all 9 acceptance criteria.
+- Gate verified: `ruff check .` clean, `check_tests_first.py` clean, `pytest -q` 254 passed, 31 skipped.

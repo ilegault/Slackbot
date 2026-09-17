@@ -16,10 +16,11 @@ import os
 import re
 
 try:
-    from . import admin, config, queue_worker, roster, slack_io
+    from . import admin, config, log_writer, queue_worker, roster, slack_io
 except ImportError:
     import admin
     import config
+    import log_writer
     import queue_worker
     import roster
     import slack_io
@@ -295,6 +296,93 @@ def handle_remove_buyer(client, say, channel: str, thread_ts: str, user_id: str,
         )
     else:
         say(text=f"⚠️ <@{target_id}> was not in the buyers list.", thread_ts=thread_ts)
+
+
+def handle_remove_member(
+    client,
+    say,
+    channel: str,
+    thread_ts: str,
+    user_id: str,
+    text: str,
+    target_user_id: str | None = None,
+    respond=None,
+):
+    """Admin command to remove a member from the lab roster completely.
+
+    Hard-deletes their requester entry, strips admin/approver/buyer roles,
+    and alerts ADMIN_ALERT_CHANNEL with the cell reference of the orphaned
+    dropdown entry in Roles & Lists. Refuses if removing the user would leave
+    the roster with no admin or no approver.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 20: Differentiates removing a role (remove-buyer) from removing a person
+    (remove-member). A graduating student is stripped of all roles and membership in
+    one atomic save. Because the workbook mirror is append-only (Ticket 11 Invariant 2),
+    their cell in the dropdown list remains until a human deletes it; this handler
+    finds the cell and reports it to ADMIN_ALERT_CHANNEL.
+    """
+    if not admin.is_admin_user(user_id):
+        log.warning("Unauthorized user %s attempted to run '@Purchasing remove-member'", user_id)
+        msg = "🔒 Only bot administrators can remove members."
+        if respond:
+            slack_io.deny(respond, msg)
+        else:
+            say(text=msg, thread_ts=thread_ts)
+        return
+
+    target_id = target_user_id
+    if not target_id:
+        match = re.search(r"<@([A-Z0-9_]+)>", text)
+        if match:
+            target_id = match.group(1)
+
+    if not target_id:
+        say(
+            text="⚠️ Please mention the user to remove, e.g. `@Purchasing remove-member @user`.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    try:
+        res = roster.remove_member(target_id)
+    except ValueError as e:
+        say(text=f"⚠️ {e}", thread_ts=thread_ts)
+        return
+
+    removed_name = res.get("name")
+    roles = res.get("roles", [])
+
+    if not removed_name and not roles:
+        say(
+            text=f"⚠️ <@{target_id}> was not found in the roster.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    name_str = f" ({removed_name})" if removed_name else ""
+    roles_str = f" (roles stripped: {', '.join(roles)})" if roles else ""
+    say(
+        text=f"✅ <@{target_id}>{name_str} removed from the roster{roles_str}.",
+        thread_ts=thread_ts,
+    )
+
+    if removed_name and config.ADMIN_ALERT_CHANNEL:
+        cell_ref = log_writer.find_requester_cell(removed_name)
+        cell_desc = f"at cell {cell_ref}" if cell_ref else "in the table"
+        alert_text = (
+            f"⚠️ Lab member <@{target_id}> ({removed_name}) was removed from `roster.json`.\n"
+            f"The 'Roles & Lists' sheet has an orphaned entry in the 'Requesters' table {cell_desc}. "
+            "Please delete it manually if no longer needed."
+        )
+        try:
+            client.chat_postMessage(
+                channel=config.ADMIN_ALERT_CHANNEL,
+                text=alert_text,
+            )
+        except Exception as e:
+            log.warning("Could not send orphaned entry alert to %s: %s", config.ADMIN_ALERT_CHANNEL, e)
 
 
 def handle_template_command(client, say, channel: str, thread_ts: str | None, user_id: str):

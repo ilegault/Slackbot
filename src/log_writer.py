@@ -97,6 +97,41 @@ def get_cell_value(sheet_xml: str, ref: str) -> str | None:
     return None
 
 
+def find_requester_cell(name: str, workbook_path: str = None) -> str | None:
+    """Find the cell reference (e.g. 'D14') of a requester name in the Roles & Lists tab.
+
+    Reads the workbook zip read-only. Does not modify the workbook.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 20 / Invariant 2: When a lab member is removed, the workbook mirror is
+    append-only and remains untouched. P-Bot alerts the admin channel naming the
+    exact cell reference of the orphaned entry so a person can delete it if desired.
+    """
+    if not name or not name.strip():
+        return None
+    path = workbook_path or getattr(config, "WORKBOOK_PATH", None)
+    if not path or not os.path.exists(path):
+        return None
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if config.ROSTER_SHEET_XML not in archive.namelist():
+                return None
+            sheet_xml = archive.read(config.ROSTER_SHEET_XML).decode("utf-8")
+
+        target = name.strip().lower()
+        for row in range(config.ROSTER_FIRST_DATA_ROW, config.ROSTER_LAST_DATA_ROW + 1):
+            ref = f"{config.ROSTER_COLUMN_REQUESTER}{row}"
+            val = get_cell_value(sheet_xml, ref)
+            if val and val.strip().lower() == target:
+                return ref
+        return None
+    except Exception as e:
+        log.warning("Could not search for requester cell in %s: %s", path, e)
+        return None
+
+
 def find_first_empty_row(sheet_xml: str) -> int:
     """First row in the table whose Requester Name (column B) is empty."""
     for row in range(config.FIRST_DATA_ROW, config.LAST_DATA_ROW + 1):

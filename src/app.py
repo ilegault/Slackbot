@@ -917,6 +917,17 @@ def dispatch_command(
         ops.handle_add_buyer(client, say, channel, thread_ts, user, text)
     elif cmd in config.REMOVE_BUYER_KEYWORDS:
         ops.handle_remove_buyer(client, say, channel, thread_ts, user, text)
+    elif cmd in config.REMOVE_MEMBER_KEYWORDS:
+        ops.handle_remove_member(
+            client,
+            say,
+            channel,
+            thread_ts,
+            user,
+            text,
+            target_user_id=user_mentions[0] if user_mentions else None,
+            respond=respond,
+        )
     elif cmd in config.REMOVE_VENDOR_KEYWORDS:
         ops.handle_remove_vendor(client, say, channel, thread_ts, user, text)
     elif cmd in config.TEMPLATE_KEYWORDS:

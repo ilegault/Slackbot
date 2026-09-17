@@ -302,6 +302,88 @@ def remove_buyer(slack_id: str) -> bool:
     return False
 
 
+def remove_member(slack_id: str) -> dict:
+    """Hard-delete a member from requesters and strip all three roles in one atomic save.
+
+    Refused if removing the user would leave the roster with no admin or no approver.
+    Does NOT write to the workbook (workbook mirror is append-only by design).
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 20: Remove a role (remove-buyer / remove-approver) vs remove a member
+    (remove-member) are distinct operations. Graduating students leave the lab cleanly:
+    their requesters entry is hard-deleted and their admin, approver, and buyer roles
+    are stripped simultaneously. Lockout guard ensures the lab is never left without
+    an admin or an approver before any write to disk occurs.
+
+    Returns dict of removed details:
+        {
+            "slack_id": str,
+            "name": str | None,
+            "roles": list[str],
+            "roles_removed": list[str],
+            "requester_removed": bool,
+        }
+    """
+    clean_id = (slack_id or "").strip()
+    if not clean_id:
+        return {
+            "slack_id": "",
+            "name": None,
+            "roles": [],
+            "roles_removed": [],
+            "requester_removed": False,
+        }
+
+    data = load_roster()
+    admins = data.setdefault("admins", [])
+    approvers = data.setdefault("approvers", [DEFAULT_APPROVER_ID])
+    buyers = data.setdefault("buyers", [])
+    requesters = data.setdefault("requesters", {})
+
+    # Lockout checks: runs before ANY modification or write
+    if clean_id in admins:
+        remaining_admins = [a for a in admins if a != clean_id]
+        if not remaining_admins:
+            raise ValueError(f"Cannot remove <@{clean_id}>: they are the last admin in the roster.")
+
+    if clean_id in approvers:
+        remaining_approvers = [a for a in approvers if a != clean_id]
+        if not remaining_approvers:
+            raise ValueError(f"Cannot remove <@{clean_id}>: they are the last approver in the roster.")
+
+    roles_removed = []
+    if clean_id in admins:
+        admins.remove(clean_id)
+        roles_removed.append("admin")
+    if clean_id in approvers:
+        approvers.remove(clean_id)
+        roles_removed.append("approver")
+    if clean_id in buyers:
+        buyers.remove(clean_id)
+        roles_removed.append("buyer")
+
+    removed_name = requesters.pop(clean_id, None)
+
+    # Save atomically only if something actually changed
+    if removed_name is not None or roles_removed:
+        save_roster(data)
+        log.info(
+            "Removed member %s (%s) from roster; stripped roles: %s",
+            clean_id,
+            removed_name,
+            roles_removed,
+        )
+
+    return {
+        "slack_id": clean_id,
+        "name": removed_name,
+        "roles": roles_removed,
+        "roles_removed": roles_removed,
+        "requester_removed": removed_name is not None,
+    }
+
+
 def add_vendor(name: str) -> None:
     """Add a vendor name to the active Workday punchout catalog list."""
     clean_name = name.strip()

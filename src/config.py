@@ -250,6 +250,7 @@ ADD_APPROVER_KEYWORDS = ("add-approver", "add approver")
 REMOVE_APPROVER_KEYWORDS = ("remove-approver", "remove approver")
 ADD_BUYER_KEYWORDS = ("add-buyer", "add buyer")
 REMOVE_BUYER_KEYWORDS = ("remove-buyer", "remove buyer")
+REMOVE_MEMBER_KEYWORDS = ("remove-member", "remove member")
 
 ALL_KEYWORD_TUPLES = (
     APPROVAL_KEYWORDS,
@@ -271,6 +272,7 @@ ALL_KEYWORD_TUPLES = (
     REMOVE_APPROVER_KEYWORDS,
     ADD_BUYER_KEYWORDS,
     REMOVE_BUYER_KEYWORDS,
+    REMOVE_MEMBER_KEYWORDS,
 )
 
 # --- Phase 4 Staged Purchasing Interview Constants ----------------------------
