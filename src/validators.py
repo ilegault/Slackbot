@@ -64,7 +64,7 @@ def validate(parsed: dict, requester_name=None) -> list:
             f"({', '.join(sorted(config.VALID_DELIVERY_ROOMS))})."
         )
 
-    if parsed["category_error"]:
+    if parsed.get("category_error"):
         problems.append(
             f"Section 2 category: {parsed['category_error']} - tick exactly one box."
         )

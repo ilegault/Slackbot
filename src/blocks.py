@@ -5,6 +5,9 @@ WHY THIS EXISTS:
 Constructs Slack Block Kit dictionaries and view payloads for App Home, modals,
 and message cards. Pure presentation layer that takes dictionaries/metadata
 and returns list/dict Block Kit structures.
+ADR 0005: The posted card carries a buyer picker (users_select) in the same
+actions block as Approve and Decline, allowing approvers to pick a buyer directly
+without typing a mention.
 
 Imports:
     - config, interview, roster, text_rules
@@ -316,13 +319,16 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
 
     if state in primary_buttons:
         btn_label, btn_action_id = primary_buttons[state]
-        btn_value = json.dumps({
-            "state": state,
-            "requester": requester,
-            "thread_ts": request.get("thread_ts"),
-            "request": request,
-            "history": history or [],
-        })
+        btn_value = json.dumps(
+            {
+                "state": state,
+                "requester": requester,
+                "thread_ts": request.get("thread_ts"),
+                "request": request,
+                "history": history or [],
+            },
+            default=str,
+        )
         elements = [
             {
                 "type": "button",
@@ -341,6 +347,15 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
                 "action_id": sec_action_id,
                 "value": btn_value,
             })
+        if state == "posted":
+            picker_elem = {
+                "type": "users_select",
+                "action_id": config.ACTION_REQ_ASSIGN_SELECT,
+                "placeholder": {"type": "plain_text", "text": "Assign a buyer (optional)"},
+            }
+            if assignee_id:
+                picker_elem["initial_user"] = assignee_id
+            elements.append(picker_elem)
         blocks.append({
             "type": "actions",
             "elements": elements,

@@ -75,6 +75,8 @@ def finalize_purchase_request(
     assignee_name: str | None = None,
     refusal_msg: str | None = None,
     approver: str | None = None,
+    input_note: str | None = None,
+    card_ts: str | None = None,
 ):
     """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF if present, and notify."""
     display_file = file_name or "Purchase Request"
@@ -130,6 +132,7 @@ def finalize_purchase_request(
                     f"{saved_str}"
                     f"📢 {ping_user}'s request is approved!\n"
                     f"👤 Assigned to <@{assignee_id}> ({assignee_name}) to process in Workday / ShopUW."
+                    + (f" ({input_note})" if input_note else "")
                 ),
                 thread_ts=thread_ts,
             )
@@ -180,14 +183,19 @@ def finalize_purchase_request(
             )
 
         # Update or post card in thread
-        card_req, card_ts, card_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+        found_req, found_ts, found_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+        target_card_ts = card_ts or found_ts
+        target_req = found_req or parsed or {}
+        target_hist = found_hist or []
         now_str = datetime.now().strftime("%m/%d/%y %H:%M")
         appr_name = slack_io.resolve_requester(client, approver) or (f"<@{approver}>" if approver else "Approver")
-        if card_ts:
-            req_payload = card_req or {}
+        if target_card_ts:
+            req_payload = dict(target_req)
             req_payload["assignee_id"] = assignee_id
             req_payload["assignee"] = assignee_name
-            hist = list(card_hist)
+            if requester and not req_payload.get("requester"):
+                req_payload["requester"] = requester
+            hist = list(target_hist)
             hist.append(f"Approved by {appr_name} on {now_str}")
             if assignee_id and assignee_name:
                 hist.append(f"Assigned to {assignee_name} on {now_str}")
@@ -195,7 +203,7 @@ def finalize_purchase_request(
             try:
                 client.chat_update(
                     channel=channel,
-                    ts=card_ts,
+                    ts=target_card_ts,
                     text="🛒 Purchase Request (Approved)",
                     blocks=next_blks,
                 )
@@ -226,6 +234,8 @@ def handle_epif_processing(
     assignee_name: str | None = None,
     refusal_msg: str | None = None,
     posted_payload: dict | None = None,
+    input_note: str | None = None,
+    card_ts: str | None = None,
 ):
     """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving.
 
@@ -279,6 +289,8 @@ def handle_epif_processing(
             assignee_name=assignee_name,
             refusal_msg=refusal_msg,
             approver=approver,
+            input_note=input_note,
+            card_ts=card_ts,
         )
         return
 
@@ -294,6 +306,10 @@ def handle_epif_processing(
             modal_req_name = posted_payload.get("requester")
             modal_user_id = posted_payload.get("user_id")
             is_pending = posted_payload.get("is_pending_name", False)
+
+        if not assignee_id:
+            assignee_id = posted_payload.get("assignee_id")
+            assignee_name = posted_payload.get("assignee")
 
         if parsed_req.get("date_of_purchase") and isinstance(parsed_req["date_of_purchase"], str):
             parsed_req["date_of_purchase"] = epif_parser.parse_date(parsed_req["date_of_purchase"])
@@ -315,6 +331,8 @@ def handle_epif_processing(
             assignee_name=assignee_name,
             refusal_msg=refusal_msg,
             approver=approver,
+            input_note=input_note,
+            card_ts=card_ts,
         )
         return
 
@@ -338,6 +356,8 @@ def handle_epif_processing(
             assignee_name=assignee_name,
             refusal_msg=refusal_msg,
             approver=approver,
+            input_note=input_note,
+            card_ts=card_ts,
         )
         return
 
@@ -442,23 +462,30 @@ def handle_assign(
     req_data: dict | None = None,
     msg_ts: str | None = None,
     history: list | None = None,
+    current_state: str | None = None,
 ):
     """Assign or reassign a purchase request to a buyer.
 
     WHY THIS EXISTS:
     ----------------
-    ADR 0004: Assignment replaces claim. Charlie names the responsible buyer when approving,
-    or a buyer can assign an unassigned order to themselves.
+    ADR 0004 & ADR 0005: Assignment replaces claim. Charlie names the responsible buyer when approving
+    (via @-mention or the buyer picker on the posted card), or a buyer can assign an unassigned order.
     Permission per ADR 0004 decision 3:
     - Unassigned: any buyer, approver, or admin may assign (including buyer naming themselves).
     - Assigned: approver, admin, or the current assignee only.
-    The pre-filled email draft is generated once and DM'd to the assignee.
+    Selecting a buyer on the posted card (ADR 0005) re-renders the card with the assignee set,
+    performing no Excel write, no premature Workday processing announcement, and no email draft DM.
+    Once approved, the pre-filled email draft is generated once and DM'd to the assignee.
     """
-    card_req, card_ts, card_hist, card_state = slack_io.find_card_in_thread(client, channel, thread_ts)
-    req_data = req_data or card_req or {}
-    msg_ts = msg_ts or card_ts
-    history = history if history is not None else list(card_hist)
-    current_state = card_state or "approved"
+    if req_data is None:
+        card_req, card_ts, card_hist, card_state = slack_io.find_card_in_thread(client, channel, thread_ts)
+        req_data = card_req or {}
+        msg_ts = msg_ts or card_ts
+        history = history if history is not None else list(card_hist)
+        current_state = current_state or card_state or "approved"
+    else:
+        current_state = current_state or "posted"
+        history = history if history is not None else []
 
     current_assignee = req_data.get("assignee_id")
 
@@ -502,10 +529,11 @@ def handle_assign(
     req_data["assignee_id"] = target_user_id
     req_data["assignee"] = target_name
 
-    if current_assignee:
-        history.append(f"Reassigned to {target_name} by {actor_name} on {now_str}")
-    else:
-        history.append(f"Assigned to {target_name} on {now_str}")
+    if current_state != "posted":
+        if current_assignee:
+            history.append(f"Reassigned to {target_name} by {actor_name} on {now_str}")
+        else:
+            history.append(f"Assigned to {target_name} on {now_str}")
 
     if msg_ts:
         card_blocks = blocks.build_request_blocks(current_state, req_data, history=history)
@@ -518,6 +546,10 @@ def handle_assign(
             )
         except Exception as e:
             log.error("Failed to update message on assign: %s", e)
+
+    if current_state == "posted":
+        # Selecting a buyer on the posted card records the selection on the card; approval remains a second click.
+        return True
 
     say(text=f"👤 Assigned to <@{target_user_id}> ({target_name}) to process in Workday / ShopUW.", thread_ts=thread_ts)
 
