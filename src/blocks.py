@@ -8,6 +8,9 @@ and returns list/dict Block Kit structures.
 ADR 0005: The posted card carries a buyer picker (users_select) in the same
 actions block as Approve and Decline, allowing approvers to pick a buyer directly
 without typing a mention.
+Ticket 22: App Home renders a live roster profile panel (build_app_home_view)
+displaying the user's registered name, held roles (admin, approver, buyer), and a
+direct button opening the /roster-set-name modal. Unregistered users lead with registration instructions.
 
 Imports:
     - config, interview, roster, text_rules
@@ -72,6 +75,7 @@ _ADMIN_COMMANDS = (
     "• `@Purchasing remove-approver @user` — _(Admin Only)_ Remove a user from the approver list.\n"
     "• `@Purchasing add-buyer @user` — _(Admin Only)_ Add a user to the buyers list.\n"
     "• `@Purchasing remove-buyer @user` — _(Admin Only)_ Remove a user from the buyers list.\n"
+    "• `@Purchasing remove-member @user` — _(Admin Only)_ Remove a user from the lab roster and all roles.\n"
     "• `@Purchasing remove vendor <name>` — _(Admin Only)_ Remove a vendor from the Workday catalog list."
 )
 
@@ -80,22 +84,82 @@ _SLASH_COMMANDS = (
     "• `/purchasing-help` — Display this help and command reference.\n"
     "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
     "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
-    "• `/roster-set-name` — Link your Slack user account to your lab name in the roster."
+    "• `/roster-set-name` — Register in the lab roster, correct your name, or request a rename."
 )
 
 # --- App Home Block Kit View --------------------------------------------------
 
 
-def build_app_home_view() -> dict:
+def build_app_home_view(user_id: str | None = None) -> dict:
     """Build the App Home Block Kit view dict.
 
-    WHY A FUNCTION NOT A CONSTANT: The shared text constants (_BUTTON_LIST,
-    _STAGE_DEFINITIONS, etc.) must be interpolated into the mrkdwn blocks at
-    build time.  A static dict cannot hold a reference to a module-level string
-    that hasn't been assigned yet, and string concatenation in a dict literal
-    is fragile to maintain.  The one caller (handle_app_home_opened) calls this
-    once per event, so there is no performance concern.
+    WHY THIS EXISTS:
+    ----------------
+    Constructs the App Home tab for the user.
+    Ticket 09: Unified shared constants with get_help_message() so the two surfaces cannot drift.
+    Ticket 22: Added live roster profile panel showing user's registered name, held roles
+    (approver, admin, buyer), and a direct button opening the /roster-set-name modal.
+    Unregistered users lead with registration instructions above the static command content.
+    Holds no Slack client and makes no API calls (pure presentation layer).
     """
+    registered_name = None
+    if user_id and hasattr(roster, "get_requesters"):
+        requesters = roster.get_requesters()
+        registered_name = requesters.get(user_id)
+
+    roles = []
+    if user_id:
+        if hasattr(roster, "is_admin") and roster.is_admin(user_id):
+            roles.append("Admin")
+        elif hasattr(roster, "get_admins") and user_id in roster.get_admins():
+            roles.append("Admin")
+
+        if hasattr(roster, "is_approver") and roster.is_approver(user_id):
+            roles.append("Approver")
+        elif hasattr(roster, "get_approvers") and user_id in roster.get_approvers():
+            roles.append("Approver")
+
+        if hasattr(roster, "is_buyer") and roster.is_buyer(user_id):
+            roles.append("Buyer")
+        elif hasattr(roster, "get_buyers") and user_id in roster.get_buyers():
+            roles.append("Buyer")
+
+    roles_str = ", ".join(roles) if roles else "None"
+
+    action_id = getattr(config, "ACTION_OPEN_ROSTER_SET_NAME", "open_roster_set_name")
+    if registered_name:
+        profile_text = (
+            f"👤 *Your Lab Profile*\n"
+            f"• *Registered Name:* {registered_name}\n"
+            f"• *Roles:* {roles_str}"
+        )
+        profile_button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Update Name", "emoji": True},
+            "action_id": action_id,
+        }
+    else:
+        profile_text = (
+            "⚠️ *You are not registered in the lab roster yet.*\n"
+            "Register your name so your purchase requests can be approved and tracked.\n"
+            f"• *Roles:* {roles_str}"
+        )
+        profile_button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Register in Roster", "emoji": True},
+            "style": "primary",
+            "action_id": action_id,
+        }
+
+    profile_block = {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": profile_text,
+        },
+        "accessory": profile_button,
+    }
+
     return {
         "type": "home",
         "blocks": [
@@ -118,6 +182,8 @@ def build_app_home_view() -> dict:
                     ),
                 },
             },
+            {"type": "divider"},
+            profile_block,
             {"type": "divider"},
             {
                 "type": "header",

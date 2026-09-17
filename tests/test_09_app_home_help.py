@@ -193,3 +193,52 @@ def test_no_purchasing_log_link_in_help():
     help_ = _help_text()
     # The log file name may appear in troubleshooting text but must not be a hyperlink
     assert "http" not in help_, "Help message must not contain URLs"
+
+
+# ---------------------------------------------------------------------------
+# Slash commands identical in both surfaces
+# ---------------------------------------------------------------------------
+
+def test_slash_commands_identical_in_both():
+    home = _app_home_text()
+    help_ = _help_text()
+    sc = blocks_mod._SLASH_COMMANDS
+    assert sc in home, "Slash commands missing from App Home"
+    assert sc in help_, "Slash commands missing from help message"
+
+
+# ---------------------------------------------------------------------------
+# remove-member listed in both surfaces, from the shared constant
+# ---------------------------------------------------------------------------
+
+def test_remove_member_in_app_home():
+    assert "remove-member" in _app_home_text()
+
+
+def test_remove_member_in_help():
+    assert "remove-member" in _help_text()
+
+
+def test_remove_member_only_in_shared_constant():
+    """Assert remove-member appears in _ADMIN_COMMANDS and nowhere else in blocks.py."""
+    assert hasattr(blocks_mod, "_ADMIN_COMMANDS")
+    assert "remove-member" in blocks_mod._ADMIN_COMMANDS
+
+    import ast
+    blocks_file = os.path.join(os.path.dirname(__file__), "..", "src", "blocks.py")
+    with open(blocks_file, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=blocks_file)
+
+    occurrences = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
+            continue
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if "remove-member" in node.value.lower():
+                occurrences.append(node)
+
+    assert len(occurrences) == 1, (
+        f"Expected 'remove-member' to appear in exactly one string constant (_ADMIN_COMMANDS) in blocks.py, "
+        f"found {len(occurrences)}"
+    )
+
