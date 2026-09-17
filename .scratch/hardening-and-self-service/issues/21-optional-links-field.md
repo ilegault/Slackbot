@@ -7,7 +7,10 @@ already is.
 
 **Blocked by:** None (can start immediately)
 
+
 **Status:** done
+======
+
 
 **Read before starting:** `docs/adr/0001-tests-first-and-no-muted-failures.md`
 (binding) and `tests/test_interview.py` for the existing seam.
@@ -49,6 +52,7 @@ and that is all.**
 
 ## Acceptance criteria
 
+
 - [x] Screen 2 renders `block_link` as optional, positioned after Purpose
 - [x] A submission **omitting** the link validates and produces `parsed["link"]`
       from the purpose-URL fallback — asserted on the resulting value
@@ -66,6 +70,7 @@ and that is all.**
 - Multiple links. One optional field.
 - Any change to `Purchasing-Log.xlsx` structure. `COLUMN_LINK` already exists.
 - Re-litigating requirement 4 for the EPIF path.
+
 
 ## Comments
 
