@@ -47,9 +47,67 @@ def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list
     # Strip all mentions from text
     stripped = re.sub(r"<@[UW][A-Za-z0-9_]+(?:\|[^>]*)?>", "", text)
     stripped = re.sub(r"<!subteam\^[A-Za-z0-9_]+(?:\|[^>]*)?>", "", stripped)
+    stripped = re.sub(r"@(?i:p-bot|purchasing)\b", "", stripped)
     stripped = re.sub(r" +", " ", stripped).strip()
 
     return stripped, user_ids, group_ids
+
+
+def parse_keyword(stripped_text: str) -> str | None:
+    """The first word of a mention-stripped message, matched exactly against the
+    canonical vocabulary. None when it matches nothing.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 16 / Hardening spec §5:
+    Keyword routing was previously a chain of substring matches ('any(kw in text_lower)').
+    Any message containing 'check' attempted an Excel write and approval, 'waiting on
+    confirmation' marked the order confirmed, and unrecognised words did nothing silently.
+    This pure function extracts the first word (or first two words for two-word admin
+    phrases), strips surrounding punctuation, and matches exactly against config tuples.
+    """
+    if not stripped_text:
+        return None
+
+    tokens = stripped_text.strip().split()
+    if not tokens:
+        return None
+
+    import string
+    punct = string.punctuation + "“”‘’…"
+    w1 = tokens[0].strip(punct).lower()
+    if not w1:
+        return None
+
+    w2 = tokens[1].strip(punct).lower() if len(tokens) > 1 else ""
+    two_words = f"{w1} {w2}".strip() if w2 else ""
+
+    # Two-word admin phrases match on the first two words
+    if two_words:
+        for kw_tuple in config.ALL_KEYWORD_TUPLES:
+            if two_words in kw_tuple:
+                return two_words
+
+    # Single-word match
+    for kw_tuple in config.ALL_KEYWORD_TUPLES:
+        if w1 in kw_tuple:
+            return w1
+
+    return None
+
+
+def format_unknown_keyword_message(word: str | None = None) -> str:
+    """Format the helpful unknown-keyword error reply."""
+    if word:
+        header = f'🤔 I don\'t know the word "{word}".'
+    else:
+        header = "🤔 I didn't see a command."
+    return (
+        f"{header}\n\n"
+        "In a request thread I understand:\n"
+        "   approved · assign · processed · confirmed · delivered · quote · decline\n\n"
+        "Or use the buttons on the request message above."
+    )
 
 
 def extract_request_info(body: dict) -> tuple[str, str, str | None, str | None, bool]:

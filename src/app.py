@@ -796,43 +796,43 @@ def get_bot_user_id(client, context=None) -> str | None:
 
 def dispatch_command(
     client, say, channel: str, thread_ts: str, user: str, event_ts: str, text: str,
-    files=None, direct_file=None, bot_user_id: str | None = None,
+    files=None, direct_file=None, bot_user_id: str | None = None, respond=None,
 ):
     """Single dispatch point for all app_mention and direct message commands."""
     if not bot_user_id:
         bot_user_id = get_bot_user_id(client)
     stripped_text, user_mentions, group_mentions = text_rules.parse_mentions(text, bot_user_id=bot_user_id)
-    text_lower = stripped_text.lower()
+    cmd = text_rules.parse_keyword(stripped_text)
 
-    if any(kw in text_lower for kw in config.HELP_KEYWORDS):
+    if cmd in config.HELP_KEYWORDS:
         say(text=blocks.get_help_message(), thread_ts=thread_ts)
-    elif any(kw in text_lower for kw in config.STATUS_KEYWORDS):
+    elif cmd in config.STATUS_KEYWORDS:
         ops.handle_health_status(client, say, channel, thread_ts)
-    elif any(kw in text_lower for kw in config.QUEUE_KEYWORDS):
+    elif cmd in config.QUEUE_KEYWORDS:
         ops.handle_queue_status(client, say, channel, thread_ts)
-    elif any(kw in text_lower for kw in config.LOGS_KEYWORDS):
+    elif cmd in config.LOGS_KEYWORDS:
         ops.handle_logs(client, say, channel, thread_ts, user, text)
-    elif any(kw in text_lower for kw in config.UPDATE_KEYWORDS):
+    elif cmd in config.UPDATE_KEYWORDS:
         ops.handle_update(client, say, channel, thread_ts, user)
-    elif any(kw in text_lower for kw in config.RESTART_KEYWORDS):
+    elif cmd in config.RESTART_KEYWORDS:
         ops.handle_restart(client, say, channel, thread_ts, user)
-    elif any(kw in text_lower for kw in config.PROMOTE_ADMIN_KEYWORDS):
+    elif cmd in config.PROMOTE_ADMIN_KEYWORDS:
         ops.handle_promote_admin(client, say, channel, thread_ts, user, text)
-    elif any(kw in text_lower for kw in config.ADD_APPROVER_KEYWORDS):
+    elif cmd in config.ADD_APPROVER_KEYWORDS:
         ops.handle_add_approver(client, say, channel, thread_ts, user, text)
-    elif any(kw in text_lower for kw in config.REMOVE_APPROVER_KEYWORDS):
+    elif cmd in config.REMOVE_APPROVER_KEYWORDS:
         ops.handle_remove_approver(client, say, channel, thread_ts, user, text)
-    elif any(kw in text_lower for kw in config.ADD_BUYER_KEYWORDS):
+    elif cmd in config.ADD_BUYER_KEYWORDS:
         ops.handle_add_buyer(client, say, channel, thread_ts, user, text)
-    elif any(kw in text_lower for kw in config.REMOVE_BUYER_KEYWORDS):
+    elif cmd in config.REMOVE_BUYER_KEYWORDS:
         ops.handle_remove_buyer(client, say, channel, thread_ts, user, text)
-    elif any(kw in text_lower for kw in config.REMOVE_VENDOR_KEYWORDS):
+    elif cmd in config.REMOVE_VENDOR_KEYWORDS:
         ops.handle_remove_vendor(client, say, channel, thread_ts, user, text)
-    elif any(kw in text_lower for kw in config.TEMPLATE_KEYWORDS):
+    elif cmd in config.TEMPLATE_KEYWORDS:
         ops.handle_template_command(client, say, channel, thread_ts, user)
-    elif any(kw in text_lower for kw in config.QUOTE_KEYWORDS):
+    elif cmd in config.QUOTE_KEYWORDS:
         lifecycle.handle_quote(client, say, channel, thread_ts, event_ts, files)
-    elif any(kw in text_lower for kw in config.ASSIGN_KEYWORDS):
+    elif cmd in config.ASSIGN_KEYWORDS:
         if group_mentions:
             say(text=f"⚠️ Cannot assign to a user group (<!subteam^{group_mentions[0]}>). Please name a specific person.", thread_ts=thread_ts)
             return
@@ -850,13 +850,13 @@ def dispatch_command(
             event_ts=event_ts,
             target_user_id=target_uid,
         )
-    elif any(kw in text_lower for kw in config.PROCESSED_KEYWORDS):
+    elif cmd in config.PROCESSED_KEYWORDS:
         lifecycle.handle_processed(client, say, channel, thread_ts, user, event_ts, text)
-    elif any(kw in text_lower for kw in config.CONFIRM_KEYWORDS):
+    elif cmd in config.CONFIRM_KEYWORDS:
         lifecycle.handle_confirmation(client, say, channel, thread_ts, user, event_ts, text, files)
-    elif any(kw in text_lower for kw in config.DELIVERED_KEYWORDS):
+    elif cmd in config.DELIVERED_KEYWORDS:
         lifecycle.handle_delivery(client, say, channel, thread_ts, user, event_ts, text)
-    elif config.TRIGGER_KEYWORD in text_lower or direct_file or any(w in text_lower for w in ("check", "test")):
+    elif cmd in config.APPROVAL_KEYWORDS or (direct_file and cmd is None):
         if not admin.is_approved_reviewer(user):
             log.warning("Unauthorized user %s attempted to approve purchase request", user)
             say(text="🔒 Only Charlie Hirst can approve purchase requests.", thread_ts=thread_ts)
@@ -924,6 +924,17 @@ def dispatch_command(
             direct_file=direct_file, direct_poster=user if direct_file else None,
             assignee_id=assignee_id, assignee_name=assignee_name, refusal_msg=refusal_msg,
         )
+    else:
+        # Unknown word
+        import string
+        tokens = stripped_text.strip().split()
+        punct = string.punctuation + "“”‘’…"
+        first_token = tokens[0].strip(punct) if tokens else None
+        reply_text = text_rules.format_unknown_keyword_message(first_token)
+        if respond and callable(respond):
+            slack_io.deny(respond, reply_text)
+        else:
+            say(text=reply_text, thread_ts=thread_ts)
 
 
 @app.event("app_mention")
@@ -935,9 +946,13 @@ def on_mention(event, client, say, context=None):
     event_ts = event["ts"]
     files = event.get("files", [])
     bot_user_id = context.get("bot_user_id") if context else None
+    respond = context.get("respond") if context else None
 
     log.info("Received app_mention from user %s in channel %s: '%s'", user, channel, text)
-    dispatch_command(client, say, channel, thread_ts, user, event_ts, text, files=files, bot_user_id=bot_user_id)
+    dispatch_command(
+        client, say, channel, thread_ts, user, event_ts, text,
+        files=files, bot_user_id=bot_user_id, respond=respond,
+    )
 
 
 @app.event("message")
@@ -953,6 +968,7 @@ def on_direct_message(event, client, say, context=None):
     text = event.get("text", "")
     channel_type = event.get("channel_type")
     bot_user_id = context.get("bot_user_id") if context else None
+    respond = context.get("respond") if context else None
 
     # If it is a Direct Message (DM)
     if channel_type == "im":
@@ -972,7 +988,7 @@ def on_direct_message(event, client, say, context=None):
 
         dispatch_command(
             client, say, channel, thread_ts, user, event_ts, text,
-            files=files, direct_file=direct_file, bot_user_id=bot_user_id,
+            files=files, direct_file=direct_file, bot_user_id=bot_user_id, respond=respond,
         )
         return
 

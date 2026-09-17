@@ -7,7 +7,7 @@ know gets a short reply naming the words it does.
 
 **Blocked by:** 12
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read before starting:** `CONTEXT.md`'s **Keyword** entry,
 `docs/adr/0004-assignment-replaces-claim.md` **decision 8** (binding, and the
@@ -83,25 +83,25 @@ indistinguishable from the bot being down.
 
 ## Acceptance criteria
 
-- [ ] `text_rules.parse_keyword` exists with the signature above and is pure
-- [ ] "@Purchasing can you check this?" writes nothing, calls **no** lifecycle
+- [x] `text_rules.parse_keyword` exists with the signature above and is pure
+- [x] "@Purchasing can you check this?" writes nothing, calls **no** lifecycle
       handler, and produces the unknown-word reply — all three asserted
-- [ ] "@Purchasing please take a look" and "@Purchasing waiting on confirmation"
+- [x] "@Purchasing please take a look" and "@Purchasing waiting on confirmation"
       likewise
-- [ ] `@Purchasing approved` still approves, and `@Purchasing submitted` still
+- [x] `@Purchasing approved` still approves, and `@Purchasing submitted` still
       marks processed — the documented aliases survive exact matching
-- [ ] A message mentioning a user whose Slack ID contains `log` or `submit` routes
+- [x] A message mentioning a user whose Slack ID contains `log` or `submit` routes
       on the typed word, not the ID (regression on ADR 0004 decision 8)
-- [ ] `@Purchasing remove buyer @user` matches as a two-word keyword, and
+- [x] `@Purchasing remove buyer @user` matches as a two-word keyword, and
       `@Purchasing remove` alone does not
-- [ ] The string `"test"` no longer appears in any approval keyword tuple, and a
+- [x] The string `"test"` no longer appears in any approval keyword tuple, and a
       test asserts a message containing "check" writes no row
-- [ ] An ordinary channel message with no mention produces **no** reply — assert on
+- [x] An ordinary channel message with no mention produces **no** reply — assert on
       the absence
-- [ ] The unknown-word reply arrives ephemerally via `deny` when the event carries
+- [x] The unknown-word reply arrives ephemerally via `deny` when the event carries
       a `response_url`, and in-thread on an `app_mention`
-- [ ] `CONTEXT.md`'s Keyword entry describes exact matching and the unknown-word reply
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `CONTEXT.md`'s Keyword entry describes exact matching and the unknown-word reply
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Out of scope
 
@@ -111,3 +111,31 @@ indistinguishable from the bot being down.
 - `remove-member`, which is a new two-word keyword. Ticket 20 adds it and relies
   on this ticket's two-word matching.
 - Natural-language understanding of any kind. One word, exactly.
+
+## Comments
+
+### 2026-09-17
+
+- Implemented `text_rules.parse_keyword(stripped_text: str) -> str | None`:
+  - Pure function that extracts the first word (or first two words for two-word admin phrases) from mention-stripped text.
+  - Strips surrounding punctuation while keeping hyphens inside words.
+  - Matches exactly against `config.ALL_KEYWORD_TUPLES`.
+  - Substrings inside longer words (e.g. `confirmation`, `quoted`) do not match.
+- Added `text_rules.format_unknown_keyword_message(word: str | None = None) -> str`:
+  - Returns friendly error message with canonical request-thread vocabulary (`approved · assign · processed · confirmed · delivered · quote · decline`).
+- Updated `src/config.py`:
+  - Added `APPROVAL_KEYWORDS = (TRIGGER_KEYWORD,)` containing `"approved"`.
+  - Added `ALL_KEYWORD_TUPLES` grouping all keyword tuples.
+- Refactored `dispatch_command` in `src/app.py`:
+  - Replaced substring matching with `cmd = text_rules.parse_keyword(stripped_text)`.
+  - Removed dangerous `any(w in text_lower for w in ("check", "test"))` trigger.
+  - Added `else:` branch routing unknown words to `format_unknown_keyword_message`.
+  - Sends unknown word replies via `slack_io.deny` when `respond` is available, and `say` in-thread on `app_mention`.
+  - Ordinary channel messages without mentions remain completely silent.
+- Updated `CONTEXT.md`:
+  - Added exact keyword matching description and unknown-word reply behavior.
+- Tests:
+  - Added `tests/test_16_exact_keywords.py` with 10 comprehensive tests covering all criteria.
+  - Updated AST count in `tests/test_12_denials.py` to account for the new deny call site in `dispatch_command`.
+  - Verified full test gate: `ruff check .` (clean), `python scripts/check_tests_first.py` (clean), `pytest -q` (235 passed, 31 skipped).
+
