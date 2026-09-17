@@ -570,6 +570,7 @@ def handle_req_approve_action(ack, body, respond, client):
         thread_ts=thread_ts,
         approver=user_id,
         event_ts=msg_ts,
+        posted_payload=req_data or None,
     )
 
 

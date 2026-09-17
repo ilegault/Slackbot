@@ -7,7 +7,7 @@ and the regex that rebuilt requests out of the bot's own prose is deleted.
 
 **Blocked by:** 13
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read before starting:** `.scratch/lifecycle-and-buyers/spec.md` §1 and §3.8 —
 they named this function a defect and ordered the prose-scraping branch deleted.
@@ -57,22 +57,22 @@ request approved from the card is not necessarily the request that was on the ca
 
 ## Acceptance criteria
 
-- [ ] `handle_epif_processing` accepts `posted_payload` and resolves sources in
+- [x] `handle_epif_processing` accepts `posted_payload` and resolves sources in
       the order in requirement 2
-- [ ] Approving a card posted by `/new-purchase` logs the item shown on that card,
+- [x] Approving a card posted by `/new-purchase` logs the item shown on that card,
       asserted by the **row values reaching `log_writer.build_row`** — not by
       asserting which lookup function ran
-- [ ] A thread containing a message whose text mimics the old
+- [x] A thread containing a message whose text mimics the old
       `🛒 *New Purchase Request` summary but carries **no** metadata produces no
       request and no row
-- [ ] The string `sales@vendor.com` appears nowhere in `src/`
-- [ ] `find_modal_request_in_thread` appears nowhere in `src/`; the metadata branch
+- [x] The string `sales@vendor.com` appears nowhere in `src/`
+- [x] `find_modal_request_in_thread` appears nowhere in `src/`; the metadata branch
       survives as `find_request_metadata_in_thread` and a test covers it
-- [ ] The keyword path (`@Purchasing approved` in a modal-posted card's thread,
+- [x] The keyword path (`@Purchasing approved` in a modal-posted card's thread,
       no button payload) still resolves through metadata and still writes the row
-- [ ] `find_row_in_thread` returns no row for a thread containing `Fund 133` and a
+- [x] `find_row_in_thread` returns no row for a thread containing `Fund 133` and a
       price, and does return the row for the bot's own `Logged to row 18` line
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
 
 ## Out of scope
 
@@ -84,3 +84,21 @@ request approved from the card is not necessarily the request that was on the ca
   not start it.
 - `src/store.py`. Invariant 3 is unchanged: the message is still the store.
 - The buyer picker, which reads this same button value. Ticket 17.
+
+## Comments
+
+### 2026-09-17
+
+- Added `posted_payload: dict | None = None` parameter to `lifecycle.handle_epif_processing`.
+- Updated `app.handle_req_approve_action` to pass `posted_payload=req_data or None`.
+- Structured resolution order in `handle_epif_processing`:
+  `direct_file` -> PDF found in thread -> `posted_payload` -> Slack metadata lookup -> couldn't find reply.
+- Deleted the regex prose-parsing branch in `slack_io` and renamed `find_modal_request_in_thread` to `find_request_metadata_in_thread`.
+- Narrowed `slack_io.find_row_in_thread` to match only `Logged to row N`, removing bare row matching.
+- Replaced placeholder in `src/blocks.py` so `sales@vendor.com` appears nowhere in `src/`.
+- Removed unused `interview` import from `slack_io.py`.
+- Added test suite `tests/test_14_approve_payload.py` with 9 tests covering all acceptance criteria and edge cases.
+- Full gate passed cleanly:
+  - `ruff check .` (clean)
+  - `python scripts/check_tests_first.py` (clean)
+  - `pytest -q --tb=short` (225 passed, 31 skipped)
