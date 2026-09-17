@@ -58,6 +58,7 @@ try:
         interview,
         lifecycle,
         ops,
+        path_validator,
         queue_worker,
         roster,
         slack_io,
@@ -71,6 +72,7 @@ except ImportError:
     import interview
     import lifecycle
     import ops
+    import path_validator
     import queue_worker
     import roster
     import slack_io
@@ -1146,8 +1148,12 @@ def main():
     log.info("Quotes Dir: %s", config.QUOTES_DIR)
     log.info("Admin Users: %s", config.ADMIN_SLACK_USER_IDS)
     log.info("Admin Alert Channel: %s", config.ADMIN_ALERT_CHANNEL or "Not configured")
+    log.info("Purchasing Channel: %s", config.PURCHASING_CHANNEL or "Not configured")
     log.info("Heartbeat URL: %s", config.HEALTHCHECK_URL or "Not configured")
     log.info("=" * 70)
+
+    # Validate channel configuration (Ticket 15: loud startup check)
+    path_validator.check_purchasing_channel()
 
     # 1. Start Lock Queue Worker
     queue_worker.start_queue_worker(client=app.client)

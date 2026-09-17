@@ -157,6 +157,11 @@ def check_monitoring_config():
     else:
         print("ℹ️  ADMIN_ALERT_CHANNEL not set (startup and crash alerts disabled)")
 
+    if getattr(config, "PURCHASING_CHANNEL", ""):
+        print(f"✅ Purchasing Channel: {config.PURCHASING_CHANNEL}")
+    else:
+        print("❌ PURCHASING_CHANNEL not set (New purchase requests will be refused)")
+
     if config.HEALTHCHECK_URL:
         print(f"✅ External Heartbeat: {config.HEALTHCHECK_URL} (Interval: {config.HEALTHCHECK_INTERVAL_SECONDS}s)")
     else:

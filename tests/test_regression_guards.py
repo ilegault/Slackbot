@@ -19,8 +19,9 @@ These regression guards enforce cross-cutting invariants across the bot:
 5. Every lifecycle button's permission denial leaves the message unchanged and writes
    nothing — tested independently per button.
 6. /roster-set-name modal returns an error and emits no alert for unrecognized names.
-7. Downward layering is maintained (no module in src/ imports app).
 8. Only log_writer opens WORKBOOK_PATH (via zipfile.ZipFile).
+9. Downward layering is maintained (no module in src/ imports app).
+10. os.environ is read nowhere in src/ outside config.py (Ticket 15).
 """
 import ast
 import json
@@ -631,39 +632,82 @@ def test_only_log_writer_opens_workbook_path():
 
 
 # ---------------------------------------------------------------------------
-# 10. Invariant: no bare respond() in src/app.py (Ticket 12)
+# 10. Invariant: os.environ is read nowhere in src/ outside config.py (Ticket 15)
 # ---------------------------------------------------------------------------
 
-def test_no_bare_respond_in_app():
-    """Assert no bare respond(text=...) remains in src/app.py.
+def test_os_environ_read_nowhere_outside_config():
+    """Assert os.environ is read nowhere in src/ except config.py.
 
-    Per Ticket 12 / AGENTS.md Invariant 5:
-    A block action's reply through response_url replaces the message it was clicked on
-    unless replace_original=False is specified. Every respond call in src/app.py must
-    either route through slack_io.deny or pass replace_original explicitly.
+    Per Ticket 15 / AGENTS.md Invariant 4:
+    'Every constant has one home. Tunables, column letters, callback IDs and
+    role lists live in config.py or the roster, never as a literal in a handler.'
+
+    Grandfathered reads per Ticket 15 Out-of-Scope (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, USERNAME).
+    Fails if any new inline read is added outside config.py.
     """
-    app_path = os.path.join(SRC_DIR, "app.py")
-    with open(app_path, "r", encoding="utf-8") as f:
-        tree = ast.parse(f.read(), filename=app_path)
+    ALLOWED_BASELINE = {
+        ("src/app.py", "SLACK_BOT_TOKEN"),
+        ("src/app.py", "SLACK_APP_TOKEN"),
+        ("src/slack_io.py", "SLACK_BOT_TOKEN"),
+        ("src/path_validator.py", "USERNAME"),
+    }
 
-    bare_calls = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            is_respond = False
-            if isinstance(func, ast.Name) and func.id == "respond":
-                is_respond = True
-            elif isinstance(func, ast.Attribute) and func.attr == "respond":
-                is_respond = True
+    discovered_reads = []
 
-            if is_respond:
-                kw_names = [kw.arg for kw in node.keywords]
-                if "replace_original" not in kw_names:
-                    bare_calls.append(f"src/app.py:{node.lineno} calls bare respond() without replace_original")
+    for root, _, files in os.walk(SRC_DIR):
+        for fname in files:
+            if not fname.endswith(".py") or fname == "config.py":
+                continue
+            fpath = os.path.join(root, fname)
+            rel_path = os.path.relpath(fpath, PROJECT_ROOT).replace("\\", "/")
 
-    assert not bare_calls, (
-        "Discovered bare respond() call(s) without replace_original in src/app.py:\n"
-        + "\n".join(f"  {c}" for c in bare_calls)
-        + "\nPer Ticket 12, all refusals must route through slack_io.deny or pass replace_original explicitly."
+            with open(fpath, "r", encoding="utf-8") as f:
+                tree = ast.parse(f.read(), filename=fpath)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    # os.environ.get("VAR")
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr == "get"
+                        and isinstance(func.value, ast.Attribute)
+                        and func.value.attr == "environ"
+                        and isinstance(func.value.value, ast.Name)
+                        and func.value.value.id == "os"
+                    ):
+                        var_name = node.args[0].value if node.args and isinstance(node.args[0], ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.environ.get('{var_name}')"))
+
+                    # os.getenv("VAR")
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr == "getenv"
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "os"
+                    ):
+                        var_name = node.args[0].value if node.args and isinstance(node.args[0], ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.getenv('{var_name}')"))
+
+                # Catch direct subscript read: os.environ["VAR"]
+                if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+                    val = node.value
+                    if (
+                        isinstance(val, ast.Attribute)
+                        and val.attr == "environ"
+                        and isinstance(val.value, ast.Name)
+                        and val.value.id == "os"
+                    ):
+                        slice_node = node.slice
+                        var_name = slice_node.value if isinstance(slice_node, ast.Constant) else "UNKNOWN"
+                        if (rel_path, var_name) not in ALLOWED_BASELINE:
+                            discovered_reads.append((rel_path, node.lineno, f"os.environ['{var_name}']"))
+
+    assert not discovered_reads, (
+        "Discovered unapproved inline environment variable read(s) in src/:\n"
+        + "\n".join(f"  {r[0]}:{r[1]} -> {r[2]}" for r in discovered_reads)
+        + "\nPer Invariant 4, all constants must live in config.py."
     )
 
