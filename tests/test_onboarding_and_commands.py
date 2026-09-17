@@ -649,35 +649,37 @@ def test_roster_set_name_modal_submission(monkeypatch):
     client = MagicMock()
     monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
 
-    # 1. Name outside VALID_REQUESTERS -> modal error, no alert
-    view_invalid = {
-        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "InvalidNonExistentName"}}}},
+    # 1. Name already held by another member -> modal error, no alert
+    roster.add_requester("U_EXISTING", "Isaac")
+    view_held = {
+        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "Isaac"}}}},
         "private_metadata": json.dumps({"user_id": "U_NEW", "channel_id": "C_MAIN"}),
     }
-    app.handle_roster_set_name_submit(ack, {"user": {"id": "U_NEW"}}, client, view_invalid)
+    app.handle_roster_set_name_submit(ack, {"user": {"id": "U_NEW"}}, client, view_held)
     ack.assert_called_once()
     assert ack.call_args[1]["response_action"] == "errors"
+    assert "already held" in ack.call_args[1]["errors"]["block_proposed_name"]
     client.chat_postMessage.assert_not_called()
 
-    # 2. User already in roster -> responds ephemerally/DM, no alert
-    roster.add_requester("U_EXISTING", "Isaac")
+    # 2. User already in roster submits normalization -> applied immediately, DM sent, no alert
     ack.reset_mock()
     client.reset_mock()
     view_existing = {
-        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "Isaac"}}}},
+        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "  isaac "}}}},
         "private_metadata": json.dumps({"user_id": "U_EXISTING", "channel_id": "C_MAIN"}),
     }
     app.handle_roster_set_name_submit(ack, {"user": {"id": "U_EXISTING"}}, client, view_existing)
     ack.assert_called_once_with()
-    client.chat_postMessage.assert_not_called()
-    client.chat_postEphemeral.assert_called_once()
-    assert "already registered" in client.chat_postEphemeral.call_args[1]["text"]
+    client.chat_postMessage.assert_called_once()
+    assert client.chat_postMessage.call_args[1]["channel"] == "U_EXISTING"
+    assert "updated" in client.chat_postMessage.call_args[1]["text"]
+    assert roster.get_requesters()["U_EXISTING"] == "isaac"
 
     # 3. Valid new user -> posts alert to ADMIN_ALERT_CHANNEL with approve_new_requester button
     ack.reset_mock()
     client.reset_mock()
     view_valid_new = {
-        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "Dylan"}}}},
+        "state": {"values": {"block_proposed_name": {"proposed_name": {"value": "Alice"}}}},
         "private_metadata": json.dumps({"user_id": "U_BRAND_NEW", "channel_id": "C_MAIN"}),
     }
     app.handle_roster_set_name_submit(ack, {"user": {"id": "U_BRAND_NEW"}}, client, view_valid_new)
@@ -690,7 +692,8 @@ def test_roster_set_name_modal_submission(monkeypatch):
     assert btn["action_id"] == "approve_new_requester"
     val = json.loads(btn["value"])
     assert val["slack_id"] == "U_BRAND_NEW"
-    assert val["name"] == "Dylan"
+    assert val["name"] == "Alice"
+
 
 
 # ==============================================================================

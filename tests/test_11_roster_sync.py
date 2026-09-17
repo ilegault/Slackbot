@@ -443,19 +443,23 @@ def test_x14_conditional_formatting_survives_sync(tmp_path, clean_roster, monkey
 def test_roster_set_name_accepts_hansel_and_zehui(clean_roster, monkeypatch):
     monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
     client = MagicMock()
+    requesters = roster.get_requesters()
+    name_to_id = {n: uid for uid, n in requesters.items()}
 
     for name in ("Hansel", "Zehui"):
+        user_id = name_to_id.get(name, f"U_{name.upper()}")
         ack = MagicMock()
         view = {
             "state": {"values": {"block_proposed_name": {"proposed_name": {"value": name}}}},
-            "private_metadata": json.dumps({"user_id": f"U_{name.upper()}", "channel_id": "C_MAIN"}),
+            "private_metadata": json.dumps({"user_id": user_id, "channel_id": "C_MAIN"}),
         }
-        app.handle_roster_set_name_submit(ack, {"user": {"id": f"U_{name.upper()}"}}, client, view)
+        app.handle_roster_set_name_submit(ack, {"user": {"id": user_id}}, client, view)
 
         # ack() called with no errors (or ack.call_args[1].get("response_action") != "errors")
         ack.assert_called_once()
         call_kwargs = ack.call_args[1]
         assert call_kwargs.get("response_action") != "errors", f"{name} was rejected by modal validation"
+
 
 
 def test_valid_requesters_appears_nowhere_in_src():
