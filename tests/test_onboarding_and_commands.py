@@ -261,6 +261,7 @@ def test_screen2_to_screen3_or_finalize(monkeypatch):
     body = {"user": {"id": "U123"}}
     client = MagicMock()
     monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
+    monkeypatch.setattr(config, "PURCHASING_CHANNEL", "C_PURCHASING")
 
     # 1. Fabrication category -> updates view to Screen 3
     view_fab = {
@@ -329,6 +330,7 @@ def test_screen3_to_finalize(monkeypatch):
     body = {"user": {"id": "U123"}}
     client = MagicMock()
     monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ALERTS")
+    monkeypatch.setattr(config, "PURCHASING_CHANNEL", "C_PURCHASING")
 
     view_stage3 = {
         "state": {
