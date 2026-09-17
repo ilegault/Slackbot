@@ -27,6 +27,7 @@ def test_roster_first_run_seeding(temp_roster_file):
     data = roster.load_roster()
     assert os.path.exists(temp_roster_file)
     assert "requesters" in data
+    assert set(data["requesters"].values()) == set(roster.DEFAULT_VALID_REQUESTERS)
     assert "admins" in data
     assert "approvers" in data
     assert "buyers" in data
@@ -34,6 +35,81 @@ def test_roster_first_run_seeding(temp_roster_file):
     assert "vendors" in data
     assert "U07L2RFEPJ9" in data["approvers"]
     assert "Fisher Scientific" in data["vendors"]
+
+    # Assert seeded file's contents on disk
+    with open(temp_roster_file, "r", encoding="utf-8") as f:
+        disk_data = json.load(f)
+    assert set(disk_data["requesters"].values()) == set(roster.DEFAULT_VALID_REQUESTERS)
+
+
+def test_get_valid_requesters_returns_exactly_roster_names_for_single_name(tmp_path, monkeypatch):
+    """get_valid_requesters() returns exactly the roster's names for a roster file containing one name."""
+    custom_roster_path = str(tmp_path / "single_member_roster.json")
+    with open(custom_roster_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "requesters": {"U_ALICE": "Alice"},
+            "admins": [],
+            "approvers": ["U07L2RFEPJ9"],
+            "buyers": [],
+            "vendors": [],
+        }, f)
+    monkeypatch.setattr(roster, "ROSTER_PATH", custom_roster_path)
+
+    valid_names = roster.get_valid_requesters()
+    assert valid_names == {"Alice"}
+
+
+def test_name_in_default_valid_requesters_not_in_roster_does_not_validate(tmp_path, monkeypatch):
+    """A name in DEFAULT_VALID_REQUESTERS but not in roster.json does not validate."""
+    custom_roster_path = str(tmp_path / "custom_roster.json")
+    with open(custom_roster_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "requesters": {"U_BOB": "Bob"},
+            "admins": [],
+            "approvers": ["U07L2RFEPJ9"],
+            "buyers": [],
+            "vendors": [],
+        }, f)
+    monkeypatch.setattr(roster, "ROSTER_PATH", custom_roster_path)
+
+    valid_names = roster.get_valid_requesters()
+    assert "Bob" in valid_names
+    for seed_name in roster.DEFAULT_VALID_REQUESTERS:
+        assert seed_name not in valid_names
+
+
+def test_default_valid_requesters_referenced_only_in_get_initial_seed():
+    """Source scan asserting DEFAULT_VALID_REQUESTERS is referenced only inside _get_initial_seed."""
+    import ast
+
+    roster_file = os.path.join(SRC_DIR, "roster.py")
+    with open(roster_file, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=roster_file)
+
+    references = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name) and child.id == "DEFAULT_VALID_REQUESTERS":
+                    references.append((node.name, child.lineno))
+
+    assert len(references) > 0, "DEFAULT_VALID_REQUESTERS should be referenced in _get_initial_seed"
+    for func_name, lineno in references:
+        assert func_name == "_get_initial_seed", (
+            f"DEFAULT_VALID_REQUESTERS referenced at line {lineno} in function '{func_name}', "
+            "but must only be referenced inside '_get_initial_seed'."
+        )
+
+    for root, _, files in os.walk(SRC_DIR):
+        for fname in files:
+            if not fname.endswith(".py") or fname == "roster.py":
+                continue
+            fpath = os.path.join(root, fname)
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+            assert "DEFAULT_VALID_REQUESTERS" not in content, (
+                f"{fname} references DEFAULT_VALID_REQUESTERS; it must only be in roster.py"
+            )
 
 
 def test_roster_backfill_missing_buyers_key(tmp_path, monkeypatch):

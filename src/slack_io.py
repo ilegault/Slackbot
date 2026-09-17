@@ -6,6 +6,13 @@ Wraps Slack API client interactions for finding messages in threads, resolving
 user names against roster/Slack profiles, downloading file attachments using
 bot authentication, and logging rejections.
 
+Ticket 12 adds `deny()`: in Slack Bolt, calling respond(text=...) from a block action
+listener defaults to replacing the message the button was clicked on. When an
+unauthorized user clicked Approve or another stage button, the purchase request card
+disappeared from the channel, replaced by a padlock error visible only to that user.
+`deny()` ensures all permission refusals and informational responses use
+response_type="ephemeral" and replace_original=False, leaving the request card intact.
+
 Imports:
     - config, epif_parser, interview, roster, text_rules
 May NOT import:
@@ -29,6 +36,11 @@ except ImportError:
     import roster
 
 log = logging.getLogger("p-bot")
+
+
+def deny(respond, text: str) -> None:
+    """Reply privately to whoever acted, leaving the original message intact."""
+    respond(text=text, response_type="ephemeral", replace_original=False)
 
 
 def resolve_requester(client, user_id: str | None) -> str | None:

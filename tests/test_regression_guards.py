@@ -333,14 +333,18 @@ def test_permission_denial_req_approve():
     body = _make_button_body("req_approve", user_id="U_NON_APPROVER", state="posted")
 
     with patch.object(admin, "is_approved_reviewer", return_value=False), \
+         patch("src.lifecycle.handle_epif_processing") as mock_handle_epif, \
          patch.object(log_writer, "append_row") as mock_append:
         app.handle_req_approve_action(ack, body, respond, client)
 
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only authorized approvers" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
+    mock_handle_epif.assert_not_called()
     mock_append.assert_not_called()
 
 
@@ -372,6 +376,8 @@ def test_permission_denial_req_processed_unassigned():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "must be assigned to a buyer" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
 
@@ -405,6 +411,8 @@ def test_permission_denial_req_processed_non_assignee():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only the assigned buyer" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
 
@@ -423,6 +431,8 @@ def test_permission_denial_req_processed():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_processed.assert_not_called()
@@ -442,6 +452,8 @@ def test_permission_denial_req_confirmed():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_confirmation.assert_not_called()
@@ -461,6 +473,8 @@ def test_permission_denial_req_delivered():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "You must be registered in the lab roster" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_delivery.assert_not_called()
@@ -480,6 +494,8 @@ def test_permission_denial_req_decline():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only authorized approvers can decline purchase requests" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_decline.assert_not_called()
@@ -500,6 +516,8 @@ def test_permission_denial_req_cancel():
     ack.assert_called_once()
     respond.assert_called_once()
     assert "Only approvers and admins can cancel purchase requests" in respond.call_args[1]["text"]
+    assert respond.call_args[1].get("replace_original") is False
+    assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()
     client.chat_postMessage.assert_not_called()
     mock_blank.assert_not_called()
