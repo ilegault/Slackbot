@@ -24,12 +24,13 @@ for p in (PROJECT_ROOT, SRC_DIR):
         sys.path.insert(0, p)
 
 try:
-    from src import admin, app, lifecycle, log_writer
+    from src import admin, app, lifecycle, log_writer, roster
 except ImportError:
     import admin
     import app
     import lifecycle
     import log_writer
+    import roster
 
 SAMPLES = os.path.join(PROJECT_ROOT, "samples")
 WORKBOOK = os.path.join(SAMPLES, "Purchasing-Log.xlsx")
@@ -116,25 +117,58 @@ def test_decline_removes_buttons():
     assert action_blocks == [], "declined message must have no action buttons"
 
 
-def test_decline_restricted_to_approvers():
-    """req_decline click from a non-approver is refused; message is not updated."""
+def test_decline_restricted_to_approvers_and_buyers():
+    """req_decline click from someone who is neither approver nor buyer is refused; message is not updated."""
     ack = MagicMock()
     respond = MagicMock()
     client = MagicMock()
 
     body = {
-        "user": {"id": "U_BUYER"},
+        "user": {"id": "U_RANDO"},
         "channel": {"id": "C_PURCHASE"},
         "message": {"ts": "1.0"},
         "actions": [{"value": json.dumps({"request": {}, "history": []})}],
     }
 
-    with patch.object(admin, "is_approved_reviewer", return_value=False):
+    with patch.object(admin, "is_approved_reviewer", return_value=False), \
+         patch.object(roster, "is_buyer", return_value=False):
         app.handle_req_decline_action(ack, body, respond, client)
 
     ack.assert_called_once()
     respond.assert_called_once()
     client.chat_update.assert_not_called()
+
+
+def test_buyer_can_decline_posted_request():
+    """A buyer who is not an approver can decline: the card flips to declined with no buttons."""
+    ack = MagicMock()
+    respond = MagicMock()
+    client = MagicMock()
+    client.users_info.return_value = {"user": {"real_name": "Bea Buyer"}}
+
+    req = {"parsed": {"item_description": "Widget", "total_price": 10.0}, "requester": "Isaac", "user_id": "U_REQ"}
+    body = {
+        "user": {"id": "U_BUYER"},
+        "channel": {"id": "C_PURCHASE"},
+        "message": {"ts": "1.0"},
+        "actions": [{"value": json.dumps({"request": req, "history": []})}],
+    }
+
+    with patch.object(admin, "is_approved_reviewer", return_value=False), \
+         patch.object(roster, "is_buyer", side_effect=lambda uid: uid == "U_BUYER"), \
+         patch.object(log_writer, "append_row") as mock_append:
+        app.handle_req_decline_action(ack, body, respond, client)
+
+    ack.assert_called_once()
+    respond.assert_not_called()
+    client.chat_update.assert_called_once()
+    kwargs = client.chat_update.call_args.kwargs
+    assert kwargs["channel"] == "C_PURCHASE"
+    assert kwargs["ts"] == "1.0"
+    assert "Declined" in kwargs["text"]
+    action_blocks = [b for b in kwargs["blocks"] if b.get("type") == "actions"]
+    assert action_blocks == [], "declined message must have no action buttons"
+    mock_append.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

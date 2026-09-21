@@ -41,7 +41,7 @@ _INTERFACE_RULE = (
 )
 
 _BUTTON_LIST = (
-    "• Click the action buttons on the request message: *Approve* or *Decline* (approvers), "
+    "• Click the action buttons on the request message: *Approve* (approvers) or *Decline* (approvers and buyers), "
     "*Mark Processed*, *Mark Confirmed*, and *Mark Delivered* (the assigned buyer or an admin).\n"
     "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
     "• Drop quote files or confirmation receipts directly into the thread to attach them.\n\n"
