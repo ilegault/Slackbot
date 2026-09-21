@@ -67,7 +67,9 @@ _STAGE_DEFINITIONS = (
 _ADMIN_COMMANDS = (
     "• `@Purchasing health` / `@Purchasing status` — View system health, host uptime, and storage status.\n"
     "• `@Purchasing queue` — View Excel lock write queue status.\n"
-    "• `@Purchasing logs [n]` — _(Admin Only)_ View recent bot log entries.\n"
+    "• `@Purchasing logs [n]` — _(Admin Only, alert channel)_ Last *n* lines (default 30); long output arrives as a file.\n"
+    "• `@Purchasing logs all` — _(Admin Only, alert channel)_ The whole current log file.\n"
+    "• `@Purchasing logs rejections` — _(Admin Only, alert channel)_ The whole rejections log.\n"
     "• `@Purchasing update` — _(Admin Only)_ Pull latest git code and restart bot.\n"
     "• `@Purchasing restart` — _(Admin Only)_ Gracefully restart the bot process.\n"
     "• `@Purchasing promote-admin @user` — _(Admin Only)_ Propose promoting a user to bot administrator.\n"

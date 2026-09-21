@@ -3,9 +3,17 @@
 Provides:
 - In-Slack System Health & Diagnostics (@p-bot health / status)
 - Excel Lock Queue Status (@p-bot queue)
-- Remote Log Viewer (@p-bot logs [n])
+- Remote Log Viewer (@p-bot logs [n], logs all, logs rejections)
 - Remote Git Update (@p-bot update)
 - Remote Bot Restart (@p-bot restart)
+
+WHY THIS EXISTS:
+----------------
+Ticket 23 / Spec Part A:
+Unified log reader and masking function for remote diagnosis via Slack alert channel.
+Removes arbitrary 100-line clamp on tail requests, supports whole-file reads of
+p_bot.log and rejections.log, and ensures sensitive tokens and webhook URLs are
+consistently masked across inline posts and file uploads.
 """
 import logging
 import os
@@ -285,28 +293,53 @@ def build_health_blocks(health: Optional[Dict[str, Any]] = None) -> List[Dict[st
     return blocks
 
 
+def mask_sensitive_tokens(text: str) -> str:
+    """Mask Slack bot tokens, app tokens, and webhook URLs in text."""
+    masked = re.sub(r"xoxb-[a-zA-Z0-9-]+", "xoxb-***MASKED***", text)
+    masked = re.sub(r"xapp-[a-zA-Z0-9-]+", "xapp-***MASKED***", masked)
+    masked = re.sub(r"https://hooks\.slack\.com/services/[^\s]+", "https://hooks.slack.com/services/***MASKED***", masked)
+    return masked
+
+
+def read_log_file(path: str, n: Optional[int] = None) -> Tuple[str, int]:
+    """Read a log file, returning (masked_text, line_count).
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 23 (Part A):
+    Unified reader for tail or whole log files. Unlike legacy get_tail_logs,
+    this does not clamp line count to 100 and returns the exact line count
+    so callers can distinguish requested lines from actual lines.
+    Raises FileNotFoundError if file is missing, or OSError on read failure.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Log file not found at `{path}`.")
+
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+
+    if n is not None:
+        n = max(1, n)
+        tail_lines = lines[-n:] if len(lines) >= n else lines
+    else:
+        tail_lines = lines
+
+    line_count = len(tail_lines)
+    raw_text = "".join(tail_lines)
+    return mask_sensitive_tokens(raw_text), line_count
+
+
 def get_tail_logs(n: int = 30, log_path: Optional[str] = None) -> str:
     """Read the last n lines from p_bot.log with sensitive tokens masked."""
     target_path = log_path or config.LOG_FILE
-    n = max(1, min(100, n))
-
-    if not os.path.exists(target_path):
-        return f"Log file not found at `{target_path}`."
-
+    n = max(1, n)
     try:
-        with open(target_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-            tail_lines = lines[-n:] if len(lines) >= n else lines
-            raw_text = "".join(tail_lines)
+        masked_text, _ = read_log_file(target_path, n=n)
+        return masked_text
+    except FileNotFoundError:
+        return f"Log file not found at `{target_path}`."
     except Exception as e:
         return f"Error reading log file: {e}"
-
-    # Mask sensitive tokens (Slack tokens, webhook URLs, etc.)
-    masked_text = re.sub(r"xoxb-[a-zA-Z0-9-]+", "xoxb-***MASKED***", raw_text)
-    masked_text = re.sub(r"xapp-[a-zA-Z0-9-]+", "xapp-***MASKED***", masked_text)
-    masked_text = re.sub(r"https://hooks\.slack\.com/services/[^\s]+", "https://hooks.slack.com/services/***MASKED***", masked_text)
-
-    return masked_text
 
 
 def _get_current_branch() -> str:

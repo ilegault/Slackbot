@@ -189,6 +189,8 @@ flow rather than moving to the alert channel, and they are consistent about it.
 
 **Alert channel** — where the bot raises things an admin has to decide (a new
 requester, a new vendor, a pending name confirmation). Not for notifications.
+It is also the only place the `logs` keyword answers, because logs carry names
+and purchase details.
 
 ---
 
