@@ -16,7 +16,7 @@ import os
 import re
 
 try:
-    from . import admin, config, log_writer, queue_worker, roster, slack_io
+    from . import admin, config, log_writer, queue_worker, roster, slack_io, text_rules
 except ImportError:
     import admin
     import config
@@ -24,6 +24,7 @@ except ImportError:
     import queue_worker
     import roster
     import slack_io
+    import text_rules
 
 log = logging.getLogger("p-bot")
 
@@ -71,25 +72,126 @@ def handle_queue_status(client, say, channel: str, thread_ts: str):
 
 
 def handle_logs(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Show tail of application logs to authorized administrators."""
+    """Show tail or full log files to authorized administrators in the alert channel.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 23 / Spec Part A:
+    Logs carry names, Slack IDs, and purchase details. To prevent leakage:
+    1. Caller must be an authorized admin (admin.is_admin_user).
+    2. config.ADMIN_ALERT_CHANNEL must be configured.
+    3. Command must be executed in config.ADMIN_ALERT_CHANNEL.
+    Tail <= 2,800 chars is posted inline with header containing actual line count k.
+    Tail > 2,800 chars, 'all' (whole p_bot.log), and 'rejections' (whole rejections.log)
+    are uploaded via client.files_upload_v2 into the thread.
+    No 100-line clamp; tokens and webhook URLs are masked.
+    """
+    # 1. Admin permission check
     if not admin.is_admin_user(user_id):
         log.warning("Unauthorized user %s attempted to run '@p-bot logs'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
-    # Extract optional line count (default 30, max 100)
-    match = re.search(r"\blogs?\s+(\d+)\b", text, re.I)
-    n = int(match.group(1)) if match else 30
-    n = max(1, min(100, n))
+    # 2. Alert channel configured check
+    alert_channel = getattr(config, "ADMIN_ALERT_CHANNEL", None)
+    if not alert_channel:
+        say(
+            text="⚠️ Logs are unavailable: ADMIN_ALERT_CHANNEL is not set in the bot's .env.",
+            thread_ts=thread_ts,
+        )
+        return
 
-    log_tail = admin.get_tail_logs(n=n)
-    if len(log_tail) > 2800:
-        log_tail = log_tail[-2800:]
+    # 3. Channel restriction check
+    if channel != alert_channel:
+        say(
+            text=f"🔒 Logs are only available in <#{alert_channel}>.",
+            thread_ts=thread_ts,
+        )
+        return
 
-    say(
-        text=f"📋 *Recent Bot Logs (Last {n} lines):*\n```\n{log_tail}\n```",
-        thread_ts=thread_ts,
-    )
+    # 4. Parse the form from text
+    stripped_text, _, _ = text_rules.parse_mentions(text)
+    tokens = stripped_text.strip().split()
+    remaining = tokens[1:] if len(tokens) > 1 else []
+
+    target_file = None
+    tail_n = None
+    is_tail = False
+    filename = None
+    comment = None
+    arg_lower = None
+
+    if len(remaining) == 0:
+        is_tail = True
+        tail_n = 30
+        target_file = config.LOG_FILE
+    elif len(remaining) == 1:
+        arg = remaining[0]
+        arg_lower = arg.lower()
+        if arg_lower == "all":
+            target_file = config.LOG_FILE
+            filename = "p_bot.log"
+        elif arg_lower == "rejections":
+            target_file = config.REJECTIONS_LOG_FILE
+            filename = "rejections.log"
+        elif re.fullmatch(r"-?\d+", arg):
+            is_tail = True
+            tail_n = max(1, int(arg))
+            target_file = config.LOG_FILE
+        else:
+            say(
+                text="Unknown logs option. Use `logs [n]`, `logs all`, or `logs rejections`.",
+                thread_ts=thread_ts,
+            )
+            return
+    else:
+        say(
+            text="Unknown logs option. Use `logs [n]`, `logs all`, or `logs rejections`.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    # Read the log file
+    try:
+        masked_text, k = admin.read_log_file(target_file, n=tail_n if is_tail else None)
+    except FileNotFoundError:
+        say(text=f"Log file not found at `{target_file}`.", thread_ts=thread_ts)
+        return
+    except Exception as e:
+        say(text=f"Error reading log file: {e}", thread_ts=thread_ts)
+        return
+
+    # Decide delivery method
+    if is_tail and len(masked_text) <= 2800:
+        say(
+            text=f"📋 *Recent Bot Logs (Last {k} lines):*\n```\n{masked_text}\n```",
+            thread_ts=thread_ts,
+        )
+        return
+
+    # Upload as file in thread
+    if is_tail:
+        filename = f"p_bot_last_{k}_lines.log"
+        comment = f"📋 Last {k} lines of p_bot.log (too long to post inline)."
+    elif arg_lower == "all":
+        filename = "p_bot.log"
+        comment = f"📋 Full p_bot.log ({k} lines)."
+    elif arg_lower == "rejections":
+        filename = "rejections.log"
+        comment = f"📋 Full rejections.log ({k} lines)."
+
+    try:
+        client.files_upload_v2(
+            channel=channel,
+            thread_ts=thread_ts,
+            content=masked_text,
+            filename=filename,
+            title=filename,
+            initial_comment=comment,
+        )
+    except Exception as e:
+        log.warning("Could not upload %s: %s", filename, e, exc_info=True)
+        say(text=f"⚠️ Could not upload {filename}: {e}", thread_ts=thread_ts)
 
 
 def handle_update(client, say, channel: str, thread_ts: str, user_id: str):

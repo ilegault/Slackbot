@@ -363,6 +363,7 @@ def test_dispatch_logs_restricted_to_admins():
     mock_client = MagicMock()
     mock_say = MagicMock()
     config.ADMIN_SLACK_USER_IDS = ["U_ADMIN"]
+    config.ADMIN_ALERT_CHANNEL = "C123"
 
     # Non-admin call
     app.dispatch_command(
