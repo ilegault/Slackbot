@@ -122,8 +122,12 @@ Once running, administrators (defined in `ADMIN_SLACK_USER_IDS`) can manage the 
 ### 3. Remote Log Viewer
 ```
 @p-bot logs 50
+@p-bot logs all
+@p-bot logs rejections
 ```
-- Displays the last 50 lines of `p_bot.log` inside Slack with sensitive tokens masked.
+- `logs [n]` shows the last *n* lines of `p_bot.log` (default 30); long output is uploaded as a file.
+- `logs all` uploads the whole current `p_bot.log`; `logs rejections` uploads the whole `rejections.log`.
+- Admin only, and only in the admin alert channel (`ADMIN_ALERT_CHANNEL`). Sensitive tokens are masked.
 
 ### 4. Health & Lock Queue Diagnostics (Accessible to all lab members)
 ```

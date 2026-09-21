@@ -191,7 +191,18 @@ def handle_logs(client, say, channel: str, thread_ts: str, user_id: str, text: s
         )
     except Exception as e:
         log.warning("Could not upload %s: %s", filename, e, exc_info=True)
-        say(text=f"⚠️ Could not upload {filename}: {e}", thread_ts=thread_ts)
+        if "missing_scope" in str(e):
+            # The Slack app lacks files:write — a settings fix, not a code bug.
+            say(
+                text=(
+                    f"⚠️ Could not upload {filename}: the Slack app is missing the `files:write` scope. "
+                    "Add it under *OAuth & Permissions → Bot Token Scopes* at api.slack.com/apps, "
+                    "then reinstall the app to the workspace."
+                ),
+                thread_ts=thread_ts,
+            )
+        else:
+            say(text=f"⚠️ Could not upload {filename}: {e}", thread_ts=thread_ts)
 
 
 def handle_update(client, say, channel: str, thread_ts: str, user_id: str):

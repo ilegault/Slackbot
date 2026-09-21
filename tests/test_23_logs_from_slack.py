@@ -388,6 +388,37 @@ def test_logs_upload_exception(tmp_path, monkeypatch):
     )
 
 
+def test_logs_upload_missing_scope_names_the_fix(tmp_path, monkeypatch):
+    """A missing files:write scope tells the admin exactly which Slack setting to fix."""
+    log_file, _ = _setup_env(tmp_path, monkeypatch)
+    log_file.write_text("one line\n", encoding="utf-8")
+
+    mock_client = MagicMock()
+    mock_client.files_upload_v2.side_effect = Exception(
+        "The request to the Slack API failed. (url: https://slack.com/api/files.getUploadURLExternal)\n"
+        "The server responded with: {'ok': False, 'error': 'missing_scope', 'needed': 'files:write'}"
+    )
+    mock_say = MagicMock()
+
+    app.dispatch_command(
+        client=mock_client,
+        say=mock_say,
+        channel="C_ALERT",
+        thread_ts="123.456",
+        user="U_ADMIN",
+        event_ts="123.456",
+        text="@Purchasing logs all",
+    )
+
+    mock_say.assert_called_once()
+    text = mock_say.call_args.kwargs["text"]
+    assert "p_bot.log" in text
+    assert "`files:write`" in text
+    assert "reinstall" in text
+    assert "OAuth & Permissions" in text
+    assert "getUploadURLExternal" not in text, "raw API dump should be replaced by the plain fix"
+
+
 def test_logs_default_30_and_boundary_numbers(tmp_path, monkeypatch):
     log_file, _ = _setup_env(tmp_path, monkeypatch)
     lines = [f"Entry {i}\n" for i in range(1, 50)]

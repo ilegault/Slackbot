@@ -19,7 +19,9 @@ An automated Slack purchasing bot and Excel integration system for the Hirst Lab
 - `@p-bot quote` — Saves an attached quote PDF/file directly to `Purchasing/Quotes/`.
 - `@p-bot health` / `@p-bot status` — Displays host uptime, disk space, storage connectivity, and Excel lock status.
 - `@p-bot queue` — Displays pending write tasks in the automatic Excel lock retry queue.
-- `@p-bot logs [n]` — _(Admin Only)_ Displays the last `n` lines of application logs directly in Slack.
+- `@p-bot logs [n]` — _(Admin Only, alert channel)_ Last `n` lines of `p_bot.log` (default 30); long output arrives as a file.
+- `@p-bot logs all` — _(Admin Only, alert channel)_ The whole current `p_bot.log`, uploaded as a file.
+- `@p-bot logs rejections` — _(Admin Only, alert channel)_ The whole `rejections.log`, uploaded as a file.
 - `@p-bot update` — _(Admin Only)_ Pulls latest git updates, updates dependencies, and restarts the bot.
 - `@p-bot restart` — _(Admin Only)_ Gracefully restarts the bot process.
 - `@p-bot help` — Displays the command reference.

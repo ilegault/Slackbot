@@ -173,7 +173,7 @@ The bot needs access to three OneDrive-synced locations:
 
 ### Bot runs but doesn't respond to Slack messages
 1. Verify bot is invited to the #hirst-lab channel
-2. Check that bot has `files:read` scope in API settings
+2. Check that bot has `files:read` and `files:write` scopes in API settings (`files:write` is needed for `logs all`, `logs rejections`, long `logs [n]`, and `/blank-template`)
 3. Ensure bot tokens are correct in `.env`
 4. Check bot logs for connection errors
 
