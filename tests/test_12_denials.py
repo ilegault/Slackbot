@@ -229,8 +229,8 @@ BUTTON_DENIAL_SCENARIOS = [
         "req_decline",
         app.handle_req_decline_action,
         lambda: _make_button_body("req_decline", state="posted"),
-        [(admin, "is_approved_reviewer", False)],
-        "authorized approvers",
+        [(admin, "is_approved_reviewer", False), (roster, "is_buyer", False)],
+        "approvers and buyers",
         (lifecycle, "handle_decline"),
     ),
     (

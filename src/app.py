@@ -715,15 +715,16 @@ def handle_req_processed_action(ack, body, respond, client):
 
 @app.action("req_decline")
 def handle_req_decline_action(ack, body, respond, client):
-    """Handle clicking 'Decline' button on a posted purchase request message."""
+    """Handle clicking 'Decline' on a posted request. Allowed for approvers and buyers."""
     ack()
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
     msg_ts = body.get("message", {}).get("ts")
 
-    if not admin.is_approved_reviewer(user_id):
+    # Approvers and buyers may both decline a posted request.
+    if not (admin.is_approved_reviewer(user_id) or roster.is_buyer(user_id)):
         log.warning("Unauthorized user %s attempted to decline purchase request", user_id)
-        slack_io.deny(respond, "🔒 Only authorized approvers can decline purchase requests.")
+        slack_io.deny(respond, "🔒 Only approvers and buyers can decline purchase requests.")
         return
 
     action = body.get("actions", [{}])[0]

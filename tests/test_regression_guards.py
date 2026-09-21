@@ -479,19 +479,20 @@ def test_permission_denial_req_delivered():
 
 
 def test_permission_denial_req_decline():
-    """req_decline clicked by non-approver leaves message unchanged and writes nothing."""
+    """req_decline clicked by a non-approver non-buyer leaves message unchanged and writes nothing."""
     ack = MagicMock()
     respond = MagicMock()
     client = MagicMock()
     body = _make_button_body("req_decline", user_id="U_NON_APPROVER", state="posted")
 
     with patch.object(admin, "is_approved_reviewer", return_value=False), \
+         patch("src.roster.is_buyer", return_value=False), \
          patch("src.lifecycle.handle_decline") as mock_decline:
         app.handle_req_decline_action(ack, body, respond, client)
 
     ack.assert_called_once()
     respond.assert_called_once()
-    assert "Only authorized approvers can decline purchase requests" in respond.call_args[1]["text"]
+    assert "Only approvers and buyers can decline purchase requests" in respond.call_args[1]["text"]
     assert respond.call_args[1].get("replace_original") is False
     assert respond.call_args[1].get("response_type") == "ephemeral"
     client.chat_update.assert_not_called()

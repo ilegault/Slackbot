@@ -1115,7 +1115,7 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
     """Decline a posted purchase request.
 
     WHY THIS EXISTS:
-        Decline is the approver's "no" on a request in the posted state.
+        Decline is an approver's or buyer's "no" on a request in the posted state.
         It updates the message to show it was declined and by whom, and removes
         every button.  Nothing is written to Excel (no row exists yet),
         no alert is posted, and no DM is sent (ADR 0003 decision 3).
