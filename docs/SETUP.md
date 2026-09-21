@@ -16,10 +16,12 @@ SLACK_APP_TOKEN=xapp-your-app-token
 
 Optionally, override storage paths (the bot will prompt you if they're not found):
 ```
-PURCHASING_LOG_PATH=C:\Users\USERNAME\OneDrive\Purchasing\Purchasing-Log.xlsx
-EPIFS_DIR=C:\Users\USERNAME\OneDrive\Purchasing\EPIFs
-CONFIRMATIONS_DIR=C:\Users\USERNAME\OneDrive\Purchasing\Order-Confirmations
+PURCHASING_LOG_PATH=C:\Users\<your-windows-account>\OneDrive\Purchasing\Purchasing-Log.xlsx
+EPIFS_DIR=C:\Users\<your-windows-account>\OneDrive\Purchasing\EPIFs
+CONFIRMATIONS_DIR=C:\Users\<your-windows-account>\OneDrive\Purchasing\Order-Confirmations
 ```
+
+*Replace `<your-windows-account>` with the Windows account OneDrive is signed in under on this machine. The bot does not fill it in, and the startup alert will flag it if you forget.*
 
 ### 3. First Run - Path Validation
 When you run the bot for the first time (or deploy to a new machine), it will validate storage paths:

@@ -1,7 +1,14 @@
 """Heartbeat Monitor (Dead-Man's Switch) and Alerting Dispatcher for P-Bot.
 
+WHY THIS EXISTS:
+----------------
 Sends periodic heartbeat pings to external monitoring services (e.g., Healthchecks.io,
 BetterStack) and dispatches boot & crash alerts to the configured Slack admin channel.
+
+T24: The startup alert checks storage paths via path_validator at boot. If paths
+are unset, placeholders, wrong-type, or missing, it logs them at ERROR immediately
+and sends an orange alert naming the problematic settings so operators catch configuration
+issues before purchase requests or file operations fail.
 """
 import logging
 import platform
@@ -13,9 +20,10 @@ from typing import Optional
 import requests
 
 try:
-    from . import config
+    from . import config, path_validator
 except ImportError:
     import config
+    import path_validator
 
 log = logging.getLogger("p-bot.heartbeat")
 
@@ -101,6 +109,10 @@ def stop_heartbeat(timeout: float = 3.0):
 
 def send_startup_alert(client) -> bool:
     """Send boot / startup diagnostic notification to ADMIN_ALERT_CHANNEL."""
+    problems = path_validator.check_storage_paths()
+    for setting, value, reason in problems:
+        log.error("Storage path problem: %s = %r — %s", setting, value, reason)
+
     if not client or not config.ADMIN_ALERT_CHANNEL:
         log.info("ADMIN_ALERT_CHANNEL not set or client unavailable; skipping startup alert.")
         return False
@@ -110,12 +122,18 @@ def send_startup_alert(client) -> bool:
     py_ver = sys.version.split()[0]
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    header_text = (
+        "🟠 P-Bot Online — storage paths need attention"
+        if problems
+        else "🟢 P-Bot Online & Ready"
+    )
+
     blocks = [
         {
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "🟢 P-Bot Online & Ready",
+                "text": header_text,
                 "emoji": True,
             },
         },
@@ -140,6 +158,24 @@ def send_startup_alert(client) -> bool:
                 },
             ],
         },
+    ]
+
+    if problems:
+        problem_lines = ["*Storage path problems:*"]
+        for setting, value, reason in problems:
+            problem_lines.append(f"• `{setting}` = `{value}` — {reason}")
+        problem_lines.append(
+            "_Workbook writes and EPIF saves will fail until these are fixed in the server's .env and the bot is restarted._"
+        )
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "\n".join(problem_lines),
+            },
+        })
+
+    blocks.extend([
         {
             "type": "section",
             "text": {
@@ -156,15 +192,31 @@ def send_startup_alert(client) -> bool:
                 },
             ],
         },
-    ]
+    ])
 
-    fallback_text = (
-        f"🟢 *P-Bot Online*\n"
-        f"• *Host:* `{host}` ({os_info})\n"
-        f"• *Version:* `v{config.BOT_VERSION}`\n"
-        f"• *Log Path:* `{config.WORKBOOK_PATH}`\n"
-        f"• *Status:* Listening for Slack events via Socket Mode."
-    )
+    if problems:
+        fallback_lines = [
+            "🟠 *P-Bot Online — storage paths need attention*",
+            f"• *Host:* `{host}` ({os_info})",
+            f"• *Version:* `v{config.BOT_VERSION}`",
+            f"• *Log Path:* `{config.WORKBOOK_PATH}`",
+            "• *Status:* Listening for Slack events via Socket Mode.",
+            "*Storage path problems:*",
+        ]
+        for setting, value, reason in problems:
+            fallback_lines.append(f"• `{setting}` = `{value}` — {reason}")
+        fallback_lines.append(
+            "_Workbook writes and EPIF saves will fail until these are fixed in the server's .env and the bot is restarted._"
+        )
+        fallback_text = "\n".join(fallback_lines)
+    else:
+        fallback_text = (
+            f"🟢 *P-Bot Online*\n"
+            f"• *Host:* `{host}` ({os_info})\n"
+            f"• *Version:* `v{config.BOT_VERSION}`\n"
+            f"• *Log Path:* `{config.WORKBOOK_PATH}`\n"
+            f"• *Status:* Listening for Slack events via Socket Mode."
+        )
 
     try:
         client.chat_postMessage(

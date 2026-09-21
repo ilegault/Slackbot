@@ -7,6 +7,12 @@ the bot must fail loudly at startup rather than silently falling back to the
 admin alert channel or DMing the requester. This module performs the operator-facing
 validation check.
 
+T24: The bot previously booted silently with template placeholders like
+C:\\Users\\USERNAME\\... in .env until a real purchase failed with FileNotFoundError.
+check_storage_paths performs a pure startup check for unset, placeholder,
+wrong-kind, or non-existent paths so the startup alert can flag them in orange
+before workbook writes or EPIF saves fail.
+
 If storage paths don't exist, prompts the user to either:
   1. Locate them manually (search OneDrive)
   2. Use alternative paths on different drives
@@ -14,6 +20,8 @@ If storage paths don't exist, prompts the user to either:
 """
 import logging
 import os
+import re
+from typing import NamedTuple
 
 try:
     from . import config
@@ -21,6 +29,63 @@ except ImportError:
     import config
 
 log = logging.getLogger("p-bot")
+
+
+class PathProblem(NamedTuple):
+    setting: str
+    value: str
+    reason: str
+
+
+def check_storage_paths() -> list[PathProblem]:
+    """Pure check of required storage paths.
+
+    Inspects PURCHASING_LOG_PATH, EPIFS_DIR, CONFIRMATIONS_DIR, and QUOTES_DIR
+    in order. Returns a list of PathProblem instances, empty if all are valid.
+
+    Reasons are checked in priority order:
+      1. not set
+      2. still contains a template placeholder
+      3. exists but is not a file / exists but is not a folder
+      4. does not exist
+    """
+    checks = [
+        ("PURCHASING_LOG_PATH", getattr(config, "WORKBOOK_PATH", ""), "file"),
+        ("EPIFS_DIR", getattr(config, "EPIFS_DIR", ""), "folder"),
+        ("CONFIRMATIONS_DIR", getattr(config, "CONFIRMATIONS_DIR", ""), "folder"),
+        ("QUOTES_DIR", getattr(config, "QUOTES_DIR", ""), "folder"),
+    ]
+
+    problems: list[PathProblem] = []
+
+    for setting, raw_val, kind in checks:
+        val_str = "" if raw_val is None else str(raw_val)
+
+        # 1. empty or unset
+        if not val_str.strip():
+            problems.append(PathProblem(setting, val_str, "not set"))
+            continue
+
+        # 2. template placeholder: component exactly USERNAME or contains < or >
+        components = re.split(r"[\\/]+", val_str)
+        if any(c == "USERNAME" or "<" in c or ">" in c for c in components):
+            problems.append(PathProblem(setting, val_str, "still contains a template placeholder"))
+            continue
+
+        # 3. exists but wrong kind
+        if os.path.exists(val_str):
+            if kind == "file" and not os.path.isfile(val_str):
+                problems.append(PathProblem(setting, val_str, "exists but is not a file"))
+                continue
+            if kind == "folder" and not os.path.isdir(val_str):
+                problems.append(PathProblem(setting, val_str, "exists but is not a folder"))
+                continue
+        else:
+            # 4. does not exist
+            problems.append(PathProblem(setting, val_str, "does not exist"))
+            continue
+
+    return problems
 
 
 def check_purchasing_channel() -> bool:
@@ -43,25 +108,25 @@ STORAGE_PATHS = {
         "env": "PURCHASING_LOG_PATH",
         "config_attr": "WORKBOOK_PATH",
         "description": "Purchasing-Log.xlsx (Excel workbook)",
-        "example": r"C:\Users\USERNAME\OneDrive\Purchasing\Purchasing-Log.xlsx",
+        "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\Purchasing-Log.xlsx",
     },
     "EPIFS_DIR": {
         "env": "EPIFS_DIR",
         "config_attr": "EPIFS_DIR",
         "description": "EPIFs directory (where PDFs are saved)",
-        "example": r"C:\Users\USERNAME\OneDrive\Purchasing\EPIFs",
+        "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\EPIFs",
     },
     "CONFIRMATIONS_DIR": {
         "env": "CONFIRMATIONS_DIR",
         "config_attr": "CONFIRMATIONS_DIR",
         "description": "Order-Confirmations directory",
-        "example": r"C:\Users\USERNAME\OneDrive\Purchasing\Order-Confirmations",
+        "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\Order-Confirmations",
     },
     "QUOTES_DIR": {
         "env": "QUOTES_DIR",
         "config_attr": "QUOTES_DIR",
         "description": "Quotes directory (vendor quotes)",
-        "example": r"C:\Users\USERNAME\OneDrive\Purchasing\Quotes",
+        "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\Quotes",
     },
 }
 
