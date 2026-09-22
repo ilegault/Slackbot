@@ -11,9 +11,10 @@ without typing a mention.
 Ticket 22: App Home renders a live roster profile panel (build_app_home_view)
 displaying the user's registered name, held roles (admin, approver, buyer), and a
 direct button opening the /roster-set-name modal. Unregistered users lead with registration instructions.
+Ticket 27: Adds build_items_view for line items modal and renders Add items / Edit items button on posted source=='epif' cards.
 
 Imports:
-    - config, interview, roster, text_rules
+    - bom, config, interview, roster, text_rules
 May NOT import:
     - Slack SDK / Bolt (holds no client, makes no API calls)
     - storage writers (log_writer, queue_worker)
@@ -23,8 +24,9 @@ import json
 from datetime import datetime
 
 try:
-    from . import config, interview, roster
+    from . import bom, config, interview, roster
 except ImportError:
+    import bom
     import config
     import interview
     import roster
@@ -289,16 +291,25 @@ def get_help_message() -> str:
     )
 
 
-def build_request_blocks(state: str, request: dict, history: list | None = None) -> list:
+def build_request_blocks(
+    state: str,
+    request: dict,
+    history: list | None = None,
+    requester: str | None = None,
+    items: list[dict] | None = None,
+) -> list:
     """Generate Block Kit blocks for a purchase request at a given lifecycle state.
 
     States: posted -> approved -> processed -> confirmed -> delivered
     Terminal states with no buttons: declined, cancelled, delivered.
     """
     parsed = request.get("parsed", request)
-    requester = request.get("requester")
+    requester = requester or request.get("requester")
     user_id = request.get("user_id")
     is_pending_name = request.get("is_pending_name", False)
+
+    if items is None:
+        items = request.get("items")
 
     display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or (f"<@{user_id}>" if user_id else "Requester"))
 
@@ -345,6 +356,9 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
     elif state != "posted":
         summary_lines.append("• *Buyer:* ⚠️ _Unassigned_")
 
+    if items and bom.needs_bom(items):
+        summary_lines.append(f"📋 {len(items)} line items (BOM attached in thread)")
+
     if suggest_note:
         summary_lines.append(suggest_note)
 
@@ -387,12 +401,15 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
 
     if state in primary_buttons:
         btn_label, btn_action_id = primary_buttons[state]
+        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping")}
+        if "parsed" in safe_req and isinstance(safe_req["parsed"], dict):
+            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping")}
         btn_value = json.dumps(
             {
                 "state": state,
                 "requester": requester,
                 "thread_ts": request.get("thread_ts"),
-                "request": request,
+                "request": safe_req,
                 "history": history or [],
             },
             default=str,
@@ -416,6 +433,15 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
                 "value": btn_value,
             })
         if state == "posted":
+            source = request.get("source")
+            if source == "epif":
+                btn_items_label = "Edit items" if (items and len(items) > 0) else "Add items"
+                elements.append({
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": btn_items_label, "emoji": True},
+                    "action_id": config.ACTION_REQ_ITEMS,
+                    "value": btn_value,
+                })
             picker_elem = {
                 "type": "users_select",
                 "action_id": config.ACTION_REQ_ASSIGN_SELECT,
@@ -430,6 +456,62 @@ def build_request_blocks(state: str, request: dict, history: list | None = None)
         })
 
     return blocks
+
+
+def build_items_view(
+    channel: str,
+    thread_ts: str,
+    card_ts: str,
+    items: list[dict] | None = None,
+    shipping: float = 0.0,
+    initial_text: str | None = None,
+) -> dict:
+    """Generate Block Kit modal for adding or editing line items on a purchase request."""
+    if initial_text is None and items:
+        initial_text = bom.format_line_items(items, shipping)
+
+    element = {
+        "type": "plain_text_input",
+        "action_id": "action_line_items",
+        "multiline": True,
+        "placeholder": {
+            "type": "plain_text",
+            "text": "qty | name | part # | unit price | link | description\nshipping | 24.50",
+        },
+    }
+    if initial_text:
+        element["initial_value"] = initial_text
+
+    blocks_list = [
+        {
+            "type": "input",
+            "block_id": "block_line_items",
+            "element": element,
+            "label": {"type": "plain_text", "text": "Line items"},
+            "hint": {
+                "type": "plain_text",
+                "text": (
+                    "One item per line (pipe or tab separated): "
+                    "qty | name | part # | unit price | link | description. "
+                    "Optional line: shipping | <amount>"
+                ),
+            },
+        }
+    ]
+
+    return {
+        "type": "modal",
+        "callback_id": config.ITEMS_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Line Items"[:24]},
+        "submit": {"type": "plain_text", "text": "Save items"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps({
+            "channel": channel,
+            "thread_ts": thread_ts,
+            "card_ts": card_ts,
+        }),
+        "blocks": blocks_list,
+    }
 
 
 def build_stage1_view(prefill_name_field: bool = False, resolved_name: str | None = None, user_id: str | None = None) -> dict:

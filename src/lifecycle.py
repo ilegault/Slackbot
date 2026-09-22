@@ -26,8 +26,13 @@ Per Ticket 14:
 Per Ticket 15:
 - PURCHASING_CHANNEL is read from config.py; silent fallback to ADMIN_ALERT_CHANNEL or DM is removed.
 
+Per Ticket 27:
+- Adds handle_items_update to save line items in card metadata, update card blocks,
+  post edit notices, and upload draft BOM spreadsheets when needs_bom is True.
+- Records source='epif' on dropped EPIF cards.
+
 Imports:
-    - admin, blocks, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
+    - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
     - app.py
 """
@@ -40,6 +45,7 @@ try:
     from . import (
         admin,
         blocks,
+        bom,
         config,
         epif_parser,
         interview,
@@ -53,6 +59,7 @@ try:
 except ImportError:
     import admin
     import blocks
+    import bom
     import config
     import epif_parser
     import interview
@@ -406,6 +413,7 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         "user_id": user_id,
         "is_pending_name": False,
         "thread_ts": thread_ts,
+        "source": "epif",
     }
 
     req_blocks = blocks.build_request_blocks("posted", req_payload)
@@ -997,6 +1005,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         "user_id": user_id,
         "is_pending_name": is_pending_name,
         "suggest_note": suggest_note,
+        "source": "modal",
     }
     req_blocks = blocks.build_request_blocks("posted", req_payload)
 
@@ -1206,3 +1215,108 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
         log.error("Failed to update message on cancel: %s", e)
 
     return True
+
+
+def handle_items_update(
+    client,
+    channel: str,
+    thread_ts: str,
+    card_ts: str,
+    items: list[dict],
+    shipping: float,
+    user_id: str,
+) -> bool:
+    """Save updated line items to card metadata, update card blocks, post edit notice, and upload draft BOM.
+
+    WHY THIS EXISTS:
+    ----------------
+    Single handler for updating line items on a posted card (invariant 1).
+    Called by both the EPIF path (Ticket 27), the interview modal path (Ticket 28),
+    and Edit (Ticket 32).
+    ADR 0006 decision 5: items are stored in message metadata, never button value.
+    Draft BOM is uploaded to thread via files_upload_v2 and NEVER saved to BOMS_DIR (only approval archives).
+    """
+    card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+    if not card_payload:
+        log.warning("Could not find card payload for ts %s in channel %s", card_ts, channel)
+        return False
+
+    state = card_payload.get("state", "posted")
+    if state != "posted":
+        log.warning("Card %s in channel %s is in state '%s', not 'posted'", card_ts, channel, state)
+        slack_io.tell(client, user_id, "⚠️ This purchase request has already been approved and line items can no longer be edited.")
+        return False
+
+    new_payload = dict(card_payload)
+    new_payload["items"] = items
+    new_payload["shipping"] = float(shipping or 0.0)
+    if "source" not in new_payload:
+        new_payload["source"] = "epif"
+
+    change_fragments = bom.describe_changes(card_payload, new_payload)
+    if not change_fragments:
+        return True
+
+    user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    edit_line = f"✏️ Edited by {user_name}: {'; '.join(change_fragments)}"
+
+    history = list(card_payload.get("history") or [])
+    history.append(edit_line)
+    new_payload["history"] = history
+
+    new_blocks = blocks.build_request_blocks("posted", new_payload, history=history, items=items)
+    summary_text = f"🛒 Purchase Request ({state.capitalize()})"
+
+    try:
+        client.chat_update(
+            channel=channel,
+            ts=card_ts,
+            text=summary_text,
+            blocks=new_blocks,
+            metadata={
+                "event_type": "purchase_request",
+                "event_payload": new_payload,
+            },
+        )
+        log.info("Updated line items on card %s in %s (thread: %s)", card_ts, channel, thread_ts)
+    except Exception as e:
+        log.error("Failed to chat_update card %s with new items: %s", card_ts, e)
+        return False
+
+    try:
+        client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=edit_line)
+    except Exception as e:
+        log.warning("Failed to post edit notice to thread %s: %s", thread_ts, e)
+
+    if bom.needs_bom(items):
+        vendor = (new_payload.get("parsed") or {}).get("vendor") or "Vendor"
+        draft_filename = bom.bom_filename(None, vendor)
+        xlsx_bytes = bom.build_bom_workbook(
+            new_payload.get("parsed") or {},
+            items,
+            shipping=shipping,
+            row=None,
+        )
+        try:
+            if hasattr(client, "files_upload_v2"):
+                client.files_upload_v2(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    content=xlsx_bytes,
+                    filename=draft_filename,
+                    title=draft_filename,
+                )
+            else:
+                client.files_upload(
+                    channels=channel,
+                    thread_ts=thread_ts,
+                    content=xlsx_bytes,
+                    filename=draft_filename,
+                    title=draft_filename,
+                )
+            log.info("Uploaded draft BOM %s to thread %s in %s", draft_filename, thread_ts, channel)
+        except Exception as e:
+            log.warning("Could not upload draft BOM %s: %s", draft_filename, e)
+
+    return True
+
