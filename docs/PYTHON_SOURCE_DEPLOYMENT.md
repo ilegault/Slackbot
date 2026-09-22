@@ -54,6 +54,7 @@ PURCHASING_LOG_PATH=C:\Users\<User>\OneDrive - UW-Madison\Shortcuts\Charles Hirs
 EPIFS_DIR=C:\Users\<User>\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\EPIFs
 CONFIRMATIONS_DIR=C:\Users\<User>\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\Order-Confirmations
 QUOTES_DIR=C:\Users\<User>\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\Quotes
+BOMS_DIR=C:\Users\<User>\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\BOMs
 
 # --- Admin & Notification Settings ---
 # Comma-separated list of Slack User IDs allowed to run admin commands (e.g. @p-bot update, @p-bot restart, @p-bot logs)

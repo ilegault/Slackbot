@@ -19,6 +19,8 @@ Optionally, override storage paths (the bot will prompt you if they're not found
 PURCHASING_LOG_PATH=C:\Users\<your-windows-account>\OneDrive\Purchasing\Purchasing-Log.xlsx
 EPIFS_DIR=C:\Users\<your-windows-account>\OneDrive\Purchasing\EPIFs
 CONFIRMATIONS_DIR=C:\Users\<your-windows-account>\OneDrive\Purchasing\Order-Confirmations
+QUOTES_DIR=C:\Users\<your-windows-account>\OneDrive\Purchasing\Quotes
+BOMS_DIR=C:\Users\<your-windows-account>\OneDrive\Purchasing\BOMs
 ```
 
 *Replace `<your-windows-account>` with the Windows account OneDrive is signed in under on this machine. The bot does not fill it in, and the startup alert will flag it if you forget.*
@@ -125,13 +127,15 @@ Unregister-ScheduledTask -TaskName "P-Bot" -Confirm:$false
 
 ## Storage Path Configuration
 
-The bot needs access to three OneDrive-synced locations:
+The bot needs access to five OneDrive-synced locations:
 
 | Path | Purpose | Example |
 |------|---------|---------|
 | **PURCHASING_LOG_PATH** | Excel workbook (Purchasing-Log.xlsx) | `C:\...\OneDrive\Purchasing\Purchasing-Log.xlsx` |
 | **EPIFS_DIR** | Where bot saves approved EPIF PDFs | `C:\...\OneDrive\Purchasing\EPIFs` |
 | **CONFIRMATIONS_DIR** | Where bot saves confirmation files | `C:\...\OneDrive\Purchasing\Order-Confirmations` |
+| **QUOTES_DIR** | Where bot saves vendor quote files | `C:\...\OneDrive\Purchasing\Quotes` |
+| **BOMS_DIR** | Where bot saves itemised BOM spreadsheets | `C:\...\OneDrive\Purchasing\BOMs` |
 
 ### How to Find Your Paths
 

@@ -493,87 +493,80 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-09-16. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-09-22 17:53. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: assignment replaces claim
+# Active work: the BOM spreadsheet, line items, and editable posted cards
 
 This is a **pointer**, not the work. The work is a ticket set.
 
-- Spec: `.scratch/lifecycle-and-buyers/spec.md` (lifecycle rebuild; its claim
-  sections are superseded by ADR 0004)
+- Spec: `.scratch/bom-and-card-editing/spec.md` (`ready-for-agent`)
+- **Read before any ticket in this set: `docs/adr/0006-bom-line-items-and-editable-posted-cards.md`**
+- Glossary: `CONTEXT.md` — **Line item**, **BOM**, **Edit**, **Superseded** are new
 - Binding on all test work: `docs/adr/0001-tests-first-and-no-muted-failures.md`
-- Read before any lifecycle ticket: `docs/adr/0002-request-lifecycle-and-surfaces.md`
-- **Read before ticket 08: `docs/adr/0004-assignment-replaces-claim.md`** — it
-  supersedes 0002 decision 6
-- Glossary: `CONTEXT.md`
-- Tickets: `.scratch/lifecycle-and-buyers/issues/01…11`
+- Cancel semantics, extended by ticket 31: `docs/adr/0003-decline-and-cancel.md`
+- The assignee email-draft DM, extended by ticket 30: `docs/adr/0004`, `docs/adr/0005`
+- Tickets: `.scratch/bom-and-card-editing/issues/26…34`
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Tickets 01 through 09 are all `done`.** The lifecycle rebuild shipped: layers
-split, buyers on the roster, claim, buttons on the PDF-drop path, decline/cancel
-plus the `processed` rename, regression guards, lint gate — then assignment
-replaced claim, and App Home and the help text were refreshed from one source.
+Tickets 12–24 are `done`. Ticket 25 (fix production `.env` paths) is a
+`human-task` and is not part of this set.
 
-## Next up — ticket 11
+## Why this set exists
 
-**11 — Mirror the roster into the workbook.** `roster.json` becomes the source of
-truth for the `Requester Name` and `Grad Student` lists on the workbook's
-`Roles & Lists` tab; adding a requester or a buyer appends them to the sheet, so
-the Order Log dropdown stops drifting away from the roster. Append-only, through
-`log_writer` and the queue — invariant 2, no exceptions.
+Dylan, 2026-09-21: five different Ruland parts is still one EPIF and one vendor,
+but sending Tina five bare links is a mess. The bot should produce a spreadsheet
+listing every item with its quantity, unit cost and line total, sent alongside the
+EPIF. Smeet has been making these by hand.
 
-The two lists were reconciled by hand and the tab was given room to grow on
-2026-09-16. The ticket's **"Starting state"** section records exactly what the
-sheet looks like now — the table refs, which rows already exist with their
-styles, and the row-50 floor. Build against it; do not redo it.
+Alongside it: a posted card cannot be corrected today, and a re-uploaded EPIF
+leaves two approvable cards for one purchase.
 
-It also closes a second copy of the same drift: `/roster-set-name` validates
-against `config.VALID_REQUESTERS`, a hardcoded set that still lists `Charlie H.`
-and `Copeland` and is missing `Hansel` and `Zehui` — two people already in
-`roster.json` whom the registration modal currently refuses.
+## Next up — ticket 26
 
-**10 is a `human-task`:** seeding the buyers roster. An agent must not claim it.
-Note `roster.json` currently holds three buyers (Isaac, Smeet, Dylan), not the
-four ticket 10 names — **Finn is still missing**, which is also why he is no
-longer in the sheet's Grad Student list.
+**26 — Line items, the BOM workbook, and the BOMs folder.** No blockers. The
+pasted-items parser and the spreadsheet builder as pure functions, plus the new
+`BOMS_DIR` storage path in the startup check. Everything after it hangs off this.
 
 ## Dependency order
 
 ```
-01…09 (done) ── 11
-             └─ 10 (human-task, after deploy)
+26 ── 27 ─┬─ 28 ── 32
+          ├─ 29 ─┬─ 30
+          │      └─ 31
+          └─ 33
+   └─ 34 (human-task: create the folder on the server, after 26 deploys)
 ```
 
-## Rules for working this set
+Ticket **34 is a `human-task`** — Isaac at the production server. An agent must
+not claim it.
 
-- Do not start a ticket whose `Blocked by:` line names an unfinished ticket.
-- A failing test is fixed or escalated, never muted. The escalation path — commit
-  to branch, ticket `Status: blocked`, comment on the ticket, draft PR — is ADR
-  0001 decision 3, and the report goes in the ticket file under `.scratch/`.
+## Six requirements that will be quietly violated if read as preferences
 
-## Five requirements that will be quietly violated if read as preferences
+1. **Line items live in the card message's Slack metadata, never in a button
+   `value`.** Slack caps a button value at ~2 000 characters and the parsed
+   request already fills much of it. Five items with links overflow it and break
+   the card. ADR 0006 decision 5.
+2. **The approval write is all-or-nothing.** Row append, spreadsheet save and
+   Notes write happen in the one queued task, and a failure blanks the row it just
+   wrote. A log row with no sheet behind it is the failure ticket 29 exists to
+   prevent.
+3. **The items box on interview Screen 2 is capped at 1 500 characters.** The raw
+   text rides in the interview's carried state to Screen 3, which Slack caps at
+   3 000. An overflow breaks the Fabrication path, which is the one hardest to
+   notice in testing.
+4. **Parsing, formatting, the totals check and the change description are pure
+   functions in the domain layer** — no Slack, no file I/O. They are what the
+   tests drive directly.
+5. **One handler saves line items**, called by the EPIF path, the interview path
+   and Edit alike. Two implementations of "save the items" is invariant 1's
+   failure mode.
+6. **A denial or a refusal never replaces or deletes the card.** Ticket 12's rule
+   holds everywhere in this set.
 
-1. **A refused assignment never refuses the approval.** If Charlie names nobody,
-   names two people, names a non-buyer, or names someone with no `requesters`
-   entry, the rows are still written, the EPIFs still archived, the card still
-   posted. The request simply stays unassigned. Approval is the money decision;
-   a missing mention must never cost one.
-2. **Never take the first of several mentions.** Two names is a question to ask,
-   not a tie to break.
-3. **A button handler never reimplements a lifecycle operation.** It acks,
-   extracts, permission-checks, and calls the same handler the keyword branch
-   calls. If a signature does not fit, adapt the payload or extract a shared core
-   — never write a second copy.
-4. **Roles are Slack IDs.** `is_buyer` takes an ID. Do not add a name-based
-   variant "for convenience".
-5. **Mentions are stripped before keywords are matched.** A lowercased Slack ID is
-   alphanumeric and can contain `log`, `take` or `submit`. Match on the stripped
-   text, always.
+## Two things this set deliberately does not do
 
-## One thing this set deliberately does not do
-
-It does not teach the bot the purchasing rotation. The bot models **a name chosen
-by a person who knows the rotation** — not the rotation itself, not a default
-buyer, not a round-robin. If that turns out to be wrong, it is a new ADR, not a
-constant added to `config`.
+- **It does not match Smeet's spreadsheet layout.** The standard column set is
+  used. Isaac may supply the template later as its own change.
+- **It does not fix multi-EPIF threads under the keyword path.** `@Purchasing
+  approved` still finds the newest card. Known limitation, recorded in ADR 0006.
 <!-- ACTIVE-PLAN:END -->

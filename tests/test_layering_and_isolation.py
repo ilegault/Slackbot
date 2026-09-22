@@ -24,18 +24,22 @@ for p in (PROJECT_ROOT, SRC_DIR):
 
 
 def test_pure_layers_importable_without_app():
-    """Verify blocks and text_rules can be imported and called without initializing src.app."""
+    """Verify blocks, text_rules, and bom can be imported and called without initializing src.app."""
     code = (
         "import sys\n"
-        "from src import blocks, text_rules\n"
+        "from src import blocks, text_rules, bom\n"
         "assert 'src.app' not in sys.modules, 'src.app was loaded'\n"
         "assert 'app' not in sys.modules, 'app was loaded'\n"
+        "assert 'slack_bolt' not in sys.modules, 'slack_bolt was loaded'\n"
+        "assert 'slack_sdk' not in sys.modules, 'slack_sdk was loaded'\n"
         "req = {'item_description': 'Resistors', 'total_price': 10.0}\n"
         "b = blocks.build_request_blocks('posted', req)\n"
         "assert isinstance(b, list) and len(b) > 0\n"
         "parsed = {'item_description': 'Resistors', 'vendor': 'DigiKey', 'total_price': 10.0}\n"
         "draft = text_rules.generate_email_draft(parsed, 'Isaac')\n"
         "assert 'Resistors' in draft and 'DigiKey' in draft\n"
+        "items, ship, errs = bom.parse_line_items('1 | Item | P1 | 5.00')\n"
+        "assert len(items) == 1 and errs == []\n"
     )
     res = subprocess.run(
         [sys.executable, "-c", code],

@@ -144,6 +144,31 @@ the thread, which is the record. Both approvers and admins can cancel. Cancel is
 quotes. A batch is approved together and cancelled together: **no per-item
 control.**
 
+**Line item** — one row of an order: quantity, item name, part number, unit
+price, link, description. Entered in the paste box on interview Screen 2 or through
+**Add items** on a posted card. One line per item. Quantity is a field, not extra
+lines. Carried in the card message's Slack metadata, never in a button value.
+See ADR 0006.
+
+**BOM** — bill of materials. The spreadsheet the bot makes from a request's line
+items when there are **two or more distinct lines**. It goes to purchasing alongside
+the EPIF, so Tina gets one file instead of a pile of links. **One EPIF per vendor is
+unchanged; a BOM belongs to exactly one EPIF.** A draft is posted to the thread
+before approval. At approval it is archived as `BOMS_DIR/NNNN_<Vendor>_BOM.xlsx`
+(`NNNN` = the log row), named in the row's Notes column, and attached to the
+assignee's email-draft DM. The items must add up to the EPIF amount (plus a
+shipping line). Frozen at approval.
+
+**Edit** — changing a **posted** card before anyone approves it. The requester, a
+buyer or an admin may edit. A modal-born card reopens the full Screen 2 form. A
+PDF-born card edits line items only, because the PDF is the source for everything
+else. Every edit posts one thread line saying what changed. Not available after
+approval; the way to change an approved request is **cancel** and resubmit.
+
+**Superseded** — a posted card replaced by a corrected EPIF from the same requester
+for the same vendor in the same thread. It is terminal: no buttons, just
+"Superseded by a newer EPIF below". Only posted cards can be superseded.
+
 ---
 
 ## Surfaces
