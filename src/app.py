@@ -52,6 +52,7 @@ try:
     from . import (
         admin,
         blocks,
+        bom,
         config,
         heartbeat,
         interview,
@@ -66,6 +67,7 @@ try:
 except ImportError:
     import admin
     import blocks
+    import bom
     import config
     import heartbeat
     import interview
@@ -496,6 +498,55 @@ def handle_stage3_submit(ack, body, client, view):
     lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=stage3)
 
 
+@app.view(config.ITEMS_CALLBACK_ID)
+def handle_items_modal_submit(ack, body, client, view):
+    """Handle submission of line items modal."""
+    values = view.get("state", {}).get("values", {})
+    meta = json.loads(view.get("private_metadata") or "{}")
+    channel = meta.get("channel")
+    thread_ts = meta.get("thread_ts")
+    card_ts = meta.get("card_ts")
+    user_id = body.get("user", {}).get("id")
+
+    raw_text = text_rules._extract_modal_field(values, "block_line_items", "action_line_items") or ""
+
+    items, shipping, parse_errors = bom.parse_line_items(raw_text)
+    if parse_errors:
+        ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
+        return
+
+    card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+    if not card_payload:
+        ack(response_action="errors", errors={"block_line_items": "Could not find request details for this card."})
+        return
+
+    card_state = card_payload.get("state", "posted")
+    if card_state != "posted":
+        ack(response_action="errors", errors={"block_line_items": "This purchase request has already been approved and line items can no longer be edited."})
+        return
+
+    parsed = card_payload.get("parsed") or {}
+    total_price = parsed.get("total_price") if "total_price" in parsed else parsed.get("Amount of Purchase")
+
+    total_error = bom.check_total(items, shipping, total_price)
+    if total_error:
+        ack(response_action="errors", errors={"block_line_items": total_error})
+        return
+
+    ack()
+
+    lifecycle.handle_items_update(
+        client=client,
+        channel=channel,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        items=items,
+        shipping=shipping,
+        user_id=user_id,
+    )
+
+
+
 # --- Alerts-Channel Interactive Action Handlers (Phase 2) --------------------
 
 @app.action("approve_new_requester")
@@ -759,6 +810,55 @@ def handle_req_cancel_action(ack, body, respond, client):
         client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts, **kw)
 
     lifecycle.handle_cancel(client, say, channel_id, thread_ts, msg_ts, user_id, req_data, state, history)
+
+
+@app.action(config.ACTION_REQ_ITEMS)
+def handle_req_items_action(ack, body, respond, client):
+    """Handle clicking 'Add items' or 'Edit items' on a posted request card."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+    container = body.get("container", {})
+    card_ts = container.get("message_ts") or body.get("message", {}).get("ts")
+    thread_ts = container.get("thread_ts") or body.get("message", {}).get("thread_ts") or card_ts
+
+    card_payload = slack_io.get_card_payload(client, channel_id, thread_ts, card_ts)
+    if not card_payload:
+        slack_io.deny(respond, "⚠️ Could not find request details for this card.")
+        return
+
+    # Permissions: requester, any buyer, or an admin (ADR 0006 decision 8)
+    card_user_id = card_payload.get("user_id")
+    card_requester = card_payload.get("requester")
+    user_name = slack_io.resolve_requester(client, user_id)
+    is_requester = (user_id and user_id == card_user_id) or (user_name and user_name == card_requester)
+    is_buyer = roster.is_buyer(user_id)
+    is_admin = admin.is_admin_user(user_id)
+
+    if not (is_requester or is_buyer or is_admin):
+        log.warning("User %s denied editing items on card %s", user_id, card_ts)
+        slack_io.deny(respond, "🔒 Only the requester, a buyer, or an admin can edit line items on this request.")
+        return
+
+    card_state = card_payload.get("state", "posted")
+    if card_state != "posted":
+        slack_io.deny(respond, "⚠️ Items can only be added or edited while the request is in posted state.")
+        return
+
+    items = card_payload.get("items")
+    shipping = float(card_payload.get("shipping") or 0.0)
+    view = blocks.build_items_view(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        items=items,
+        shipping=shipping,
+    )
+    try:
+        client.views_open(trigger_id=body["trigger_id"], view=view)
+    except Exception as e:
+        log.error("Failed to open items modal for user %s: %s", user_id, e)
+
 
 
 @app.action("req_confirmed")

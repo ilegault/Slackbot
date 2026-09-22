@@ -304,13 +304,15 @@ STAGE1_CALLBACK_ID = "purchase_stage1_submit"
 STAGE2_CALLBACK_ID = "purchase_stage2_submit"
 STAGE3_CALLBACK_ID = "purchase_stage3_submit"
 ROSTER_SET_NAME_CALLBACK_ID = "roster_set_name_submit"
+ITEMS_CALLBACK_ID = "purchase_items_submit"
 
 # Field length limits to keep accumulated private_metadata well under Slack's 3000-char limit
 MAX_ITEM_DESCRIPTION_LEN = 150
 MAX_PURPOSE_LEN = 900
 
-# Action IDs for Block Kit elements (Ticket 17, Ticket 22)
+# Action IDs for Block Kit elements (Ticket 17, Ticket 22, Ticket 27)
 ACTION_REQ_ASSIGN_SELECT = "req_assign_select"
 ACTION_OPEN_ROSTER_SET_NAME = "open_roster_set_name"
+ACTION_REQ_ITEMS = "req_items"
 
 

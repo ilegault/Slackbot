@@ -1,6 +1,6 @@
 # 27: Add items to a dropped EPIF
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** 26
 
@@ -39,15 +39,38 @@ a two-click fix.
 
 ## Acceptance criteria
 
-- [ ] A posted card from a dropped EPIF renders an **Add items** button, and an approved or later card does not
-- [ ] Submitting a valid paste stores the items and shipping in that card message's metadata
-- [ ] The button `value` on the updated card contains no line items — asserted on the value's contents
-- [ ] The updated card summary names the number of line items when there are two or more, and says nothing extra for one item
-- [ ] Two or more items cause a draft spreadsheet to be uploaded into the thread; one item uploads nothing
-- [ ] The draft file is not written to `BOMS_DIR`
-- [ ] A paste whose totals disagree with the EPIF amount is refused inside the modal, naming both numbers, with no metadata change, no upload and no card update — asserted on the absence
-- [ ] A paste with a bad line is refused inside the modal with the line-numbered error, and the card is untouched
-- [ ] Re-opening the button once items exist pre-fills the box with the current items and reads **Edit items**
-- [ ] Re-submitting different items replaces the stored items and re-posts the draft spreadsheet
-- [ ] Reading a card's items in a thread holding two cards returns the items of the card that was clicked, not the newest card
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+- [x] A posted card from a dropped EPIF renders an **Add items** button, and an approved or later card does not
+- [x] Submitting a valid paste stores the items and shipping in that card message's metadata
+- [x] The button `value` on the updated card contains no line items — asserted on the value's contents
+- [x] The updated card summary names the number of line items when there are two or more, and says nothing extra for one item
+- [x] Two or more items cause a draft spreadsheet to be uploaded into the thread; one item uploads nothing
+- [x] The draft file is not written to `BOMS_DIR`
+- [x] A paste whose totals disagree with the EPIF amount is refused inside the modal, naming both numbers, with no metadata change, no upload and no card update — asserted on the absence
+- [x] A paste with a bad line is refused inside the modal with the line-numbered error, and the card is untouched
+- [x] Re-opening the button once items exist pre-fills the box with the current items and reads **Edit items**
+- [x] Re-submitting different items replaces the stored items and re-posts the draft spreadsheet
+- [x] Reading a card's items in a thread holding two cards returns the items of the card that was clicked, not the newest card
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest -q` all pass
+
+## Comments
+
+### 2026-09-22 — Implementation complete
+
+- Added `ACTION_REQ_ITEMS = "req_items"` and `ITEMS_CALLBACK_ID = "purchase_items_submit"` to `src/config.py`.
+- Added `get_card_payload(client, channel, thread_ts, card_ts)` to `src/slack_io.py` to retrieve message metadata payload for that exact message without falling back to newest card.
+- Updated `blocks.build_request_blocks` in `src/blocks.py`:
+  - Accepts `items: list[dict] | None = None` (falling back to `request.get("items")`).
+  - Appends `📋 N line items (BOM attached in thread)` to summary lines when `needs_bom` (N >= 2) and nothing extra for 1 item.
+  - Strips `items` and `shipping` from `btn_value` so button `value` contains no line items (metadata is the store).
+  - Renders **Add items** (or **Edit items** if items already present) button on `state == "posted"` cards when `source == "epif"`.
+- Added `blocks.build_items_view` in `src/blocks.py`:
+  - Modal with `block_line_items` multi-line input element, pre-filled using `bom.format_line_items` when existing items/shipping are provided.
+- Added `lifecycle.handle_items_update` in `src/lifecycle.py`:
+  - Single handler that checks card is still `posted`, updates message metadata and blocks via `client.chat_update`, posts edit notification to thread (`✏️ Edited by <user>: ...`), updates history, and uploads draft BOM via `files_upload_v2` without writing to `BOMS_DIR`.
+  - Added `source="epif"` in `lifecycle.handle_epif_drop` and `source="modal"` in `lifecycle._process_interview_completion`.
+- Added action listener `@app.action(config.ACTION_REQ_ITEMS)` and view listener `@app.view(config.ITEMS_CALLBACK_ID)` in `src/app.py`:
+  - Enforces permission checks (requester, buyer, or admin) with ephemeral denial leaving card intact.
+  - Validates line items paste (`bom.parse_line_items`) and checks total against card total (`bom.check_total`), displaying inline errors in modal and leaving card untouched on failure.
+- Added unit and regression tests in `tests/test_27_line_items_epif_path.py` (11 tests covering all criteria).
+- All gate checks pass locally (`ruff check .`, `python scripts/check_tests_first.py`, `pytest -q`).
+

@@ -20,6 +20,10 @@ find_request_metadata_in_thread to read structured Slack message metadata only.
 Narrows find_row_in_thread to match only 'Logged to row N', preventing false
 matches on bare row numbers or fund/price numbers in human conversation.
 
+Ticket 27:
+Adds get_card_payload to fetch the metadata payload of the exact card message at
+card_ts, supporting multi-card threads without falling back to newest card.
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -267,3 +271,46 @@ def find_card_in_thread(client, channel: str, thread_ts: str) -> tuple[dict | No
     except Exception as e:
         log.warning("Could not search thread for card message: %s", e)
     return None, None, [], None
+
+
+def get_card_payload(client, channel: str, thread_ts: str | None, card_ts: str) -> dict | None:
+    """Fetch the metadata event_payload of the exact card message at card_ts."""
+    target_ts = str(card_ts)
+    search_ts = str(thread_ts) if thread_ts else target_ts
+    try:
+        replies = client.conversations_replies(
+            channel=channel,
+            ts=search_ts,
+            limit=100,
+            include_all_metadata=True,
+        )
+        for msg in replies.get("messages", []):
+            if str(msg.get("ts")) == target_ts:
+                meta = msg.get("metadata", {})
+                if meta and meta.get("event_type") == "purchase_request":
+                    payload = dict(meta.get("event_payload") or {})
+                    # Also attach state and history from button value if not already in payload
+                    for b in msg.get("blocks", []):
+                        if b.get("type") == "actions":
+                            for elem in b.get("elements", []):
+                                val_str = elem.get("value")
+                                if val_str:
+                                    try:
+                                        val_data = json.loads(val_str)
+                                        if isinstance(val_data, dict):
+                                            if "state" not in payload and "state" in val_data:
+                                                payload["state"] = val_data["state"]
+                                            if "history" not in payload and "history" in val_data:
+                                                payload["history"] = val_data["history"]
+                                    except Exception:
+                                        pass
+                    if "parsed" in payload and isinstance(payload["parsed"], dict):
+                        parsed = dict(payload["parsed"])
+                        if parsed.get("date_of_purchase") and isinstance(parsed["date_of_purchase"], str):
+                            parsed["date_of_purchase"] = epif_parser.parse_date(parsed["date_of_purchase"])
+                        payload["parsed"] = parsed
+                    return payload
+    except Exception as e:
+        log.warning("Could not fetch card payload for ts %s in channel %s: %s", card_ts, channel, e)
+    return None
+
