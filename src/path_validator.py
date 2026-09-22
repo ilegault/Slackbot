@@ -40,8 +40,8 @@ class PathProblem(NamedTuple):
 def check_storage_paths() -> list[PathProblem]:
     """Pure check of required storage paths.
 
-    Inspects PURCHASING_LOG_PATH, EPIFS_DIR, CONFIRMATIONS_DIR, and QUOTES_DIR
-    in order. Returns a list of PathProblem instances, empty if all are valid.
+    Inspects PURCHASING_LOG_PATH, EPIFS_DIR, CONFIRMATIONS_DIR, QUOTES_DIR,
+    and BOMS_DIR in order. Returns a list of PathProblem instances, empty if all are valid.
 
     Reasons are checked in priority order:
       1. not set
@@ -54,6 +54,7 @@ def check_storage_paths() -> list[PathProblem]:
         ("EPIFS_DIR", getattr(config, "EPIFS_DIR", ""), "folder"),
         ("CONFIRMATIONS_DIR", getattr(config, "CONFIRMATIONS_DIR", ""), "folder"),
         ("QUOTES_DIR", getattr(config, "QUOTES_DIR", ""), "folder"),
+        ("BOMS_DIR", getattr(config, "BOMS_DIR", ""), "folder"),
     ]
 
     problems: list[PathProblem] = []
@@ -127,6 +128,12 @@ STORAGE_PATHS = {
         "config_attr": "QUOTES_DIR",
         "description": "Quotes directory (vendor quotes)",
         "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\Quotes",
+    },
+    "BOMS_DIR": {
+        "env": "BOMS_DIR",
+        "config_attr": "BOMS_DIR",
+        "description": "BOMs directory (itemised BOM spreadsheets)",
+        "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\BOMs",
     },
 }
 
@@ -246,6 +253,15 @@ def validate_and_configure() -> bool:
         print(f"   {config.QUOTES_DIR}")
     else:
         print("✅ Quotes directory found")
+
+    # Check BOMs directory (Ticket 26)
+    if not path_exists(config.BOMS_DIR):
+        all_valid = False
+        missing_paths["BOMS_DIR"] = ("directory", "BOMs directory")
+        print("❌ BOMs directory not found at:")
+        print(f"   {config.BOMS_DIR}")
+    else:
+        print("✅ BOMs directory found")
 
     # Check Purchasing Channel (Ticket 15)
     if not check_purchasing_channel():

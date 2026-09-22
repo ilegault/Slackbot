@@ -29,16 +29,20 @@ def valid_storage(tmp_path):
     quotes = tmp_path / "Quotes"
     quotes.mkdir()
 
+    boms = tmp_path / "BOMs"
+    boms.mkdir()
+
     return {
         "WORKBOOK_PATH": str(wb),
         "EPIFS_DIR": str(epifs),
         "CONFIRMATIONS_DIR": str(confirmations),
         "QUOTES_DIR": str(quotes),
+        "BOMS_DIR": str(boms),
     }
 
 
 def test_check_storage_paths_all_valid(monkeypatch, valid_storage):
-    """When all four storage paths exist and are the right kind, no problems are returned."""
+    """When all storage paths exist and are the right kind, no problems are returned."""
     for attr, val in valid_storage.items():
         monkeypatch.setattr(config, attr, val)
 
@@ -48,6 +52,9 @@ def test_check_storage_paths_all_valid(monkeypatch, valid_storage):
 
 def test_check_storage_paths_order_and_reasons(monkeypatch, tmp_path, valid_storage):
     """Check that settings are evaluated in the specified order and reasons follow precedence."""
+    for attr, val in valid_storage.items():
+        monkeypatch.setattr(config, attr, val)
+
     # 1. PURCHASING_LOG_PATH: not set
     # 2. EPIFS_DIR: placeholder
     # 3. CONFIRMATIONS_DIR: exists but is not a folder (it is a file)

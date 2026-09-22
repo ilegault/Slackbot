@@ -127,6 +127,12 @@ QUOTES_DIR = os.environ.get(
     os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\Quotes"),
 )
 
+# Point this at the OneDrive-synced BOMs directory (Ticket 26).
+BOMS_DIR = os.environ.get(
+    "BOMS_DIR",
+    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\BOMs"),
+)
+
 # Point this at the OneDrive-synced _TEMPLATE directory for blank EPIFs and instructions.
 TEMPLATE_DIR = os.environ.get(
     "TEMPLATE_DIR",

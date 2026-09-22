@@ -420,6 +420,37 @@ def save_quote(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
     return dest_path
 
 
+def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
+    """Save BOM spreadsheet into BOMs directory atomically.
+
+    Returns the absolute path to the saved BOM file.
+    """
+    directory = target_dir or config.BOMS_DIR
+    os.makedirs(directory, exist_ok=True)
+
+    clean_name = os.path.basename(filename).strip() if filename else "BOM.xlsx"
+    if not clean_name:
+        clean_name = "BOM.xlsx"
+    if not clean_name.lower().endswith(".xlsx"):
+        clean_name += ".xlsx"
+
+    dest_path = os.path.join(directory, clean_name)
+
+    handle, temp_path = tempfile.mkstemp(suffix=".xlsx", dir=directory)
+    try:
+        with os.fdopen(handle, "wb") as f:
+            f.write(file_bytes)
+        os.replace(temp_path, dest_path)
+    except Exception:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        raise
+    return dest_path
+
+
 def build_row(parsed: dict, requester_name: str) -> dict:
     """Parsed EPIF -> {column_letter: value}, ready for append_row."""
     values = {

@@ -172,9 +172,15 @@ def test_sync_roster_lists_exists_and_signature():
 
 
 def test_openpyxl_appears_nowhere_in_src():
+    """Verify openpyxl is not used for workbook writes.
+
+    ADR 0006 authorizes openpyxl in src/bom.py for building brand-new BOM spreadsheets
+    from scratch. All other modules under src/ (particularly log_writer) must never
+    use openpyxl because it destroys x14 conditional formatting in Purchasing-Log.xlsx.
+    """
     for root, _, files in os.walk(SRC_DIR):
         for fname in files:
-            if fname.endswith(".py"):
+            if fname.endswith(".py") and fname != "bom.py":
                 fpath = os.path.join(root, fname)
                 with open(fpath, "r", encoding="utf-8") as f:
                     content = f.read()
