@@ -26,9 +26,7 @@ Acceptance criteria exercised:
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from src import app, blocks, config, interview, lifecycle, slack_io
+from src import app, blocks, config, lifecycle
 
 
 # ---------------------------------------------------------------------------
