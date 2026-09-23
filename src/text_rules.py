@@ -210,8 +210,12 @@ def _extract_modal_field(values: dict, block_id: str, action_id: str, field_type
     return action
 
 
-def generate_email_draft(parsed: dict, requester_name: str) -> str:
-    """Generate a pre-filled email draft matching the lab's purchasing request format."""
+def generate_email_draft(parsed: dict, requester_name: str, bom_filename: str | None = None) -> str:
+    """Generate a pre-filled email draft matching the lab's purchasing request format.
+
+    When bom_filename is supplied (ticket 30 / ADR 0006 decision 6), an
+    "Itemised BOM attached" line is added so Tina knows the spreadsheet accompanies the EPIF.
+    """
     vendor = parsed.get("vendor") or "Vendor"
     amount = parsed.get("total_price")
     if isinstance(amount, (int, float)):
@@ -229,14 +233,16 @@ def generate_email_draft(parsed: dict, requester_name: str) -> str:
     fund_str = f" (Fund {fund})" if fund else ""
     link = parsed.get("link") or "[Link to product / cart]"
     item = parsed.get("item_description") or "supplies"
+    bom_line = f"Itemised BOM attached: {bom_filename}\n" if bom_filename else ""
 
     return (
         f"Subject: Hirst Lab purchase request - {vendor} - {item}\n\n"
         f"Hello Tina and Ally,\n\n"
         f"We would like to make a purchase from {vendor} for {amount_str} under project ID {project_id}{fund_str}.\n"
         f"Attached is the filled out EPIF and the link to the website:\n"
-        f"{link}\n\n"
-        f"Please let me know if you have any questions or edits that need to be made.\n\n"
+        f"{link}\n"
+        f"{bom_line}"
+        f"\nPlease let me know if you have any questions or edits that need to be made.\n\n"
         f"All the best,\n"
         f"{requester_name}"
     )
