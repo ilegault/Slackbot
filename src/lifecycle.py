@@ -47,6 +47,14 @@ Per Ticket 29:
 - Totals mismatch between line items and request total refuses approval like a validation rejection.
 - upload_archived_bom provides the single implementation for uploading archived BOM spreadsheets.
 
+Per Ticket 30:
+- The buyer's DM carries the archived BOM when one exists.
+- _send_assignee_dm is the single implementation of the assignee email-draft DM (invariant 1),
+  called from both finalize_purchase_request (at approval) and handle_assign (after unassigned approval).
+- text_rules.generate_email_draft gains bom_filename: the email body lists the attached file.
+- The archived BOM is uploaded to the assignee's DM via conversations_open + files_upload_v2.
+- A failed upload is logged and alerted to admin; it never reverses the approval.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -87,6 +95,76 @@ except ImportError:
     import validators
 
 log = logging.getLogger("p-bot")
+
+
+def _send_assignee_dm(
+    client,
+    assignee_id: str,
+    assignee_name: str,
+    email_draft: str,
+    item_desc: str,
+    row,
+    bom_path: str | None = None,
+    bom_fname: str | None = None,
+) -> None:
+    """Send the email-draft DM to the assigned buyer, optionally attaching the archived BOM.
+
+    WHY THIS EXISTS:
+    ----------------
+    Single implementation of the assignee DM (invariant 1).
+    Called by finalize_purchase_request (at approval) and handle_assign (at post-approval assignment).
+    Per ADR 0006 decision 6 and spec decision 4: the archived BOM is attached to this DM
+    so the buyer forwards one EPIF and one sheet instead of pasting links.
+    A failed BOM upload is logged and alerted to admin but never reverses the approval
+    (same spirit as ADR 0004 decision 2 — the money decision already happened).
+    """
+    row_dm_str = f" in *Row {row}*" if row else ""
+    dm_text = (
+        f"Hi {assignee_name}! You've been assigned the purchase request for *{item_desc}*{row_dm_str}.\n\n"
+        f"📋 *Next Steps:*\n"
+        f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
+        f"```\n{email_draft}\n```\n\n"
+        f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
+    )
+    if bom_fname:
+        dm_text += f"\n\n📊 The BOM spreadsheet *{bom_fname}* is attached."
+    try:
+        slack_io.tell(client, assignee_id, dm_text)
+    except Exception as e:
+        log.warning("Could not DM assignee %s: %s", assignee_id, e)
+        return
+
+    if bom_path and bom_fname and os.path.exists(bom_path):
+        try:
+            resp = client.conversations_open(users=assignee_id)
+            dm_channel = resp["channel"]["id"]
+            with open(bom_path, "rb") as fh:
+                content = fh.read()
+            if hasattr(client, "files_upload_v2"):
+                client.files_upload_v2(
+                    channel=dm_channel,
+                    content=content,
+                    filename=bom_fname,
+                    title=bom_fname,
+                )
+            else:
+                client.files_upload(
+                    channels=dm_channel,
+                    content=content,
+                    filename=bom_fname,
+                    title=bom_fname,
+                )
+            log.info("Uploaded BOM %s to DM for %s", bom_fname, assignee_id)
+        except Exception as e:
+            log.warning("Could not upload BOM %s to DM for %s: %s", bom_fname, assignee_id, e)
+            if config.ADMIN_ALERT_CHANNEL:
+                try:
+                    client.chat_postMessage(
+                        channel=config.ADMIN_ALERT_CHANNEL,
+                        text=f"⚠️ Failed to attach BOM *{bom_fname}* to {assignee_name}'s DM: {e}",
+                    )
+                except Exception as alert_err:
+                    log.warning("Could not alert admin about BOM DM failure: %s", alert_err)
 
 
 def finalize_purchase_request(
@@ -221,26 +299,24 @@ def finalize_purchase_request(
                 ),
                 thread_ts=thread_ts,
             )
-            # DM email draft to assignee (Requirement 8)
+            # DM email draft (with optional BOM) to assignee — single implementation via _send_assignee_dm
             row_info = log_writer.get_row_info(row) if row else {}
             draft_data = dict(parsed)
             for k, v in row_info.items():
                 if k not in draft_data or not draft_data[k]:
                     draft_data[k] = v
-            email_draft = text_rules.generate_email_draft(draft_data, assignee_name)
+            email_draft = text_rules.generate_email_draft(draft_data, assignee_name, bom_filename=bom_fname)
             item_desc = draft_data.get("item_description") or "supplies"
-            row_dm_str = f" in *Row {row}*" if row else ""
-            dm_text = (
-                f"Hi {assignee_name}! You've been assigned the purchase request for *{item_desc}*{row_dm_str}.\n\n"
-                f"📋 *Next Steps:*\n"
-                f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
-                f"```\n{email_draft}\n```\n\n"
-                f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
+            _send_assignee_dm(
+                client=client,
+                assignee_id=assignee_id,
+                assignee_name=assignee_name,
+                email_draft=email_draft,
+                item_desc=item_desc,
+                row=row,
+                bom_path=saved_bom_path,
+                bom_fname=bom_fname,
             )
-            try:
-                slack_io.tell(client, assignee_id, dm_text)
-            except Exception as e:
-                log.warning("Could not DM assignee %s: %s", assignee_id, e)
         elif refusal_msg:
             say(
                 text=(
@@ -683,27 +759,27 @@ def handle_assign(
 
     say(text=f"👤 Assigned to <@{target_user_id}> ({target_name}) to process in Workday / ShopUW.", thread_ts=thread_ts)
 
-    # Email draft DM to assignee (Requirement 8)
+    # Email draft DM (with optional BOM) to assignee — single implementation via _send_assignee_dm
     row = slack_io.find_row_in_thread(client, channel, thread_ts)
     row_info = log_writer.get_row_info(row) if row else {}
     draft_data = dict(req_data.get("parsed", req_data))
     for k, v in row_info.items():
         if k not in draft_data or not draft_data[k]:
             draft_data[k] = v
-    email_draft = text_rules.generate_email_draft(draft_data, target_name)
+    bom_fname = req_data.get("bom_file")
+    bom_path = os.path.join(config.BOMS_DIR, bom_fname) if bom_fname else None
+    email_draft = text_rules.generate_email_draft(draft_data, target_name, bom_filename=bom_fname)
     item_desc = draft_data.get("item_description") or "supplies"
-    row_dm_str = f" in *Row {row}*" if row else ""
-    dm_text = (
-        f"Hi {target_name}! You've been assigned the purchase request for *{item_desc}*{row_dm_str}.\n\n"
-        f"📋 *Next Steps:*\n"
-        f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
-        f"```\n{email_draft}\n```\n\n"
-        f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
+    _send_assignee_dm(
+        client=client,
+        assignee_id=target_user_id,
+        assignee_name=target_name,
+        email_draft=email_draft,
+        item_desc=item_desc,
+        row=row,
+        bom_path=bom_path,
+        bom_fname=bom_fname,
     )
-    try:
-        slack_io.tell(client, target_user_id, dm_text)
-    except Exception as e:
-        log.warning("Could not DM assignee %s: %s", target_user_id, e)
 
     return True
 
