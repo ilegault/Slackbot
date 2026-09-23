@@ -31,6 +31,11 @@ Per Ticket 27:
   post edit notices, and upload draft BOM spreadsheets when needs_bom is True.
 - Records source='epif' on dropped EPIF cards.
 
+Per Ticket 33:
+- handle_epif_drop supersedes any posted card in the same thread from the same
+  requester and vendor before posting the new card (ADR 0006 decision 9).
+  Approved or later cards are never touched.
+
 Per Ticket 28:
 - _process_interview_completion stores line items and shipping on modal-born cards
   and uploads draft BOM spreadsheets when needs_bom is True.
@@ -620,6 +625,28 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         "thread_ts": thread_ts,
         "source": "epif",
     }
+
+    # Supersede any posted card in this thread from the same requester and vendor
+    # before posting the new card (ADR 0006 decision 9).  Approved or later cards
+    # are never touched — a real purchase must not be hidden by a stray upload.
+    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
+    vendor_for_scan = parsed.get("vendor", "").strip().lower()
+    stale_cards = slack_io.find_posted_cards_in_thread(
+        client, channel, thread_ts, user_id=user_id, vendor=vendor_for_scan,
+    )
+    for stale_ts, stale_req, stale_hist in stale_cards:
+        new_hist = list(stale_hist) + [f"Superseded by a newer EPIF on {now_str}"]
+        superseded_blks = blocks.build_request_blocks("superseded", stale_req, history=new_hist)
+        try:
+            client.chat_update(
+                channel=channel,
+                ts=stale_ts,
+                text="Purchase Request (Superseded)",
+                blocks=superseded_blks,
+            )
+            log.info("Superseded posted card at %s in %s (thread: %s)", stale_ts, channel, thread_ts)
+        except Exception as e:
+            log.warning("Failed to supersede card at %s: %s", stale_ts, e)
 
     req_blocks = blocks.build_request_blocks("posted", req_payload)
 

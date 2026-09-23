@@ -318,3 +318,75 @@ def get_card_payload(client, channel: str, thread_ts: str | None, card_ts: str) 
         log.warning("Could not fetch card payload for ts %s in channel %s: %s", card_ts, channel, e)
     return None
 
+
+def find_posted_cards_in_thread(
+    client, channel: str, thread_ts: str, user_id: str, vendor: str,
+) -> list:
+    """Find all posted purchase request cards in the thread from the same requester and vendor.
+
+    Returns a list of (msg_ts, req_payload, history) for every card whose state is
+    'posted', whose user_id matches, and whose vendor matches (case-insensitively,
+    whitespace-trimmed). Used by handle_epif_drop to supersede stale posted cards
+    when a corrected EPIF is uploaded to the same thread (ADR 0006 decision 9).
+
+    WHY THIS EXISTS:
+        Dropping a corrected EPIF into a thread today leaves two approvable cards.
+        This scanner finds only 'posted' matches so that an approved or later card
+        is never touched — a real purchase must not be hidden by a stray upload.
+    """
+    vendor_norm = vendor.strip().lower()
+    results = []
+    try:
+        replies = client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=100, include_all_metadata=True
+        )
+        for msg in replies.get("messages", []):
+            msg_ts = msg.get("ts")
+            state = None
+            card_req = None
+            history = []
+
+            # Read state and request from the first button value found.
+            for blk in msg.get("blocks", []):
+                if blk.get("type") == "actions":
+                    for elem in blk.get("elements", []):
+                        val_str = elem.get("value")
+                        if val_str:
+                            try:
+                                val_data = json.loads(val_str)
+                                if isinstance(val_data, dict) and "state" in val_data:
+                                    state = val_data["state"]
+                                    card_req = val_data.get("request", {})
+                                    history = val_data.get("history", [])
+                            except Exception:
+                                pass
+                    if state is not None:
+                        break
+
+            # Only a card whose button value explicitly says state=="posted" qualifies.
+            # A card in any terminal state (delivered, declined, cancelled) has no
+            # buttons and therefore no button value — do not assume "posted" from
+            # metadata alone.
+            if state != "posted":
+                continue
+
+            # Prefer the full metadata payload (includes user_id, items, parsed).
+            meta = msg.get("metadata", {})
+            if meta and meta.get("event_type") == "purchase_request":
+                card_req = meta.get("event_payload", {})
+
+            if card_req is None:
+                continue
+
+            if card_req.get("user_id") != user_id:
+                continue
+
+            card_vendor = (card_req.get("parsed", {}).get("vendor") or "").strip().lower()
+            if card_vendor != vendor_norm:
+                continue
+
+            results.append((msg_ts, card_req, list(history)))
+    except Exception as e:
+        log.warning("Could not scan thread for posted cards: %s", e)
+    return results
+
