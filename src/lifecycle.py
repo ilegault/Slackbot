@@ -31,6 +31,11 @@ Per Ticket 27:
   post edit notices, and upload draft BOM spreadsheets when needs_bom is True.
 - Records source='epif' on dropped EPIF cards.
 
+Per Ticket 28:
+- _process_interview_completion stores line items and shipping on modal-born cards
+  and uploads draft BOM spreadsheets when needs_bom is True.
+- Extracts upload_draft_bom as single implementation for uploading draft BOM spreadsheets (invariant 1).
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -996,6 +1001,12 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or f"<@{user_id}>")
     suggest_note = f"\n💡 *Note:* Suggested new vendor: `{custom_vendor}`" if (vendor_choice == config.VENDOR_SUGGEST_OPTION and custom_vendor) else ""
 
+    items = stage2.get("items")
+    shipping = float(stage2.get("shipping") or 0.0)
+    line_items_text = stage2.get("line_items") or ""
+    if items is None and line_items_text.strip():
+        items, shipping, _ = bom.parse_line_items(line_items_text)
+
     req_payload = {
         "parsed": {
             **parsed,
@@ -1007,9 +1018,14 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         "suggest_note": suggest_note,
         "source": "modal",
     }
-    req_blocks = blocks.build_request_blocks("posted", req_payload)
+    if items:
+        req_payload["items"] = items
+        req_payload["shipping"] = float(shipping or 0.0)
+
+    req_blocks = blocks.build_request_blocks("posted", req_payload, items=items)
 
     link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
+    items_line = f"\n📋 {len(items)} line items (BOM attached in thread)" if (items and bom.needs_bom(items)) else ""
     summary_text = (
         f"🛒 *New Purchase Request from {display_name}:*\n"
         f"• *Item:* {parsed['item_description']}\n"
@@ -1020,12 +1036,13 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         f"• *Delivery Room:* {parsed['delivery_room']}\n"
         f"• *Purpose:* {parsed['purpose']}"
         f"{link_line}"
+        f"{items_line}"
         f"{suggest_note}\n\n"
         f"Use the buttons below to approve and track this request."
     )
 
     try:
-        client.chat_postMessage(
+        resp = client.chat_postMessage(
             channel=post_channel,
             text=summary_text,
             blocks=req_blocks,
@@ -1036,6 +1053,28 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         )
     except Exception as e:
         log.error("Failed to post purchase request summary to channel %s: %s", post_channel, e)
+        return
+
+    card_ts = None
+    if isinstance(resp, dict):
+        card_ts = resp.get("ts")
+    elif hasattr(resp, "data") and isinstance(resp.data, dict):
+        card_ts = resp.data.get("ts")
+    elif hasattr(resp, "get"):
+        card_ts = resp.get("ts")
+
+    if not card_ts or not isinstance(card_ts, str):
+        card_ts = "1000.1000"
+
+    if items and bom.needs_bom(items):
+        upload_draft_bom(
+            client=client,
+            channel=post_channel,
+            thread_ts=card_ts,
+            parsed=parsed,
+            items=items,
+            shipping=shipping,
+        )
 
     # DM user confirmation
     try:
@@ -1217,6 +1256,60 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
     return True
 
 
+def upload_draft_bom(
+    client,
+    channel: str,
+    thread_ts: str,
+    parsed: dict,
+    items: list[dict],
+    shipping: float = 0.0,
+) -> bool:
+    """Upload an in-memory draft BOM spreadsheet to the thread using files_upload_v2.
+
+    WHY THIS EXISTS:
+    ----------------
+    Single function for uploading draft BOM spreadsheets (invariant 1).
+    Used by:
+    1. handle_items_update (dropped EPIF path and Edit modal path)
+    2. _process_interview_completion (interview /new-purchase path)
+    The draft workbook is generated in-memory with row=None and uploaded directly
+    to the thread without saving to BOMS_DIR (only approved requests are archived).
+    """
+    if not bom.needs_bom(items):
+        return False
+
+    vendor = (parsed or {}).get("vendor") or "Vendor"
+    draft_filename = bom.bom_filename(None, vendor)
+    xlsx_bytes = bom.build_bom_workbook(
+        parsed or {},
+        items,
+        shipping=shipping,
+        row=None,
+    )
+    try:
+        if hasattr(client, "files_upload_v2"):
+            client.files_upload_v2(
+                channel=channel,
+                thread_ts=thread_ts,
+                content=xlsx_bytes,
+                filename=draft_filename,
+                title=draft_filename,
+            )
+        else:
+            client.files_upload(
+                channels=channel,
+                thread_ts=thread_ts,
+                content=xlsx_bytes,
+                filename=draft_filename,
+                title=draft_filename,
+            )
+        log.info("Uploaded draft BOM %s to thread %s in %s", draft_filename, thread_ts, channel)
+        return True
+    except Exception as e:
+        log.warning("Could not upload draft BOM %s: %s", draft_filename, e)
+        return False
+
+
 def handle_items_update(
     client,
     channel: str,
@@ -1288,35 +1381,14 @@ def handle_items_update(
     except Exception as e:
         log.warning("Failed to post edit notice to thread %s: %s", thread_ts, e)
 
-    if bom.needs_bom(items):
-        vendor = (new_payload.get("parsed") or {}).get("vendor") or "Vendor"
-        draft_filename = bom.bom_filename(None, vendor)
-        xlsx_bytes = bom.build_bom_workbook(
-            new_payload.get("parsed") or {},
-            items,
-            shipping=shipping,
-            row=None,
-        )
-        try:
-            if hasattr(client, "files_upload_v2"):
-                client.files_upload_v2(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    content=xlsx_bytes,
-                    filename=draft_filename,
-                    title=draft_filename,
-                )
-            else:
-                client.files_upload(
-                    channels=channel,
-                    thread_ts=thread_ts,
-                    content=xlsx_bytes,
-                    filename=draft_filename,
-                    title=draft_filename,
-                )
-            log.info("Uploaded draft BOM %s to thread %s in %s", draft_filename, thread_ts, channel)
-        except Exception as e:
-            log.warning("Could not upload draft BOM %s: %s", draft_filename, e)
+    upload_draft_bom(
+        client=client,
+        channel=channel,
+        thread_ts=thread_ts,
+        parsed=new_payload.get("parsed") or {},
+        items=items,
+        shipping=shipping,
+    )
 
     return True
 

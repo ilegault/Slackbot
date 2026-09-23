@@ -12,6 +12,7 @@ Ticket 22: App Home renders a live roster profile panel (build_app_home_view)
 displaying the user's registered name, held roles (admin, approver, buyer), and a
 direct button opening the /roster-set-name modal. Unregistered users lead with registration instructions.
 Ticket 27: Adds build_items_view for line items modal and renders Add items / Edit items button on posted source=='epif' cards.
+Ticket 28: Screen 2 (build_stage2_view) renders an optional multiline Line items input with format/shipping hint and 1500-char limit.
 
 Imports:
     - bom, config, interview, roster, text_rules
@@ -676,6 +677,31 @@ def build_stage2_view(meta: dict) -> dict:
                 "placeholder": {"type": "plain_text", "text": "e.g. 145.50 or $145.50"},
             },
             "label": {"type": "plain_text", "text": "Total Price ($ Amount)"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_line_items",
+            "optional": True,
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "line_items",
+                "multiline": True,
+                "max_length": getattr(config, "MAX_LINE_ITEMS_LEN", 1500),
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "qty | name | part # | unit price | link | description\nshipping | 24.50",
+                },
+                **({"initial_value": meta["line_items"]} if meta.get("line_items") else {}),
+            },
+            "label": {"type": "plain_text", "text": "Line items (optional)"},
+            "hint": {
+                "type": "plain_text",
+                "text": (
+                    "One item per line (pipe or tab separated): "
+                    "qty | name | part # | unit price | link | description. "
+                    "Optional line: shipping | <amount>"
+                ),
+            },
         },
         {
             "type": "input",
