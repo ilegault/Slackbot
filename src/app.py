@@ -475,6 +475,23 @@ def handle_stage2_submit(ack, body, client, view):
         "payment_method": payment_method_val,
     }
 
+    raw_line_items = (
+        text_rules._extract_modal_field(values, "block_line_items", "line_items")
+        or text_rules._extract_modal_field(values, "block_line_items", "action_line_items")
+        or ""
+    )
+
+    if raw_line_items.strip():
+        items, shipping, parse_errors = bom.parse_line_items(raw_line_items)
+        if parse_errors:
+            ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
+            return
+        total_error = bom.check_total(items, shipping, stage2.get("total_price"))
+        if total_error:
+            ack(response_action="errors", errors={"block_line_items": total_error})
+            return
+        stage2["line_items"] = raw_line_items
+
     category = stage2.get("category")
     if interview.needs_asset_details(category):
         meta["stage2"] = stage2

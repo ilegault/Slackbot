@@ -309,6 +309,7 @@ ITEMS_CALLBACK_ID = "purchase_items_submit"
 # Field length limits to keep accumulated private_metadata well under Slack's 3000-char limit
 MAX_ITEM_DESCRIPTION_LEN = 150
 MAX_PURPOSE_LEN = 900
+MAX_LINE_ITEMS_LEN = 1500  # Ticket 28: keeps carried stage2 state under 3000 chars on Screen 3
 
 # Action IDs for Block Kit elements (Ticket 17, Ticket 22, Ticket 27)
 ACTION_REQ_ASSIGN_SELECT = "req_assign_select"
