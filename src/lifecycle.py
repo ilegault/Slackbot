@@ -36,6 +36,17 @@ Per Ticket 28:
   and uploads draft BOM spreadsheets when needs_bom is True.
 - Extracts upload_draft_bom as single implementation for uploading draft BOM spreadsheets (invariant 1).
 
+Per Ticket 29:
+- Approval archives the BOM and the log points at it.
+- In finalize_purchase_request, when needs_bom is True, the row append, BOM spreadsheet
+  generation with row NNNN, save to BOMS_DIR, and Notes column update (BOM: <filename> (N items))
+  all occur inside the single queued write task (invariant 2).
+- All-or-nothing: if BOM generation, save, or Notes update raises, the row is blanked
+  before re-raising so no orphan row remains.
+- On success, the archived BOM is uploaded to the thread, and bom_file is recorded on the approved card.
+- Totals mismatch between line items and request total refuses approval like a validation rejection.
+- upload_archived_bom provides the single implementation for uploading archived BOM spreadsheets.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -89,9 +100,25 @@ def finalize_purchase_request(
     approver: str | None = None,
     input_note: str | None = None,
     card_ts: str | None = None,
+    items: list[dict] | None = None,
+    shipping: float = 0.0,
 ):
-    """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF if present, and notify."""
+    """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF/BOM if present, and notify."""
     display_file = file_name or "Purchase Request"
+    if items:
+        total_error = bom.check_total(items, shipping, parsed.get("total_price"))
+        if total_error:
+            slack_io.log_rejection(notify_target, display_file, [total_error], requester_name=requester)
+            fail_msg = (
+                f"I couldn't log *{display_file}* yet:\n  • {total_error}\n\n"
+                "Please adjust the line items or total price and ask for approval again."
+            )
+            if notify_target:
+                slack_io.tell(client, notify_target, fail_msg)
+            if channel != notify_target:
+                say(text=f"Not logged - {total_error}, requester DM'd.", thread_ts=thread_ts)
+            return
+
     problems = validators.validate(parsed, requester_name=requester)
     if problems:
         slack_io.log_rejection(notify_target, display_file, problems, requester_name=requester)
@@ -112,18 +139,55 @@ def finalize_purchase_request(
             say(text=f"Not logged - {len(problems)} problem(s), requester DM'd.", thread_ts=thread_ts)
         return
 
-    # Define atomic write action for the queue
+    # Define atomic write action for the queue (invariant 2)
     def write_action():
         row_num = log_writer.append_row(log_writer.build_row(parsed, requester))
-        if pdf_bytes and file_name:
-            saved_epif_path = log_writer.save_epif(pdf_bytes, file_name)
-        else:
-            saved_epif_path = None
+        saved_epif_path = None
+        bom_fname = None
+        saved_bom_path = None
+        try:
+            if pdf_bytes and file_name:
+                saved_epif_path = log_writer.save_epif(pdf_bytes, file_name)
+
+            if items and bom.needs_bom(items):
+                vendor = parsed.get("vendor") or "Vendor"
+                bom_fname = bom.bom_filename(row_num, vendor)
+                req_for_bom = dict(parsed)
+                if requester and not req_for_bom.get("requester"):
+                    req_for_bom["requester"] = requester
+                xlsx_bytes = bom.build_bom_workbook(
+                    req_for_bom,
+                    items,
+                    shipping=shipping,
+                    row=row_num,
+                )
+                saved_bom_path = log_writer.save_bom(xlsx_bytes, bom_fname)
+                notes_text = f"BOM: {bom_fname} ({len(items)} items)"
+                log_writer.update_row(row_num, {config.COLUMN_NOTES: notes_text})
+        except Exception:
+            # All-or-nothing: blank the row just written before re-raising so no orphan row remains
+            try:
+                log_writer.blank_row(row_num)
+            except Exception as blank_err:
+                log.error("Failed to blank row %d after write failure: %s", row_num, blank_err)
+            if saved_bom_path and os.path.exists(saved_bom_path):
+                try:
+                    os.remove(saved_bom_path)
+                except Exception:
+                    pass
+            raise
+
+        if bom_fname and saved_bom_path:
+            return row_num, saved_epif_path, bom_fname, saved_bom_path
         return row_num, saved_epif_path
 
     def on_success(result):
-        row, saved_path = result
-        log.info("✅ Successfully logged order to Row %d (saved PDF: %s)", row, saved_path)
+        if len(result) == 4:
+            row, saved_path, bom_fname, saved_bom_path = result
+        else:
+            row, saved_path = result
+            bom_fname, saved_bom_path = None, None
+        log.info("✅ Successfully logged order to Row %d (saved PDF: %s, saved BOM: %s)", row, saved_path, saved_bom_path)
 
         try:
             client.reactions_add(channel=channel, timestamp=event_ts, name="white_check_mark")
@@ -134,6 +198,15 @@ def finalize_purchase_request(
         ping_user = f"<@{notify_target}>" if notify_target else display_requester
         saved_name = os.path.basename(saved_path.replace("\\", "/")) if saved_path else None
         saved_str = f"Saved EPIF to `{saved_name}`.\n\n" if saved_name else ""
+
+        if bom_fname and saved_bom_path:
+            upload_archived_bom(
+                client=client,
+                channel=channel,
+                thread_ts=thread_ts,
+                file_path=saved_bom_path,
+                filename=bom_fname,
+            )
 
         if assignee_id and assignee_name:
             say(
@@ -205,19 +278,25 @@ def finalize_purchase_request(
             req_payload = dict(target_req)
             req_payload["assignee_id"] = assignee_id
             req_payload["assignee"] = assignee_name
+            if bom_fname:
+                req_payload["bom_file"] = bom_fname
             if requester and not req_payload.get("requester"):
                 req_payload["requester"] = requester
             hist = list(target_hist)
             hist.append(f"Approved by {appr_name} on {now_str}")
             if assignee_id and assignee_name:
                 hist.append(f"Assigned to {assignee_name} on {now_str}")
-            next_blks = blocks.build_request_blocks("approved", req_payload, history=hist)
+            next_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=items)
             try:
                 client.chat_update(
                     channel=channel,
                     ts=target_card_ts,
                     text="🛒 Purchase Request (Approved)",
                     blocks=next_blks,
+                    metadata={
+                        "event_type": "purchase_request",
+                        "event_payload": req_payload,
+                    },
                 )
             except Exception as e:
                 log.error("Failed to update card on approval: %s", e)
@@ -248,6 +327,8 @@ def handle_epif_processing(
     posted_payload: dict | None = None,
     input_note: str | None = None,
     card_ts: str | None = None,
+    items: list[dict] | None = None,
+    shipping: float = 0.0,
 ):
     """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving.
 
@@ -259,6 +340,17 @@ def handle_epif_processing(
       5. Informational message that no request was found
     """
     log.info("Processing EPIF/purchase request from approver/poster: %s in channel: %s", approver or direct_poster, channel)
+    if card_ts:
+        card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+        if card_payload:
+            if items is None and "items" in card_payload:
+                items = card_payload.get("items")
+                shipping = float(card_payload.get("shipping") or 0.0)
+    elif posted_payload:
+        if items is None and "items" in posted_payload:
+            items = posted_payload.get("items")
+            shipping = float(posted_payload.get("shipping") or 0.0)
+
     if direct_file:
         file_obj, poster = direct_file, direct_poster
     else:
@@ -266,6 +358,16 @@ def handle_epif_processing(
 
     if file_obj is not None:
         # PDF Attachment Path
+        if items is None:
+            card_req, found_ts, _, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+            if found_ts:
+                if not card_ts:
+                    card_ts = found_ts
+                card_pl = slack_io.get_card_payload(client, channel, thread_ts, found_ts)
+                if card_pl and "items" in card_pl:
+                    items = card_pl.get("items")
+                    shipping = float(card_pl.get("shipping") or 0.0)
+
         requester = slack_io.resolve_requester(client, poster)
         file_name = file_obj.get("name", "EPIF.pdf")
         log.info("Found file '%s' posted by %s (resolved requester: %s)", file_name, poster, requester)
@@ -303,6 +405,8 @@ def handle_epif_processing(
             approver=approver,
             input_note=input_note,
             card_ts=card_ts,
+            items=items,
+            shipping=shipping,
         )
         return
 
@@ -345,12 +449,23 @@ def handle_epif_processing(
             approver=approver,
             input_note=input_note,
             card_ts=card_ts,
+            items=items,
+            shipping=shipping,
         )
         return
 
     # Modal Purchase Request in Thread Path via Slack Metadata (for keyword approvals)
     parsed_req, modal_req_name, modal_user_id, is_pending = slack_io.find_request_metadata_in_thread(client, channel, thread_ts)
     if parsed_req:
+        if items is None and "items" in parsed_req:
+            items = parsed_req.get("items")
+            shipping = float(parsed_req.get("shipping") or 0.0)
+
+        if not card_ts:
+            _, found_ts, _, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+            if found_ts:
+                card_ts = found_ts
+
         log.info("Found modal purchase request metadata in thread: %s from %s", parsed_req.get("item_description"), modal_req_name)
         finalize_purchase_request(
             client=client,
@@ -370,6 +485,8 @@ def handle_epif_processing(
             approver=approver,
             input_note=input_note,
             card_ts=card_ts,
+            items=items,
+            shipping=shipping,
         )
         return
 
@@ -1307,6 +1424,54 @@ def upload_draft_bom(
         return True
     except Exception as e:
         log.warning("Could not upload draft BOM %s: %s", draft_filename, e)
+        return False
+
+
+def upload_archived_bom(
+    client,
+    channel: str,
+    thread_ts: str,
+    file_path: str,
+    filename: str,
+) -> bool:
+    """Upload an archived BOM spreadsheet from disk to the thread using files_upload_v2 / files_upload.
+
+    WHY THIS EXISTS:
+    ----------------
+    Per Ticket 29 / ADR 0006 decision 6: At approval, the archived BOM spreadsheet
+    is saved to BOMS_DIR/NNNN_<Vendor>_BOM.xlsx, pointed at by the log row's Notes column,
+    and uploaded to the purchasing thread so the itemised order sits beside the conversation
+    that approved it.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            content = f.read()
+        if hasattr(client, "files_upload_v2"):
+            kwargs = {
+                "channel": channel,
+                "file": file_path,
+                "content": content,
+                "filename": filename,
+                "title": filename,
+            }
+            if thread_ts:
+                kwargs["thread_ts"] = thread_ts
+            client.files_upload_v2(**kwargs)
+        else:
+            kwargs = {
+                "channels": channel,
+                "file": file_path,
+                "content": content,
+                "filename": filename,
+                "title": filename,
+            }
+            if thread_ts:
+                kwargs["thread_ts"] = thread_ts
+            client.files_upload(**kwargs)
+        log.info("Uploaded archived BOM %s to thread %s in %s", filename, thread_ts, channel)
+        return True
+    except Exception as e:
+        log.warning("Could not upload archived BOM %s: %s", filename, e)
         return False
 
 
