@@ -302,7 +302,7 @@ def build_request_blocks(
     """Generate Block Kit blocks for a purchase request at a given lifecycle state.
 
     States: posted -> approved -> processed -> confirmed -> delivered
-    Terminal states with no buttons: declined, cancelled, delivered.
+    Terminal states with no buttons: declined, cancelled, delivered, superseded.
     """
     parsed = request.get("parsed", request)
     requester = requester or request.get("requester")
@@ -384,6 +384,18 @@ def build_request_blocks(
                 }
             ],
         })
+
+    if state == "superseded":
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "Superseded by a newer EPIF below",
+                }
+            ],
+        })
+        return blocks
 
     # Primary (next-step) button for each non-terminal state.
     primary_buttons = {
