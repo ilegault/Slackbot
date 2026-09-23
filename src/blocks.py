@@ -455,6 +455,13 @@ def build_request_blocks(
                     "action_id": config.ACTION_REQ_ITEMS,
                     "value": btn_value,
                 })
+            elif source == "modal":
+                elements.append({
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Edit", "emoji": True},
+                    "action_id": config.ACTION_REQ_EDIT,
+                    "value": btn_value,
+                })
             picker_elem = {
                 "type": "users_select",
                 "action_id": config.ACTION_REQ_ASSIGN_SELECT,
@@ -595,8 +602,31 @@ def build_stage1_view(prefill_name_field: bool = False, resolved_name: str | Non
     }
 
 
+def _select_initial_option(value: str | None, options: list) -> dict | None:
+    """Return the matching initial_option dict for a static_select, or None."""
+    if not value:
+        return None
+    for opt in options:
+        if opt.get("value") == value:
+            return opt
+    return None
+
+
 def build_stage2_view(meta: dict) -> dict:
-    """Generate Screen 2 (Details) Block Kit modal shaped by Screen 1 route."""
+    """Generate Screen 2 (Details) Block Kit modal shaped by Screen 1 route.
+
+    When meta['is_edit'] is True, the view becomes an edit form:
+    - callback_id switches to EDIT_CALLBACK_ID
+    - title is 'Edit Request' and submit is 'Save changes'
+    - all fields are pre-filled from meta values
+    - asset ID and Name of System fields are included (required when the
+      selected category needs them, validated at submit time)
+    - vendor and route are shown as read-only context, not editable inputs
+
+    Ticket 28: Line items box added with 1500-char cap.
+    Ticket 32: Pre-fill / edit mode added.
+    """
+    is_edit = bool(meta.get("is_edit"))
     v_choice = meta.get("vendor_choice") or ""
     v_custom = meta.get("vendor_custom") or ""
     suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday")
@@ -609,6 +639,8 @@ def build_stage2_view(meta: dict) -> dict:
     route = meta.get("route") or interview.route_vendor(v_choice)
     path_title = "Workday" if route == "workday" else "Full EPIF"
     header_context = f"📋 *Path:* {path_title} — {vendor_display}"
+    if is_edit:
+        header_context += "\n_Vendor and route are not editable. To change vendor, Decline and resubmit._"
 
     room_options = [
         {"text": {"type": "plain_text", "text": r}, "value": r}
@@ -635,59 +667,93 @@ def build_stage2_view(meta: dict) -> dict:
             for c in sorted(set(config.CHECKBOX_TO_CATEGORY.values()))
         ]
 
+    def _text_elem(action_id, placeholder, max_len=None, multiline=False, prefill_key=None):
+        """Build a plain_text_input element, optionally pre-filled."""
+        elem = {
+            "type": "plain_text_input",
+            "action_id": action_id,
+            "placeholder": {"type": "plain_text", "text": placeholder},
+        }
+        if multiline:
+            elem["multiline"] = True
+        if max_len:
+            elem["max_length"] = max_len
+        if is_edit and prefill_key:
+            val = meta.get(prefill_key)
+            if val is not None:
+                elem["initial_value"] = str(val)
+        return elem
+
+    def _select_elem(action_id, placeholder, options, prefill_key=None):
+        """Build a static_select element, optionally pre-filled."""
+        elem = {
+            "type": "static_select",
+            "action_id": action_id,
+            "placeholder": {"type": "plain_text", "text": placeholder},
+            "options": options,
+        }
+        if is_edit and prefill_key:
+            initial = _select_initial_option(meta.get(prefill_key), options)
+            if initial:
+                elem["initial_option"] = initial
+        return elem
+
+    # Date picker initial_date: today for new, stored value for edit
+    date_initial = datetime.now().strftime("%Y-%m-%d")
+    if is_edit and meta.get("date_of_purchase"):
+        raw_date = str(meta["date_of_purchase"])
+        # Stored as "YYYY-MM-DD" (isoformat) or a date object str
+        if len(raw_date) >= 10 and raw_date[4] == "-":
+            date_initial = raw_date[:10]
+
     blocks = [
         {
             "type": "context",
             "block_id": "block_path_context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": header_context,
-                }
-            ],
+            "elements": [{"type": "mrkdwn", "text": header_context}],
         },
         {
             "type": "input",
             "block_id": "block_item_description",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "item_description",
-                "max_length": getattr(config, "MAX_ITEM_DESCRIPTION_LEN", 150),
-                "placeholder": {"type": "plain_text", "text": "e.g. Box of Nitrile Gloves (Medium)"},
-            },
+            "element": _text_elem(
+                "item_description",
+                "e.g. Box of Nitrile Gloves (Medium)",
+                max_len=getattr(config, "MAX_ITEM_DESCRIPTION_LEN", 150),
+                prefill_key="item_description",
+            ),
             "label": {"type": "plain_text", "text": "Item Description (What is being purchased)"},
         },
         {
             "type": "input",
             "block_id": "block_purpose",
-            "element": {
-                "type": "plain_text_input",
-                "multiline": True,
-                "action_id": "purpose",
-                "max_length": getattr(config, "MAX_PURPOSE_LEN", 900),
-                "placeholder": {"type": "plain_text", "text": "Why needed for research, and product URL (https://...)"},
-            },
+            "element": _text_elem(
+                "purpose",
+                "Why needed for research, and product URL (https://...)",
+                max_len=getattr(config, "MAX_PURPOSE_LEN", 900),
+                multiline=True,
+                prefill_key="purpose",
+            ),
             "label": {"type": "plain_text", "text": "Purpose / Why Necessary & Link"},
         },
         {
             "type": "input",
             "block_id": "block_link",
             "optional": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "link",
-                "placeholder": {"type": "plain_text", "text": "https://... (vendor product page or quote link)"},
-            },
+            "element": _text_elem(
+                "link",
+                "https://... (vendor product page or quote link)",
+                prefill_key="link",
+            ),
             "label": {"type": "plain_text", "text": "Product Page / Quote Link"},
         },
         {
             "type": "input",
             "block_id": "block_total_price",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "total_price",
-                "placeholder": {"type": "plain_text", "text": "e.g. 145.50 or $145.50"},
-            },
+            "element": _text_elem(
+                "total_price",
+                "e.g. 145.50 or $145.50",
+                prefill_key="total_price",
+            ),
             "label": {"type": "plain_text", "text": "Total Price ($ Amount)"},
         },
         {
@@ -718,21 +784,21 @@ def build_stage2_view(meta: dict) -> dict:
         {
             "type": "input",
             "block_id": "block_vendor_contact_name",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "vendor_contact_name",
-                "placeholder": {"type": "plain_text", "text": "Vendor contact name or rep"},
-            },
+            "element": _text_elem(
+                "vendor_contact_name",
+                "Vendor contact name or rep",
+                prefill_key="vendor_contact_name",
+            ),
             "label": {"type": "plain_text", "text": "Vendor Contact Name"},
         },
         {
             "type": "input",
             "block_id": "block_vendor_contact_email",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "vendor_contact_email",
-                "placeholder": {"type": "plain_text", "text": "e.g. rep@vendor.com or info@vendor.com"},
-            },
+            "element": _text_elem(
+                "vendor_contact_email",
+                "e.g. rep@vendor.com or info@vendor.com",
+                prefill_key="vendor_contact_email",
+            ),
             "label": {"type": "plain_text", "text": "Vendor Contact Email"},
         },
         {
@@ -741,7 +807,7 @@ def build_stage2_view(meta: dict) -> dict:
             "element": {
                 "type": "datepicker",
                 "action_id": "date_of_purchase",
-                "initial_date": datetime.now().strftime("%Y-%m-%d"),
+                "initial_date": date_initial,
                 "placeholder": {"type": "plain_text", "text": "Select date"},
             },
             "label": {"type": "plain_text", "text": "Date of Request / Purchase"},
@@ -749,70 +815,105 @@ def build_stage2_view(meta: dict) -> dict:
         {
             "type": "input",
             "block_id": "block_delivery_room",
-            "element": {
-                "type": "static_select",
-                "action_id": "delivery_room",
-                "placeholder": {"type": "plain_text", "text": "Select delivery room"},
-                "options": room_options,
-            },
+            "element": _select_elem(
+                "delivery_room",
+                "Select delivery room",
+                room_options,
+                prefill_key="delivery_room",
+            ),
             "label": {"type": "plain_text", "text": "Delivery Room (Campus Address)"},
         },
         {
             "type": "input",
             "block_id": "block_project_id",
-            "element": {
-                "type": "static_select",
-                "action_id": "project_id",
-                "placeholder": {"type": "plain_text", "text": "Select Project ID"},
-                "options": project_options,
-            },
+            "element": _select_elem(
+                "project_id",
+                "Select Project ID",
+                project_options,
+                prefill_key="project_id",
+            ),
             "label": {"type": "plain_text", "text": "Project ID Number"},
         },
         {
             "type": "input",
             "block_id": "block_fund",
-            "element": {
-                "type": "static_select",
-                "action_id": "fund",
-                "placeholder": {"type": "plain_text", "text": "Select Fund"},
-                "options": fund_options,
-            },
+            "element": _select_elem(
+                "fund",
+                "Select Fund",
+                fund_options,
+                prefill_key="fund",
+            ),
             "label": {"type": "plain_text", "text": "Fund Number"},
         },
         {
             "type": "input",
             "block_id": "block_category",
-            "element": {
-                "type": "static_select",
-                "action_id": "category",
-                "placeholder": {"type": "plain_text", "text": "Select Category"},
-                "options": category_options,
-            },
+            "element": _select_elem(
+                "category",
+                "Select Category",
+                category_options,
+                prefill_key="category",
+            ),
             "label": {"type": "plain_text", "text": "Accounting Category"},
         },
     ]
 
     if route == "epif":
+        pm_options = [
+            {"text": {"type": "plain_text", "text": "P-card"}, "value": "P-card"},
+            {"text": {"type": "plain_text", "text": "Req/PO"}, "value": "Req/PO"},
+        ]
         blocks.append({
             "type": "input",
             "block_id": "block_payment_method",
-            "element": {
-                "type": "static_select",
-                "action_id": "payment_method",
-                "placeholder": {"type": "plain_text", "text": "Select payment method"},
-                "options": [
-                    {"text": {"type": "plain_text", "text": "P-card"}, "value": "P-card"},
-                    {"text": {"type": "plain_text", "text": "Req/PO"}, "value": "Req/PO"},
-                ],
-            },
+            "element": _select_elem(
+                "payment_method",
+                "Select payment method",
+                pm_options,
+                prefill_key="payment_method",
+            ),
             "label": {"type": "plain_text", "text": "Payment Method"},
         })
 
+    # Edit mode: always include asset fields (required at submit when category needs them)
+    if is_edit:
+        blocks.append({
+            "type": "input",
+            "block_id": "block_asset_id",
+            "optional": True,
+            "element": _text_elem(
+                "asset_id",
+                "e.g. TAG-12345 or Fab #4670",
+                prefill_key="asset_id",
+            ),
+            "label": {"type": "plain_text", "text": "Asset ID / Fabrication # (required for Fabrication category)"},
+        })
+        blocks.append({
+            "type": "input",
+            "block_id": "block_name_of_system",
+            "optional": True,
+            "element": _text_elem(
+                "name_of_system",
+                "e.g. Target Chamber, Laser System",
+                prefill_key="name_of_system",
+            ),
+            "label": {"type": "plain_text", "text": "Name of System (required for Fabrication category)"},
+        })
+
+    if is_edit:
+        callback_id = config.EDIT_CALLBACK_ID
+        title_text = "Edit Request"
+        submit_text = "Save changes"
+    else:
+        callback_id = config.STAGE2_CALLBACK_ID
+        title_text = "Purchase Details"
+        submit_text = "Continue"
+
     return {
         "type": "modal",
-        "callback_id": config.STAGE2_CALLBACK_ID,
-        "title": {"type": "plain_text", "text": "Purchase Details"},
-        "submit": {"type": "plain_text", "text": "Continue"},
+        "callback_id": callback_id,
+        "title": {"type": "plain_text", "text": title_text},
+        "submit": {"type": "plain_text", "text": submit_text},
         "close": {"type": "plain_text", "text": "Cancel"},
         "private_metadata": json.dumps(meta),
         "blocks": blocks,

@@ -63,6 +63,7 @@ try:
         roster,
         slack_io,
         text_rules,
+        validators,
     )
 except ImportError:
     import admin
@@ -78,6 +79,7 @@ except ImportError:
     import roster
     import slack_io
     import text_rules
+    import validators
 
 
 # --- Setup Logging ------------------------------------------------------------
@@ -876,6 +878,211 @@ def handle_req_items_action(ack, body, respond, client):
     except Exception as e:
         log.error("Failed to open items modal for user %s: %s", user_id, e)
 
+
+@app.action(config.ACTION_REQ_EDIT)
+def handle_req_edit_action(ack, body, respond, client):
+    """Handle clicking Edit on a posted modal-born request card (Ticket 32)."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+    container = body.get("container", {})
+    card_ts = container.get("message_ts") or body.get("message", {}).get("ts")
+    thread_ts = container.get("thread_ts") or body.get("message", {}).get("thread_ts") or card_ts
+
+    card_payload = slack_io.get_card_payload(client, channel_id, thread_ts, card_ts)
+    if not card_payload:
+        slack_io.deny(respond, "⚠️ Could not find request details for this card.")
+        return
+
+    card_user_id = card_payload.get("user_id")
+    card_requester = card_payload.get("requester")
+    user_name = slack_io.resolve_requester(client, user_id)
+    is_requester = (user_id and user_id == card_user_id) or (user_name and user_name == card_requester)
+    is_buyer = roster.is_buyer(user_id)
+    is_admin_user = admin.is_admin_user(user_id)
+
+    if not (is_requester or is_buyer or is_admin_user):
+        log.warning("User %s denied editing card %s", user_id, card_ts)
+        slack_io.deny(respond, "🔒 Only the requester, a buyer, or an admin can edit this request.")
+        return
+
+    card_state = card_payload.get("state", "posted")
+    if card_state != "posted":
+        slack_io.deny(respond, "⚠️ Only posted requests can be edited.")
+        return
+
+    parsed = card_payload.get("parsed") or {}
+    items = card_payload.get("items") or []
+    shipping = float(card_payload.get("shipping") or 0.0)
+
+    route = "workday" if parsed.get("payment_method") == config.WORKDAY_PAYMENT_METHOD else "epif"
+    total_price_val = parsed.get("total_price")
+    total_price_str = f"{total_price_val:.2f}" if isinstance(total_price_val, (int, float)) else str(total_price_val or "")
+
+    date_val = parsed.get("date_of_purchase")
+    if date_val and not isinstance(date_val, str):
+        date_val = str(date_val)
+
+    meta = {
+        "is_edit": True,
+        "channel": channel_id,
+        "thread_ts": thread_ts,
+        "card_ts": card_ts,
+        "vendor_choice": parsed.get("vendor", ""),
+        "vendor_custom": "",
+        "route": route,
+        # Pre-fill values
+        "item_description": parsed.get("item_description", ""),
+        "purpose": parsed.get("purpose", ""),
+        "link": parsed.get("link", "") or "",
+        "total_price": total_price_str,
+        "vendor_contact_name": parsed.get("vendor_contact_name", "") or "",
+        "vendor_contact_email": parsed.get("vendor_contact_email", "") or "",
+        "date_of_purchase": date_val or "",
+        "delivery_room": parsed.get("delivery_room", "") or "",
+        "project_id": parsed.get("project_id", "") or "",
+        "fund": parsed.get("fund", "") or "",
+        "category": parsed.get("category", "") or "",
+        "payment_method": parsed.get("payment_method", "") or "",
+        "asset_id": parsed.get("asset_id", "") or "",
+        "name_of_system": parsed.get("name_of_system", "") or "",
+        "line_items": bom.format_line_items(items, shipping) if items else "",
+    }
+
+    view = blocks.build_stage2_view(meta)
+    try:
+        client.views_open(trigger_id=body["trigger_id"], view=view)
+    except Exception as e:
+        log.error("Failed to open edit modal for user %s: %s", user_id, e)
+
+
+@app.view(config.EDIT_CALLBACK_ID)
+def handle_edit_submit(ack, body, client, view):
+    """Handle submission of the Edit request modal (Ticket 32)."""
+    values = view.get("state", {}).get("values", {})
+    meta = json.loads(view.get("private_metadata") or "{}")
+    channel = meta.get("channel")
+    thread_ts = meta.get("thread_ts")
+    card_ts = meta.get("card_ts")
+    user_id = body.get("user", {}).get("id")
+    route = meta.get("route", "workday")
+
+    payment_method_val = (
+        text_rules._extract_modal_field(values, "block_payment_method", "payment_method", field_type="selected_option")
+        if route == "epif"
+        else config.WORKDAY_PAYMENT_METHOD
+    )
+
+    stage2 = {
+        "item_description": text_rules._extract_modal_field(values, "block_item_description", "item_description"),
+        "purpose": text_rules._extract_modal_field(values, "block_purpose", "purpose"),
+        "link": text_rules._extract_modal_field(values, "block_link", "link"),
+        "total_price": text_rules._extract_modal_field(values, "block_total_price", "total_price"),
+        "vendor_contact_name": text_rules._extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
+        "vendor_contact_email": text_rules._extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),
+        "date_of_purchase": text_rules._extract_modal_field(values, "block_date_of_purchase", "date_of_purchase", field_type="selected_date"),
+        "delivery_room": text_rules._extract_modal_field(values, "block_delivery_room", "delivery_room", field_type="selected_option"),
+        "project_id": text_rules._extract_modal_field(values, "block_project_id", "project_id", field_type="selected_option"),
+        "fund": text_rules._extract_modal_field(values, "block_fund", "fund", field_type="selected_option"),
+        "category": text_rules._extract_modal_field(values, "block_category", "category", field_type="selected_option"),
+        "payment_method": payment_method_val,
+    }
+
+    stage3 = {
+        "asset_id": text_rules._extract_modal_field(values, "block_asset_id", "asset_id") or "",
+        "name_of_system": text_rules._extract_modal_field(values, "block_name_of_system", "name_of_system") or "",
+    }
+
+    raw_line_items = text_rules._extract_modal_field(values, "block_line_items", "line_items") or ""
+    items = []
+    shipping = 0.0
+    if raw_line_items.strip():
+        items, shipping, parse_errors = bom.parse_line_items(raw_line_items)
+        if parse_errors:
+            ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
+            return
+        total_error = bom.check_total(items, shipping, stage2.get("total_price"))
+        if total_error:
+            ack(response_action="errors", errors={"block_line_items": total_error})
+            return
+
+    # Validate with same rules as interview
+    stage1 = {
+        "vendor_choice": meta.get("vendor_choice"),
+        "vendor_custom": meta.get("vendor_custom", ""),
+        "route": route,
+    }
+    parsed = interview.build_parsed_from_stages(stage1, stage2, stage3 if any(stage3.values()) else None)
+    dummy_valid_name = next(iter(roster.get_valid_requesters()), "Isaac") if hasattr(roster, "get_valid_requesters") else "Isaac"
+    problems = validators.validate(parsed, requester_name=dummy_valid_name)
+
+    category = stage2.get("category")
+    if interview.needs_asset_details(category):
+        if not stage3.get("asset_id", "").strip():
+            problems.append("Asset ID is required for fabrication components")
+        if not stage3.get("name_of_system", "").strip():
+            problems.append("Name of System is required for fabrication components")
+
+    if problems:
+        errors = {}
+        for p in problems:
+            p_lower = p.lower()
+            if "asset" in p_lower:
+                errors["block_asset_id"] = p
+            elif "system" in p_lower or "name of system" in p_lower:
+                errors["block_name_of_system"] = p
+            elif "what" in p_lower or "item" in p_lower:
+                errors["block_item_description"] = p
+            elif "purpose" in p_lower or "why" in p_lower:
+                errors["block_purpose"] = p
+            elif "amt" in p_lower or "price" in p_lower or "number" in p_lower or "amount" in p_lower:
+                errors["block_total_price"] = p
+            elif "contact" in p_lower:
+                errors["block_vendor_contact_name"] = p
+            elif "email" in p_lower:
+                errors["block_vendor_contact_email"] = p
+            elif "date" in p_lower:
+                errors["block_date_of_purchase"] = p
+            elif "project id" in p_lower:
+                errors["block_project_id"] = p
+            elif "fund" in p_lower:
+                errors["block_fund"] = p
+            elif "delivery" in p_lower or "room" in p_lower:
+                errors["block_delivery_room"] = p
+            elif "category" in p_lower:
+                errors["block_category"] = p
+            elif "p-card" in p_lower or "req" in p_lower:
+                errors["block_payment_method"] = p
+            else:
+                errors.setdefault("block_item_description", p)
+        ack(response_action="errors", errors=errors)
+        return
+
+    # Check card state (approved-meanwhile guard — re-read at submit time)
+    card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+    if not card_payload:
+        ack(response_action="errors", errors={"block_item_description": "Could not find request details for this card."})
+        return
+
+    if card_payload.get("state", "posted") != "posted":
+        ack(response_action="errors", errors={"block_item_description": "This request was approved while you were editing — nothing was changed."})
+        return
+
+    ack()
+
+    lifecycle.handle_request_edit(
+        client=client,
+        channel=channel,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        stage2=stage2,
+        stage3=stage3,
+        items=items,
+        shipping=shipping,
+        user_id=user_id,
+        card_payload=card_payload,
+        meta=meta,
+    )
 
 
 @app.action("req_confirmed")
