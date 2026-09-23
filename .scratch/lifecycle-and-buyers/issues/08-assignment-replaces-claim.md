@@ -103,7 +103,7 @@ Delete the code; do not write a compatibility shim.
 
 10. **The card says who owns it.** The summary block gains one line, rendered from
     `request["assignee_id"]` / `request["assignee"]`:
-    `• *Buyer:* <@U07L2S3BLCD> (Dylan)` or `• *Buyer:* ⚠️ _Unassigned_`.
+    `• *Buyer:* <@the-assignee>` or `• *Buyer:* ⚠️ _Unassigned_`.
 
 11. **`req_processed`, `req_confirmed` and `req_delivered` are gated on assignee or
     admin** — not on `is_buyer`. An unassigned request cannot be marked processed;

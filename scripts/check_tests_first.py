@@ -1,35 +1,28 @@
-"""
-scripts/check_tests_first.py
-Enforce the tests-first rule in CI: any change to application source (src/)
-must be accompanied by changes in tests (tests/), unless explicitly exempted.
+"""Enforce the tests-first rule in CI.
+
+Any change to application source (src/) must be accompanied by changes in tests (tests/),
+unless explicitly exempted.
 
 WHY THIS EXISTS
 ---------------
-ADR 0001 Decision 1 establishes that tests are written before code. In the past,
-tests were written after the fact or not at all, resulting in untested invariants
-and regressions. The /roster-list channel_not_found bug is the shape of what that
-costs: the handler ran, built its text correctly, failed at the last step, and
-nothing caught it because nothing asserted that a command actually replies.
-
-This check runs in CI (where it binds every author and PR) to ensure that PRs
-touching application code under `src/` also touch tests under `tests/`.
+ADR 0001 establishes that tests are written before code. In unattended overnight runs,
+an implementing agent is rewarded for a green build, and the easiest way to turn a red
+build green is to stop tests from reporting problems or skip writing them.
+This check runs in CI (where it binds every author and PR) to ensure that PRs touching
+application code under `src/` also touch tests under `tests/`.
 
 NON-APPLICATION CHANGES PASS AUTOMATICALLY
 ------------------------------------------
-Changes touching only documentation (docs/), CI workflows (.github/), build
-scripts (scripts/, tools/), or test files (tests/) pass without requiring test
-modifications.
+Changes touching only documentation (docs/), CI workflows (.github/), build scripts
+(scripts/), or test files (tests/) pass without requiring test modifications.
 
 EXPLICIT ESCAPE MECHANISMS
 --------------------------
-For legitimate changes that do not require test modifications (e.g. pure refactors
-where existing contracts already cover behaviour, documentation, or exploratory bring-up):
+For legitimate changes that do not require test modifications:
 1. PR Label: Add the `tests-exempt` or `skip-test-gate` label.
 2. Commit Message or PR Description: Include an explicit annotation tag:
    `[no-test-needed: <reason>]`, `[tests-exempt: <reason>]`, or `[skip-test-gate]`.
 3. CLI / Script argument: `--exempt-reason "<reason>"`.
-
-The escape is visible in review, not silent.
 """
 from __future__ import annotations
 
@@ -40,7 +33,7 @@ import pathlib
 import re
 import subprocess
 import sys
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -54,8 +47,7 @@ _EXEMPT_LABELS = {"tests-exempt", "skip-test-gate", "no-test-needed"}
 def normalize_path(p: str | pathlib.Path) -> str:
     """Normalize a path to use forward slashes and strip leading ./"""
     s = str(p).replace("\\", "/").strip()
-    if s.startswith("./"):
-        s = s[2:]
+    s = s.removeprefix("./")
     return s
 
 
@@ -137,7 +129,6 @@ def evaluate_tests_first(
         )
         return True, msg
 
-    # src_files modified, but NO test_files modified
     if escape_reasons:
         reasons_str = "; ".join(escape_reasons)
         msg = (
@@ -151,7 +142,7 @@ def evaluate_tests_first(
         "FAIL: Application source files modified under 'src/' without corresponding "
         "test changes under 'tests/':\n"
         f"  - {file_list}\n\n"
-        "Tests-first rule violation (see docs/adr/0001-tests-first-and-no-muted-failures.md):\n"
+        "Tests-first rule violation (see docs/adr/0001-auto-merge-on-green-behind-an-integrity-gate.md):\n"
         "1. Write tests under 'tests/' covering the application changes.\n"
         "2. If this change is genuinely exempt from test updates, provide an explicit "
         "escape reason:\n"
@@ -179,14 +170,14 @@ def extract_event_info(
 
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         return labels, texts, base_ref
 
     pr = data.get("pull_request")
     if pr and isinstance(pr, dict):
-        if "title" in pr and pr["title"]:
+        if pr.get("title"):
             texts.append(str(pr["title"]))
-        if "body" in pr and pr["body"]:
+        if pr.get("body"):
             texts.append(str(pr["body"]))
         for lbl in pr.get("labels", []):
             if isinstance(lbl, dict) and "name" in lbl:
@@ -206,14 +197,12 @@ def get_git_changed_files(
     cwd: pathlib.Path = _REPO_ROOT,
 ) -> list[str]:
     """Query git for list of changed files."""
-    # 1. If explicit base given:
     diff_target = f"{base}...{head or 'HEAD'}" if base else None
 
     cmd_candidates = []
     if diff_target:
         cmd_candidates.append(["git", "diff", "--name-only", diff_target])
     else:
-        # Check against origin/master, origin/main, HEAD~1, or working tree diff
         base_ref = os.environ.get("GITHUB_BASE_REF")
         if base_ref:
             cmd_candidates.append(["git", "diff", "--name-only", f"origin/{base_ref}...HEAD"])
@@ -236,7 +225,6 @@ def get_git_changed_files(
             )
             if res.returncode == 0:
                 lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
-                # If git status --porcelain was used, strip status prefix
                 if cmd[1] == "status":
                     files = []
                     for line in lines:
@@ -246,7 +234,7 @@ def get_git_changed_files(
                     return files
                 if lines or diff_target:
                     return lines
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             continue
 
     return []
@@ -280,7 +268,7 @@ def get_git_commit_messages(
             )
             if res.returncode == 0 and res.stdout.strip():
                 return [res.stdout]
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             continue
 
     return []

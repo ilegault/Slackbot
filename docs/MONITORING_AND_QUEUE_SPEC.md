@@ -57,31 +57,9 @@ This document provides the complete architecture and step-by-step implementation
 
 ---
 
-## 2. Configuration & Environment Variables (`.env`)
 
-Add the following configuration options to `src/config.py` and document in `.env.example`:
 
-```env
-# --- Admin & Notification Settings ---
-# Comma-separated list of Slack User IDs allowed to run admin commands (e.g., U12345678,U87654321)
-ADMIN_SLACK_USER_IDS=U0123456789
-
-# Channel ID or Admin User ID where startup, crash, and system health alerts should be sent
-ADMIN_ALERT_CHANNEL=C0123456789
-
-# --- External Heartbeat (Dead-Man's Switch) ---
-# (Optional) Healthchecks.io / BetterStack ping URL for remote uptime monitoring
-HEALTHCHECK_URL=https://hc-ping.com/your-uuid-here
-HEALTHCHECK_INTERVAL_SECONDS=300
-
-# --- Lock Queue Settings ---
-EXCEL_QUEUE_POLL_INTERVAL=5
-EXCEL_LOCK_ALERT_TIMEOUT_SECONDS=600
-```
-
----
-
-## 3. Component Specifications
+## 2. Component Specifications
 
 ### 3.1. Excel Lock Queue Engine (`src/queue_worker.py`)
 

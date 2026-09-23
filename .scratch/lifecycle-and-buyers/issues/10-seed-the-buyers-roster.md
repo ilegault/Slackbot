@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 (deploy it first, then seed)
 
-**Status:** human-task done
+**Status:** ready-for-developer done
 
 ## Why
 

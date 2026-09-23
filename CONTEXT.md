@@ -85,10 +85,22 @@ until someone agrees what to order. This is why approval is the creation moment.
 real AcroForm PDF with 28 named fields. Also the name of the non-Workday
 purchasing path.
 
-**Workday path / EPIF path** — the two routes a purchase can take, decided by the
-first question in the interview: *is the vendor on the Workday vendor list?* The
-answer changes which detail fields are asked and whether a payment method is
-rendered.
+**Workday path / EPIF path** — the two routes a purchase can take. **Workday path**:
+the vendor is on the vendor list; the buyer places the order in Workday, and no EPIF
+or email exists. **EPIF path**: the vendor is not on the list; the bot fills in the
+EPIF and the buyer emails it to purchasing. On the interview, the vendor pick decides.
+In a thread, an uploaded EPIF means the EPIF path; no EPIF means the Workday path
+(see **Bare-thread approval**). A Workday request can switch to the EPIF path until
+it is processed, never after. See ADR 0007.
+
+**Vendor list** — the vendors known to be on Workday. Being on it is what puts a
+request on the Workday path. Admins add and remove vendors; requesters do not suggest
+them through the interview.
+
+**Filled EPIF** — an EPIF the bot fills in itself from a request's answers, created
+once at approval (or at a switch to the EPIF path). PI of Funding and end user are
+always Charles Hirst: the Slack approval is the approval. Archived under the same
+name as every other EPIF: `<vendor>_EPIF_$<price>_<project id>.pdf`.
 
 ### The four stages
 
@@ -98,7 +110,7 @@ the App Home definitions, and the silent `@p-bot` keyword aliases.
 
 | Word | Means | Excel |
 |---|---|---|
-| **approved** | Charlie has agreed to spend the money; the row is written | — |
+| **approved** | Charlie has agreed to spend the money; the row is written (after a bare-thread approval, once the details are in — see **Waiting for details**) | — |
 | **processed** | the request has gone to the purchasing team (Workday / ShopUW) | col U, *Date Processed* |
 | **confirmed** | the order is confirmed by the vendor | col V, *Date Confirmed* |
 | **delivered** | the package is in the lab | col W / X |
@@ -111,6 +123,16 @@ the App Home definitions, and the silent `@p-bot` keyword aliases.
 
 **Posted** — a request exists and shows an Approve button, but nobody has
 approved it. The state before `approved`.
+
+**Bare-thread approval** — an approver approving a thread that has no EPIF and no
+interview card: usually a screenshot and a link. The bot treats it as a Workday order,
+says so in the thread, and asks the requester (whoever started the thread) to fill in
+the details.
+
+**Waiting for details** — approved, with no row yet, because the details have not
+been filled in after a bare-thread approval. The only state in which an approved
+request has no row. It leaves this state when the details are submitted, or when it
+is cancelled.
 
 **Assigned** — a buyer has been named as responsible for processing this request.
 The approver names them in the approval message itself — `@Dylan @Purchasing

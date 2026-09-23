@@ -1,6 +1,6 @@
 # 34: Create the BOMs folder on the production server
 
-**Status:** human-task
+**Status:** ready-for-developer
 
 **Blocked by:** 26
 

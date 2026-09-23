@@ -5,7 +5,7 @@ DB15 breakout board request that failed on 2026-09-21 is logged.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** human-task
+**Status:** ready-for-developer
 
 An agent must not claim this. It needs someone physically at the production
 server, and it needs Charlie.
