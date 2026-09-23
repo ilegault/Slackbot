@@ -26,8 +26,7 @@ Acceptance criteria exercised:
 import json
 from unittest.mock import MagicMock, patch
 
-from src import app, blocks, config, lifecycle
-
+from src import blocks, config, lifecycle
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -167,8 +166,6 @@ def test_non_authorized_user_denied_ephemerally_no_views_open():
         patch("src.app.admin.is_admin_user", return_value=False),
         patch("src.app.slack_io.resolve_requester", return_value=None),
     ):
-        app_listener = app.app.dispatch
-        # Call through the listener directly
         from src.app import handle_req_edit_action
         handle_req_edit_action(lambda: None, body, respond, client)
 
@@ -245,7 +242,6 @@ def test_edit_form_is_pre_filled():
     """AC3: The edit form pre-fills fields from the card's current values."""
     from src import bom as bom_mod
     items = [{"qty": 2, "name": "Glove", "part_number": "", "unit_price": 50.0, "link": "", "description": ""}]
-    card_payload = _sample_modal_card_payload(total_price=100.0, items=items, shipping=0.0)
 
     meta = {
         "is_edit": True,
