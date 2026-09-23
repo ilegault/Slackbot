@@ -305,6 +305,7 @@ STAGE2_CALLBACK_ID = "purchase_stage2_submit"
 STAGE3_CALLBACK_ID = "purchase_stage3_submit"
 ROSTER_SET_NAME_CALLBACK_ID = "roster_set_name_submit"
 ITEMS_CALLBACK_ID = "purchase_items_submit"
+EDIT_CALLBACK_ID = "purchase_edit_submit"
 
 # Field length limits to keep accumulated private_metadata well under Slack's 3000-char limit
 MAX_ITEM_DESCRIPTION_LEN = 150
@@ -315,5 +316,6 @@ MAX_LINE_ITEMS_LEN = 1500  # Ticket 28: keeps carried stage2 state under 3000 ch
 ACTION_REQ_ASSIGN_SELECT = "req_assign_select"
 ACTION_OPEN_ROSTER_SET_NAME = "open_roster_set_name"
 ACTION_REQ_ITEMS = "req_items"
+ACTION_REQ_EDIT = "req_edit"
 
 

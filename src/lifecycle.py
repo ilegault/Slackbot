@@ -36,6 +36,14 @@ Per Ticket 33:
   requester and vendor before posting the new card (ADR 0006 decision 9).
   Approved or later cards are never touched.
 
+Per Ticket 32:
+- handle_request_edit updates a modal-born posted card in place after the requester,
+  a buyer, or an admin submits the edit form (ADR 0006 decision 8).
+- The submit handler in app.py validates fields, checks the card is still posted,
+  then acks. handle_request_edit rebuilds parsed, calls describe_changes, updates
+  the card (blocks + metadata), posts the edit line, and re-posts the draft BOM
+  when items changed. No changes → nothing posted, no history line.
+
 Per Ticket 28:
 - _process_interview_completion stores line items and shipping on modal-born cards
   and uploads draft BOM spreadsheets when needs_bom is True.
@@ -1699,4 +1707,107 @@ def handle_items_update(
     )
 
     return True
+
+
+def handle_request_edit(
+    client,
+    channel: str,
+    thread_ts: str,
+    card_ts: str,
+    stage2: dict,
+    stage3: dict | None,
+    items: list,
+    shipping: float,
+    user_id: str,
+    card_payload: dict,
+    meta: dict,
+) -> None:
+    """Update a modal-born posted card with edited values (Ticket 32, ADR 0006 decision 8).
+
+    WHY THIS EXISTS:
+    ----------------
+    Called after ack() once the submit handler has validated all fields and confirmed
+    the card is still in 'posted' state. This function:
+    1. Rebuilds the parsed request from the submitted stage2/stage3 values.
+    2. Calls bom.describe_changes to find what changed. No changes -> returns
+       immediately; no thread post, no history line.
+    3. Writes the updated blocks + metadata to the card via chat_update.
+    4. Posts one thread line naming every changed field, appended to history.
+    5. Re-posts the draft BOM when line items changed and needs_bom is True.
+
+    Vendor and route come from the original card (via meta), not from the edit form,
+    because vendor is not editable: to change vendor, Decline and resubmit.
+    """
+    stage1 = {
+        "vendor_choice": meta.get("vendor_choice", ""),
+        "vendor_custom": meta.get("vendor_custom", ""),
+        "route": meta.get("route", "workday"),
+    }
+
+    new_parsed = interview.build_parsed_from_stages(
+        stage1, stage2, stage3 if stage3 and any(stage3.values()) else None
+    )
+
+    # Serialize date for metadata storage
+    new_parsed_stored = dict(new_parsed)
+    if new_parsed_stored.get("date_of_purchase") and not isinstance(new_parsed_stored["date_of_purchase"], str):
+        new_parsed_stored["date_of_purchase"] = new_parsed_stored["date_of_purchase"].isoformat()
+
+    old_parsed = card_payload.get("parsed") or {}
+    old_items = card_payload.get("items") or []
+    old_shipping = float(card_payload.get("shipping") or 0.0)
+
+    old_compare = {**old_parsed, "items": old_items, "shipping": old_shipping}
+    new_compare = {**new_parsed_stored, "items": items, "shipping": float(shipping or 0.0)}
+
+    fragments = bom.describe_changes(old_compare, new_compare)
+    if not fragments:
+        return  # Nothing changed — no thread post, no history update
+
+    user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    edit_line = f"✏️ Edited by {user_name}: {'; '.join(fragments)}"
+
+    history = list(card_payload.get("history") or [])
+    history.append(edit_line)
+
+    new_payload = dict(card_payload)
+    new_payload["parsed"] = new_parsed_stored
+    new_payload["history"] = history
+    new_payload["items"] = items
+    new_payload["shipping"] = float(shipping or 0.0)
+
+    new_blocks = blocks.build_request_blocks("posted", new_payload, history=history, items=items)
+
+    try:
+        client.chat_update(
+            channel=channel,
+            ts=card_ts,
+            text="🛒 Purchase Request (Posted)",
+            blocks=new_blocks,
+            metadata={
+                "event_type": "purchase_request",
+                "event_payload": new_payload,
+            },
+        )
+        log.info("Edited card %s in %s (user %s): %s", card_ts, channel, user_id, edit_line)
+    except Exception as e:
+        log.error("Failed to chat_update card %s with edits: %s", card_ts, e)
+        return
+
+    try:
+        client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=edit_line)
+    except Exception as e:
+        log.warning("Failed to post edit line to thread %s: %s", thread_ts, e)
+
+    # Re-post draft BOM when items changed and there are enough items for a BOM
+    items_changed = any(f.startswith("items") for f in fragments)
+    if items_changed and bom.needs_bom(items):
+        upload_draft_bom(
+            client=client,
+            channel=channel,
+            thread_ts=thread_ts,
+            parsed=new_parsed_stored,
+            items=items,
+            shipping=float(shipping or 0.0),
+        )
 
