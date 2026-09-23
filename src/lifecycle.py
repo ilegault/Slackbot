@@ -55,6 +55,12 @@ Per Ticket 30:
 - The archived BOM is uploaded to the assignee's DM via conversations_open + files_upload_v2.
 - A failed upload is logged and alerted to admin; it never reverses the approval.
 
+Per Ticket 31:
+- Cancel moves the archived BOM to BOMS_DIR/Cancelled/, keeping its row-numbered filename (ADR 0006 decision 7).
+- The move happens inside the same queued write task as the row blanking.
+- A missing BOM file is logged as a warning; the cancellation still completes — a file that was never
+  saved must not leave a cancelled purchase sitting in the log (ticket 31 note).
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -63,6 +69,7 @@ May NOT import:
 import json
 import logging
 import os
+import shutil
 from datetime import datetime
 
 try:
@@ -1377,6 +1384,32 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
         log.error("Failed to update message on decline: %s", e)
 
 
+def _move_bom_to_cancelled(bom_fname: str) -> None:
+    """Move the named BOM file from BOMS_DIR into BOMS_DIR/Cancelled/.
+
+    WHY THIS EXISTS:
+        ADR 0006 decision 7: when a request is cancelled the archived BOM must move
+        into Cancelled/ so the live folder matches the live log, and a recycled row
+        number cannot collide with a stale sheet.
+        A missing file is logged as a warning and the function returns normally so
+        the cancel can still complete — a file that was never saved must not leave a
+        cancelled purchase sitting in the log (ticket 31).
+    """
+    src_path = os.path.join(config.BOMS_DIR, bom_fname)
+    if not os.path.exists(src_path):
+        log.warning(
+            "Cancel: BOM %s not found at %s; cancellation continues without moving it",
+            bom_fname,
+            src_path,
+        )
+        return
+    cancelled_dir = os.path.join(config.BOMS_DIR, "Cancelled")
+    os.makedirs(cancelled_dir, exist_ok=True)
+    dst_path = os.path.join(cancelled_dir, bom_fname)
+    shutil.move(src_path, dst_path)
+    log.info("Moved BOM %s to Cancelled/ on cancel", bom_fname)
+
+
 def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_id: str, req_data: dict, state: str, history: list):
     """Cancel an approved purchase request, blanking its Excel row(s).
 
@@ -1388,6 +1421,8 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
         Both approvers and admins can cancel; buyers cannot (ADR 0003 decision 6).
         A batch (multiple EPIFs in one thread) is cancelled as a batch — every
         row is blanked in a single queued write (ADR 0003 decision 7).
+        At cancel, the archived BOM is moved to BOMS_DIR/Cancelled/ (ADR 0006
+        decision 7, ticket 31), inside the same write task as the row blanking.
     """
     if state in _CANCEL_REFUSED_STATES:
         say(
@@ -1407,11 +1442,14 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
     history.append(f"Cancelled by {user_name} on {now_str}")
 
     rows = slack_io.find_all_rows_in_thread(client, channel, thread_ts)
+    bom_fname = req_data.get("bom_file")
 
     if rows:
         def write_action():
             for row in rows:
                 log_writer.blank_row(row)
+            if bom_fname:
+                _move_bom_to_cancelled(bom_fname)
             return rows
 
         def on_success(res):
@@ -1432,6 +1470,8 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
             client=client,
         )
     else:
+        if bom_fname:
+            _move_bom_to_cancelled(bom_fname)
         log.warning("Cancel: no logged rows found in thread %s; nothing blanked", thread_ts)
 
     cancelled_blocks = blocks.build_request_blocks("cancelled", req_data, history=history)
