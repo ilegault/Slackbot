@@ -102,8 +102,9 @@ def test_handle_stage1_submit_near_miss_warns_once(monkeypatch):
         ack.assert_called_once()
         ack_kwargs = ack.call_args[1]
         assert ack_kwargs["response_action"] == "update"
-        # stage 2 view should be present
+        # stage 2 view should be present, not the warning again
         assert "view" in ack_kwargs
+        assert ack_kwargs["view"]["callback_id"] == config.STAGE2_CALLBACK_ID
 
 def test_handle_stage1_submit_no_near_miss_passes(monkeypatch):
     monkeypatch.setattr(config, "WORKDAY_VENDORS", {"Fisher Scientific"})
@@ -131,6 +132,7 @@ def test_handle_stage1_submit_no_near_miss_passes(monkeypatch):
     ack.assert_called_once()
     ack_kwargs = ack.call_args[1]
     assert ack_kwargs["response_action"] == "update"
+    assert ack_kwargs["view"]["callback_id"] == config.STAGE2_CALLBACK_ID
 
 def test_handle_stage1_submit_different_near_miss_warns_anew(monkeypatch):
     """If they were warned about A, but then type B which is also a near miss, warn again."""
@@ -165,3 +167,96 @@ def test_handle_stage1_submit_different_near_miss_warns_anew(monkeypatch):
     blocks = updated_view["blocks"]
     assert blocks[0]["block_id"] == "block_near_miss_warning"
     assert "Did you mean *Dell*?" in blocks[0]["elements"][0]["text"]
+
+
+# --- Round-trip scenarios through the real Screen 1 view --------------------
+# These start from the view the bot actually builds, submit it through the real
+# handler, and feed the view the bot sends back into the next submit, the way
+# Slack does. "Proceeds" is asserted as what the requester would see next: the
+# Screen 2 view on the EPIF path, with no warning on it.
+
+from src import blocks  # noqa: E402
+
+LISTED = {"Fisher Scientific", "Dell"}
+
+
+def _submit(view: dict, typed_name: str) -> dict:
+    """Submit `view` with Not listed / other + `typed_name`; return the ack kwargs."""
+    submitted = dict(view)
+    submitted["id"] = "V123"
+    submitted["hash"] = "hash123"
+    submitted["state"] = {
+        "values": {
+            "block_vendor": {"vendor_select": {"selected_option": {"value": config.VENDOR_OTHER_OPTION}}},
+            "block_vendor_custom": {"vendor_custom": {"value": typed_name}},
+        }
+    }
+    ack = MagicMock()
+    app.handle_stage1_submit(ack, {"user": {"id": "U123"}}, MagicMock(), submitted)
+    ack.assert_called_once()
+    return ack.call_args[1]
+
+
+def _warnings(view: dict) -> list[dict]:
+    return [b for b in view.get("blocks", []) if b.get("block_id") == "block_near_miss_warning"]
+
+
+def _assert_proceeded_on_epif_path(ack_kwargs: dict, typed_name: str) -> None:
+    view = ack_kwargs["view"]
+    assert ack_kwargs["response_action"] == "update"
+    assert view["callback_id"] == config.STAGE2_CALLBACK_ID
+    meta = json.loads(view["private_metadata"])
+    assert meta["route"] == "epif"
+    assert meta["vendor_custom"] == typed_name
+    assert _warnings(view) == []
+
+
+def _fresh_stage1_view() -> dict:
+    return blocks.build_stage1_view(resolved_name="Requester", user_id="U123")
+
+
+def test_round_trip_warns_once_then_proceeds_on_epif_path(monkeypatch):
+    monkeypatch.setattr(interview, "get_available_vendors", lambda: LISTED)
+
+    for typed_name in ["fisher scientific", "Fisher Scientific, Inc.", "Fisher Scientfic"]:
+        first = _submit(_fresh_stage1_view(), typed_name)
+        warned_view = first["view"]
+        assert warned_view["callback_id"] == config.STAGE1_CALLBACK_ID  # still on Screen 1
+        assert len(_warnings(warned_view)) == 1
+
+        second = _submit(warned_view, typed_name)
+        _assert_proceeded_on_epif_path(second, typed_name)
+
+
+def test_unlisted_vendor_proceeds_immediately_without_a_warning(monkeypatch):
+    monkeypatch.setattr(interview, "get_available_vendors", lambda: LISTED)
+
+    _assert_proceeded_on_epif_path(_submit(_fresh_stage1_view(), "Winford"), "Winford")
+
+
+def test_warning_sits_directly_under_the_vendor_name_field(monkeypatch):
+    monkeypatch.setattr(interview, "get_available_vendors", lambda: LISTED)
+
+    view = _submit(_fresh_stage1_view(), "fisher scientific")["view"]
+    ids = [b.get("block_id") for b in view["blocks"]]
+    assert ids.index("block_near_miss_warning") == ids.index("block_vendor_custom") + 1
+    text = _warnings(view)[0]["elements"][0]["text"]
+    assert "Did you mean *Fisher Scientific*?" in text
+    assert "Submit again to keep this as an EPIF order." in text
+
+
+def test_changing_to_another_near_miss_replaces_the_warning(monkeypatch):
+    monkeypatch.setattr(interview, "get_available_vendors", lambda: LISTED)
+
+    warned_about_fisher = _submit(_fresh_stage1_view(), "fisher scientific")["view"]
+    warned_about_dell = _submit(warned_about_fisher, "dell inc")["view"]
+
+    warnings = _warnings(warned_about_dell)
+    assert len(warnings) == 1
+    text = warnings[0]["elements"][0]["text"]
+    assert "Did you mean *Dell*?" in text
+    assert "Fisher" not in text
+    assert json.loads(warned_about_dell["private_metadata"])["warned_vendor"] == "dell inc"
+
+    # ...and resubmitting the new name now goes through.
+    _assert_proceeded_on_epif_path(_submit(warned_about_dell, "dell inc"), "dell inc")
