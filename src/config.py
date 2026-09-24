@@ -251,6 +251,7 @@ UPDATE_KEYWORDS = ("update", "git pull")
 RESTART_KEYWORDS = ("restart", "reboot")
 TEMPLATE_KEYWORDS = ("template", "blank epif", "blank form")
 REMOVE_VENDOR_KEYWORDS = ("remove vendor", "delete vendor")
+ADD_VENDOR_KEYWORDS = ("add vendor", "add-vendor")
 PROMOTE_ADMIN_KEYWORDS = ("promote-admin", "promote admin", "add-admin", "add admin")
 ADD_APPROVER_KEYWORDS = ("add-approver", "add approver")
 REMOVE_APPROVER_KEYWORDS = ("remove-approver", "remove approver")
@@ -273,6 +274,7 @@ ALL_KEYWORD_TUPLES = (
     RESTART_KEYWORDS,
     TEMPLATE_KEYWORDS,
     REMOVE_VENDOR_KEYWORDS,
+    ADD_VENDOR_KEYWORDS,
     PROMOTE_ADMIN_KEYWORDS,
     ADD_APPROVER_KEYWORDS,
     REMOVE_APPROVER_KEYWORDS,

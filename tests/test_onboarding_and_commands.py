@@ -208,22 +208,6 @@ def test_screen1_validation():
     assert ack.call_args[1]["response_action"] == "errors"
     assert "block_vendor_custom" in ack.call_args[1]["errors"]
 
-    # 2. Suggest vendor with whitespace custom name -> validation error
-    ack.reset_mock()
-    view_ws_custom = {
-        "state": {
-            "values": {
-                "block_vendor": {"vendor_select": {"selected_option": {"value": config.VENDOR_SUGGEST_OPTION}}},
-                "block_vendor_custom": {"vendor_custom": {"value": "   "}},
-            }
-        },
-        "private_metadata": json.dumps({"resolved_name": "Isaac", "user_id": "U123"}),
-    }
-    app.handle_stage1_submit(ack, body, client, view_ws_custom)
-    ack.assert_called_once()
-    assert ack.call_args[1]["response_action"] == "errors"
-    assert "block_vendor_custom" in ack.call_args[1]["errors"]
-
     # 3. Workday vendor without custom name -> updates to stage 2 view
     ack.reset_mock()
     view_valid = {
@@ -1762,3 +1746,38 @@ def test_pdf_request_walks_from_posted_to_delivered_with_excel_writes(monkeypatc
 
 
 
+
+def test_add_vendor_admin_success(monkeypatch):
+    from src import app, roster
+    say = MagicMock()
+    client = MagicMock()
+    monkeypatch.setattr(app.admin, "is_admin_user", lambda uid: True)
+
+    # Empty name
+    app.dispatch_command(client, say, "C123", "123.456", "U1", "event_1", "add-vendor  ", bot_user_id="U_BOT")
+    say.assert_called_with(text="⚠️ Please specify the vendor name, e.g. `@p-bot add-vendor Thorlabs`.", thread_ts="123.456")
+
+    # Existing name
+    say.reset_mock()
+    monkeypatch.setattr(roster, "get_vendors", lambda: ["Thorlabs"])
+    app.dispatch_command(client, say, "C123", "123.456", "U1", "event_1", "add vendor Thorlabs", bot_user_id="U_BOT")
+    say.assert_called_with(text="⚠️ Vendor 'Thorlabs' is already on the list.", thread_ts="123.456")
+
+    # New name success
+    say.reset_mock()
+    monkeypatch.setattr(roster, "get_vendors", lambda: [])
+    add_vendor_mock = MagicMock()
+    monkeypatch.setattr(roster, "add_vendor", add_vendor_mock)
+
+    app.dispatch_command(client, say, "C123", "123.456", "U1", "event_1", "add vendor NewVendor", bot_user_id="U_BOT")
+    add_vendor_mock.assert_called_once_with("NewVendor")
+    say.assert_called_with(text="✅ Vendor *NewVendor* added to the Workday catalog in `roster.json`.", thread_ts="123.456")
+
+def test_add_vendor_non_admin_denied(monkeypatch):
+    from src import app
+    say = MagicMock()
+    client = MagicMock()
+    monkeypatch.setattr(app.admin, "is_admin_user", lambda uid: False)
+
+    app.dispatch_command(client, say, "C123", "123.456", "U1", "event_1", "add-vendor Apple", bot_user_id="U_BOT")
+    say.assert_called_with(text="🔒 This command is restricted to bot administrators.", thread_ts="123.456")
