@@ -6,6 +6,10 @@ on:
 
 jobs:
   integrity:
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
     uses: ilegault/ticket-engine/.github/workflows/integrity.yml@v1
     secrets:
       PIPELINE_TOKEN: ${{ secrets.PIPELINE_TOKEN }}
