@@ -586,8 +586,46 @@ def handle_epif_processing(
         )
         return
 
-    log.info("No PDF or purchase request found in thread/message %s", thread_ts)
-    say(text="I couldn't find a PDF or purchase request in this thread/message.", thread_ts=thread_ts)
+
+    # Bare thread approval (Ticket 40)
+    # If no PDF, no posted payload, and no modal metadata is found, it's a bare thread.
+    log.info("No PDF or purchase request found in thread %s, treating as bare thread approval", thread_ts)
+
+    requester_id = slack_io.get_thread_parent_author(client, channel, thread_ts)
+    requester_name = slack_io.resolve_requester(client, requester_id) if requester_id else None
+    display_requester = f"<@{requester_id}>" if requester_id else "requester"
+
+    # 1. Post exactly one thread reply
+    reply_text = (
+        f"✅ Approved by {approver}. No EPIF in this thread, so I'm treating this as a *Workday order*. "
+        f"{display_requester}, please fill in the details so it can be logged. "
+        f"If this vendor isn't on Workday, press *This needs an EPIF* instead."
+    )
+    say(text=reply_text, thread_ts=thread_ts)
+
+    # 2. Post a waiting_for_details card
+    req_data = {
+        "user_id": requester_id,
+        "assignee_id": assignee_id,
+        "assignee": assignee_name,
+        "thread_ts": thread_ts,
+    }
+
+    card_blocks = blocks.build_request_blocks(
+        state="waiting_for_details",
+        request=req_data,
+        history=[],
+        requester=requester_name,
+    )
+
+    client.chat_postMessage(
+        channel=channel,
+        text="Approved — waiting for details",
+        blocks=card_blocks,
+        thread_ts=thread_ts,
+    )
+    # No row is written (absence asserted)
+
 
 
 def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, file_obj: dict, event_ts: str):
@@ -1507,8 +1545,12 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
     else:
         if bom_fname:
             _move_bom_to_cancelled(bom_fname)
-        log.warning("Cancel: no logged rows found in thread %s; nothing blanked", thread_ts)
+        if state == "waiting_for_details":
+            log.info("Cancel: waiting_for_details request cancelled with no row written.")
+        else:
+            log.warning("Cancel: no logged rows found in thread %s; nothing blanked", thread_ts)
 
+    say(text="🚫 Purchase request cancelled.", thread_ts=thread_ts)
     cancelled_blocks = blocks.build_request_blocks("cancelled", req_data, history=history)
     try:
         client.chat_update(

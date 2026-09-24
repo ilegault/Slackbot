@@ -503,6 +503,129 @@ def handle_stage2_submit(ack, body, client, view):
         lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=None)
 
 
+@app.view("modal_workday_details")
+def handle_workday_details_submit(ack, body, client, view):
+    """Handle submission of the Workday details modal."""
+    meta = json.loads(view["private_metadata"])
+    channel = meta["channel_id"]
+    thread_ts = meta["thread_ts"]
+    card_ts = meta["card_ts"]
+    user_id = body.get("user", {}).get("id")
+
+    # Re-check card state
+    card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+    if not card_payload or card_payload.get("state") != "waiting_for_details":
+        ack(response_action="errors", errors={"block_vendor": "This request is no longer waiting for details."})
+        return
+
+    state_vals = view["state"]["values"]
+
+    # Extract values
+    vendor = state_vals.get("block_vendor", {}).get("vendor", {}).get("selected_option", {}).get("value")
+    item = state_vals.get("block_item_description", {}).get("item_description", {}).get("value")
+    purpose = state_vals.get("block_purpose", {}).get("purpose", {}).get("value")
+    link = state_vals.get("block_link", {}).get("link", {}).get("value", "")
+    total_price = state_vals.get("block_total_price", {}).get("total_price", {}).get("value")
+    date_str = state_vals.get("block_date_of_purchase", {}).get("date_of_purchase", {}).get("selected_date")
+    room = state_vals.get("block_delivery_room", {}).get("delivery_room", {}).get("value")
+    project = state_vals.get("block_project_id", {}).get("project_id", {}).get("value")
+    fund = state_vals.get("block_fund", {}).get("fund", {}).get("value")
+    category = state_vals.get("block_category", {}).get("category", {}).get("selected_option", {}).get("value")
+    line_items_str = state_vals.get("block_line_items", {}).get("line_items", {}).get("value", "")
+
+    parsed_items = []
+    shipping = 0.0
+    if line_items_str:
+        parsed_items, shipping, err = bom.parse_line_items(line_items_str)
+        if err:
+            ack(response_action="errors", errors={"block_line_items": err})
+            return
+
+    # Check total
+    if parsed_items:
+        total_err = bom.check_total(parsed_items, shipping, total_price)
+        if total_err:
+            ack(response_action="errors", errors={"block_line_items": total_err})
+            return
+
+    parsed = {
+        "vendor": vendor,
+        "item_description": item,
+        "purpose": purpose,
+        "link": link,
+        "total_price": total_price,
+        "date_of_purchase": date_str,
+        "delivery_room": room,
+        "project_id": project,
+        "fund": fund,
+        "category": category,
+        "route": "workday",
+    }
+
+    requester = slack_io.resolve_requester(client, user_id)
+
+    # Validate
+    problems = validators.validate(parsed, requester_name=requester)
+    if problems:
+        errors = {}
+        for p in problems:
+            p_lower = p.lower()
+            if "vendor" in p_lower:
+                errors["block_vendor"] = p
+            elif "what" in p_lower or "item" in p_lower:
+                errors["block_item_description"] = p
+            elif "purpose" in p_lower or "why" in p_lower:
+                errors["block_purpose"] = p
+            elif "amt" in p_lower or "price" in p_lower or "number" in p_lower or "amount" in p_lower:
+                errors["block_total_price"] = p
+            elif "date" in p_lower:
+                errors["block_date_of_purchase"] = p
+            elif "project id" in p_lower:
+                errors["block_project_id"] = p
+            elif "fund" in p_lower:
+                errors["block_fund"] = p
+            elif "category" in p_lower:
+                errors["block_category"] = p
+            elif "room" in p_lower:
+                errors["block_delivery_room"] = p
+            else:
+                errors["block_item_description"] = p
+        ack(response_action="errors", errors=errors)
+        return
+
+    ack()
+
+    # Call lifecycle to write row and update
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, **kw)
+
+    # Use the finalized details
+    from . import epif_parser
+    parsed["date_of_purchase"] = epif_parser.parse_date(date_str) if date_str else None
+
+    # Note: we need to use the original approver
+    approver = card_payload.get("approver")
+
+    # We pass it to finalize_purchase_request
+    lifecycle.finalize_purchase_request(
+        client=client,
+        say=say,
+        channel=channel,
+        thread_ts=thread_ts,
+        event_ts="1234567890.123456",
+        parsed=parsed,
+        requester=requester,
+        notify_target=user_id,
+        is_pending_name=False,
+        assignee_id=card_payload.get("assignee_id"),
+        assignee_name=card_payload.get("assignee"),
+        approver=approver,
+        card_ts=card_ts,
+        items=parsed_items,
+        shipping=shipping,
+    )
+
+
 @app.view(config.STAGE3_CALLBACK_ID)
 def handle_stage3_submit(ack, body, client, view):
     """Process Screen 3 (Fabrication details) and finalize purchase request."""
@@ -804,6 +927,62 @@ def handle_req_decline_action(ack, body, respond, client):
 
     lifecycle.handle_decline(client, channel_id, msg_ts, user_id, req_data, history)
 
+
+
+@app.action("req_fill_details")
+def handle_req_fill_details(ack, body, respond, client):
+    """Handle clicking 'Fill in details' on a waiting_for_details card."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+    msg_ts = body.get("message", {}).get("ts")
+    thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
+
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+
+    # Permission check: requester, assignee, unassigned buyer, or admin
+    requester_name = val_data.get("requester")
+    is_requester = (requester_name and requester_name == slack_io.resolve_requester(client, user_id)) or (user_id == req_data.get("user_id"))
+    is_assignee = user_id == req_data.get("assignee_id")
+    is_unassigned_buyer = (not req_data.get("assignee_id")) and roster.is_buyer(user_id)
+    is_admin = admin.is_admin_user(user_id)
+
+    if not (is_requester or is_assignee or is_unassigned_buyer or is_admin):
+        log.warning("Unauthorized user %s attempted to fill details", user_id)
+        slack_io.deny(respond, "🔒 Only the requester, assignee, or admin can fill in the details.")
+        return
+
+    # Open the Workday details modal
+    vendors = roster.get_vendors() if hasattr(roster, "get_vendors") else []
+    view = blocks.build_workday_details_view(channel_id, thread_ts, msg_ts, vendors)
+    client.views_open(trigger_id=body["trigger_id"], view=view)
+
+
+@app.action("req_needs_epif")
+def handle_req_needs_epif(ack, body, respond, client):
+    """Handle clicking 'This needs an EPIF' on a waiting_for_details card."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+
+    # Permission check
+    requester_name = val_data.get("requester")
+    is_requester = (requester_name and requester_name == slack_io.resolve_requester(client, user_id)) or (user_id == req_data.get("user_id"))
+    is_assignee = user_id == req_data.get("assignee_id")
+    is_unassigned_buyer = (not req_data.get("assignee_id")) and roster.is_buyer(user_id)
+    is_admin = admin.is_admin_user(user_id)
+
+    if not (is_requester or is_assignee or is_unassigned_buyer or is_admin):
+        log.warning("Unauthorized user %s attempted to click Needs EPIF", user_id)
+        slack_io.deny(respond, "🔒 Only the requester, assignee, or admin can change this.")
+        return
+
+    # In this ticket, it must only reply privately that it is coming in ticket 41.
+    slack_io.tell(client, user_id, "The EPIF path for bare threads is coming in ticket 41.")
 
 @app.action("req_cancel")
 def handle_req_cancel_action(ack, body, respond, client):
