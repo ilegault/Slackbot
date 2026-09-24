@@ -108,7 +108,6 @@ def sync_queue(monkeypatch):
 def _parsed(total_price=150.0):
     return {
         "item_description": "Shaft Couplings",
-        "route": "epif",
         "purpose": "Motor alignment",
         "total_price": total_price,
         "vendor": "Ruland",
@@ -247,7 +246,6 @@ def test_assign_after_unassigned_approval_attaches_bom(temp_boms_dir):
 
     card_req = {
         "item_description": "Shaft Couplings",
-        "route": "epif",
         "vendor": "Ruland",
         "total_price": 150.0,
         "bom_file": bom_fname,
@@ -306,7 +304,6 @@ def test_reassign_new_buyer_gets_bom_dm(temp_boms_dir):
 
     card_req = {
         "item_description": "Couplings",
-        "route": "epif",
         "vendor": "Ruland",
         "total_price": 150.0,
         "assignee_id": "U_DYLAN",
