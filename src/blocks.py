@@ -653,6 +653,39 @@ def build_stage1_view(prefill_name_field: bool = False, resolved_name: str | Non
     }
 
 
+NEAR_MISS_WARNING_BLOCK_ID = "block_near_miss_warning"
+
+
+def with_near_miss_warning(view_blocks: list[dict], matched_vendor: str) -> list[dict]:
+    """Return Screen 1's blocks with one near-miss warning under the vendor name field.
+
+    WHY THIS EXISTS: ticket 35 / ADR 0007 decision 3. The warning has to travel in the
+    same response that stores the warned name in private_metadata, and Slack's
+    `errors` response cannot change private_metadata, so the warning is a block in an
+    `update` response instead of a field error. Any earlier warning is dropped first:
+    keeping the old block once left "Did you mean A?" showing after the requester
+    typed a name close to B. Pure: returns a new list, never mutates its input.
+    """
+    warning = {
+        "type": "context",
+        "block_id": NEAR_MISS_WARNING_BLOCK_ID,
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": (
+                    f":warning: Did you mean *{matched_vendor}*? Pick it from the list — "
+                    "it's a Workday vendor. Submit again to keep this as an EPIF order."
+                ),
+            }
+        ],
+    }
+    kept = [b for b in view_blocks if b.get("block_id") != NEAR_MISS_WARNING_BLOCK_ID]
+    for i, block in enumerate(kept):
+        if block.get("block_id") == "block_vendor_custom":
+            return kept[: i + 1] + [warning] + kept[i + 1 :]
+    return [warning] + kept
+
+
 def _select_initial_option(value: str | None, options: list) -> dict | None:
     """Return the matching initial_option dict for a static_select, or None."""
     if not value:

@@ -2,22 +2,27 @@
 
 **Status:** ready-for-agent
 
-**Blocked by:** 37, 40
+**Runner:** any
+
+**Auto-merge:** yes
+
+**Blocked by:** 40, 45, 46
 
 Spec: Implementation Decision 4 (This needs an EPIF). Binding: ADR 0007 decisions 4–6.
 
-**What to build:** On a card that's waiting for details, Dylan finds the vendor isn't on
-Workday and presses **This needs an EPIF**. The interview opens on the EPIF path with the
-vendor to type. On submit, the row is written with `route = epif`, the filled EPIF is
-generated and archived in the same queued write, the card becomes an ordinary approved
-card, and the assignee gets the EPIF DM with the PDF attached. No new posted card
-appears, and Charlie is not asked to approve again.
+**What to build:** On a card waiting for details, the assigned buyer finds the vendor
+isn't on Workday and presses **This needs an EPIF**. The EPIF-path interview opens at
+Screen 2. On submit the row is written with `route = epif`, the filled EPIF is generated
+and archived in the same queued write, the card becomes an ordinary approved card, and
+the buyer gets the EPIF DM with the PDF attached. No new card is posted and the approver
+is not asked again.
 
-- [ ] Permission is the same as ticket 40. Others get a private denial with nothing written.
-- [ ] The interview's private metadata carries the bare-thread context (channel, thread, card ts, requester, approver, assignee). On completion, the handler finalises against that card instead of posting a new posted card.
-- [ ] The row append and the EPIF generation happen in one all-or-nothing queued task (ticket 37's path). If it fails, the card stays `waiting_for_details`.
-- [ ] The thread line and DM are the EPIF-path wording from ticket 37.
-- [ ] Scenario test: bare approval, then This needs an EPIF submitted by the assignee. One row with `route = epif`, one archived EPIF under the naming rule, the card `approved`, the DM has a file upload, and **no** second posted card or Approve button appears (absence asserted).
-- [ ] Full gate green (all four commands).
+- [ ] `app.handle_req_needs_epif` keeps its permission check (ticket 40), and instead of the "coming in ticket 41" DM opens `blocks.build_stage2_view` with `route = epif` and the bare-thread context in private metadata: channel, thread, card ts, requester ID and name, approver, assignee.
+- [ ] On completion, `lifecycle._process_interview_completion` sees that context and calls `finalize_purchase_request` against the existing card (`card_ts`) instead of posting a new posted card. Proof: after the scenario, `chat_postMessage` was called with no new card blocks, and no button with `action_id` `req_approve` exists in any posted blocks.
+- [ ] Row, EPIF and card update happen in the one queued task that ticket 45 built. If it fails, the card stays `waiting_for_details`: a test makes `config.EPIF_TEMPLATE_PATH` point at a missing file and asserts no row, no `chat_update` to `approved`, and a failure line in the thread.
+- [ ] **Scenario**, bare approval then This needs an EPIF submitted by the assignee: one row with `route = epif`, one PDF in `EPIFS_DIR` named by `log_writer.epif_archive_name`, the card updated to `approved`, and the assignee's DM has a `files_upload_v2` call for that PDF.
+- [ ] Full gate green, in CI order: `ruff check .`, `python scripts/check_tests_first.py`, `pytest -q`.
+
+**Tests may fake:** the Slack client (a `MagicMock` that records calls) and the network. **Tests must use real:** the handlers, `log_writer`, and a temporary copy of the workbook (copy the `temp_workbook` and `sync_queue` fixtures from `tests/test_29_approval_archives_bom.py`). A test that patches out the function this ticket changes does not count. Point `config.EPIFS_DIR` at `tmp_path` and `config.EPIF_TEMPLATE_PATH` at `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`.
 
 ## Comments

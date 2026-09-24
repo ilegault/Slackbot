@@ -439,51 +439,20 @@ def handle_stage1_submit(ack, body, client, view):
             if matched_vendor:
                 metadata["warned_vendor"] = vendor_custom
 
-                # We must use response_action="update" to push the new private_metadata.
-                # To show the error, we insert a context block containing the error message.
+                # Warning and warned name must travel in one `update` response;
+                # see blocks.with_near_miss_warning for why it isn't a field error.
                 import copy
                 new_view = copy.deepcopy(view)
-                new_view.pop("id", None)
-                new_view.pop("team_id", None)
-                new_view.pop("state", None)
-                new_view.pop("hash", None)
-                new_view.pop("previous_view_id", None)
-                new_view.pop("root_view_id", None)
-                new_view.pop("app_id", None)
-                new_view.pop("app_installed_team_id", None)
-                new_view.pop("bot_id", None)
-
+                for key in (
+                    "id", "team_id", "state", "hash", "previous_view_id",
+                    "root_view_id", "app_id", "app_installed_team_id", "bot_id",
+                ):
+                    new_view.pop(key, None)
                 new_view["private_metadata"] = json.dumps(metadata)
-
-                warning_text = f"Did you mean *{matched_vendor}*? Pick it from the list — it's a Workday vendor. Submit again to keep this as an EPIF order."
-
-                # Check if warning already exists, if not, prepend it
-                view_blocks = new_view.get("blocks", [])
-                if view_blocks and view_blocks[0].get("block_id") != "block_near_miss_warning":
-                    warning_block = {
-                        "type": "context",
-                        "block_id": "block_near_miss_warning",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f":warning: *{warning_text}*"
-                            }
-                        ]
-                    }
-                    view_blocks.insert(0, warning_block)
-                    new_view["blocks"] = view_blocks
-                elif not view_blocks:
-                    warning_block = {
-                        "type": "context",
-                        "block_id": "block_near_miss_warning",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f":warning: *{warning_text}*"
-                            }
-                        ]
-                    }
-                    new_view["blocks"] = [warning_block]
+                new_view["blocks"] = blocks.with_near_miss_warning(
+                    new_view.get("blocks", []), matched_vendor
+                )
+                log.info("Screen 1: warned %s that the typed vendor may be %s", user_id, matched_vendor)
 
                 ack(response_action="update", view=new_view)
                 return
