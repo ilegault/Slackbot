@@ -81,6 +81,7 @@ _ADMIN_COMMANDS = (
     "• `@Purchasing add-buyer @user` — _(Admin Only)_ Add a user to the buyers list.\n"
     "• `@Purchasing remove-buyer @user` — _(Admin Only)_ Remove a user from the buyers list.\n"
     "• `@Purchasing remove-member @user` — _(Admin Only)_ Remove a user from the lab roster and all roles.\n"
+    "• `@Purchasing add-vendor <name>` — _(Admin Only)_ Add a vendor to the Workday catalog list.\n"
     "• `@Purchasing remove vendor <name>` — _(Admin Only)_ Remove a vendor from the Workday catalog list."
 )
 
@@ -90,6 +91,7 @@ _SLASH_COMMANDS = (
     "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
     "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
     "• `/roster-set-name` — Register in the lab roster, correct your name, or request a rename."
+    "\n\n_Vendor not in the list but you know it's on Workday? Ask an admin to add it (`@Purchasing add-vendor`)._"
 )
 
 # --- App Home Block Kit View --------------------------------------------------

@@ -23,7 +23,6 @@ def test_route_vendor():
 
     # Non-workday / special options
     assert interview.route_vendor(config.VENDOR_OTHER_OPTION) == "epif"
-    assert interview.route_vendor(config.VENDOR_SUGGEST_OPTION) == "epif"
     assert interview.route_vendor("Random Custom Store") == "epif"
     assert interview.route_vendor("") == "epif"
 
@@ -53,16 +52,6 @@ def test_validate_stage1():
 
     # Other option with valid text -> clean
     assert interview.validate_stage1(config.VENDOR_OTHER_OPTION, "McMaster-Carr") == {}
-
-    # Suggest option with blank or whitespace text -> error
-    err_suggest_blank = interview.validate_stage1(config.VENDOR_SUGGEST_OPTION, "")
-    assert "block_vendor_custom" in err_suggest_blank
-
-    err_suggest_ws = interview.validate_stage1(config.VENDOR_SUGGEST_OPTION, " \t\n ")
-    assert "block_vendor_custom" in err_suggest_ws
-
-    # Suggest option with valid text -> clean
-    assert interview.validate_stage1(config.VENDOR_SUGGEST_OPTION, "Thorlabs") == {}
 
 
 def test_build_parsed_from_stages_workday_non_fabrication():

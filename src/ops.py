@@ -289,6 +289,33 @@ def handle_promote_admin(client, say, channel: str, thread_ts: str, user_id: str
         say(text="⚠️ ADMIN_ALERT_CHANNEL is not configured.", thread_ts=thread_ts)
 
 
+
+def handle_add_vendor(client, say, channel: str, thread_ts: str, user_id: str, text: str):
+    """Admin command to add a vendor to the Workday punchout catalog list."""
+    if not admin.is_admin_user(user_id):
+        log.warning("Unauthorized user %s attempted to run '@p-bot add-vendor'", user_id)
+        say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
+        return
+
+    match = re.search(r"(?:add vendor|add-vendor)\s+(.+)", text, re.I)
+    if not match:
+        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot add-vendor Thorlabs`.", thread_ts=thread_ts)
+        return
+
+    vendor_name = match.group(1).strip()
+    if not vendor_name:
+        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot add-vendor Thorlabs`.", thread_ts=thread_ts)
+        return
+
+    all_vendors = roster.get_vendors()
+    for v in all_vendors:
+        if v.lower() == vendor_name.lower():
+            say(text=f"⚠️ Vendor '{v}' is already on the list.", thread_ts=thread_ts)
+            return
+
+    roster.add_vendor(vendor_name)
+    say(text=f"✅ Vendor *{vendor_name}* added to the Workday catalog in `roster.json`.", thread_ts=thread_ts)
+
 def handle_remove_vendor(client, say, channel: str, thread_ts: str, user_id: str, text: str):
     """Admin command to remove a vendor from the Workday punchout catalog list."""
     if not admin.is_admin_user(user_id):

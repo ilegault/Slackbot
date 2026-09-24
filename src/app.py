@@ -1271,6 +1271,8 @@ def dispatch_command(
         )
     elif cmd in config.REMOVE_VENDOR_KEYWORDS:
         ops.handle_remove_vendor(client, say, channel, thread_ts, user, text)
+    elif cmd in config.ADD_VENDOR_KEYWORDS:
+        ops.handle_add_vendor(client, say, channel, thread_ts, user, text)
     elif cmd in config.TEMPLATE_KEYWORDS:
         ops.handle_template_command(client, say, channel, thread_ts, user)
     elif cmd in config.QUOTE_KEYWORDS:
