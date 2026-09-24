@@ -235,6 +235,7 @@ WORKDAY_VENDORS = {
 VENDOR_SUGGEST_OPTION = "Suggest a new vendor that was added to workday"
 VENDOR_OTHER_OPTION = "Not listed / other"
 WORKDAY_PAYMENT_METHOD = "Workday"
+NEAR_MISS_VENDOR_RATIO = 0.85
 
 TRIGGER_KEYWORD = "approved"
 APPROVAL_KEYWORDS = (TRIGGER_KEYWORD,)
