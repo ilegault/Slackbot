@@ -47,6 +47,7 @@ log = logging.getLogger(__name__)
 
 from typing import Iterable
 
+
 def epif_archive_name(vendor: str, total_price: float, project_id: str, existing: Iterable[str]) -> str:
     """Name an archived EPIF without overwriting.
 

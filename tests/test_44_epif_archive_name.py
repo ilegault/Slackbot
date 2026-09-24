@@ -1,8 +1,9 @@
-import pytest
 import os
-from typing import Iterable
+
+import pytest
 
 from src.log_writer import epif_archive_name, save_epif
+
 
 def test_epif_archive_name_exact_outputs():
     assert epif_archive_name("Winford", 17.1, "PG000025831", []) == "Winford_EPIF_$17.10_PG000025831.pdf"
