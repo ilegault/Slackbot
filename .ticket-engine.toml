@@ -4,3 +4,10 @@ default_branch = "master"
 daily_cap = 10
 concurrency = 2
 jules_reserve = 10
+
+# Environment the test suite needs, mirroring tests.yml. Deliberately bogus values:
+# the integrity gate sets these for check 7's runs so tests can import.
+[test_env]
+PYTHONUTF8 = "1"
+SLACK_BOT_TOKEN = "xoxb-test-not-a-real-token"
+SLACK_APP_TOKEN = "xapp-test-not-a-real-token"

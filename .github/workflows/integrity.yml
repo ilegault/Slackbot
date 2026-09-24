@@ -11,5 +11,7 @@ jobs:
       pull-requests: write
       statuses: write
     uses: ilegault/ticket-engine/.github/workflows/integrity.yml@v1
+    with:
+      python-version: "3.14"
     secrets:
       PIPELINE_TOKEN: ${{ secrets.PIPELINE_TOKEN }}
