@@ -44,6 +44,31 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 
+
+from typing import Iterable
+
+
+def epif_archive_name(vendor: str, total_price: float, project_id: str, existing: Iterable[str]) -> str:
+    """Name an archived EPIF without overwriting.
+
+    Format: <vendor>_EPIF_$<price>_<project id>.pdf
+    """
+    safe_vendor = re.sub(r'[<>:"/\\|?*]', '', vendor)
+    safe_vendor = re.sub(r'\s+', ' ', safe_vendor).strip()
+
+    price_str = f"{total_price:.2f}"
+    base_name = f"{safe_vendor}_EPIF_${price_str}_{project_id}"
+
+    existing_set = set(existing)
+    name = f"{base_name}.pdf"
+    counter = 2
+
+    while name in existing_set:
+        name = f"{base_name}_{counter}.pdf"
+        counter += 1
+
+    return name
+
 class WorkbookLockedError(Exception):
     """Someone has the workbook open in Excel."""
 
@@ -344,6 +369,9 @@ def save_epif(pdf_bytes: bytes, filename: str, target_dir: str = None) -> str:
         clean_name += ".pdf"
 
     dest_path = os.path.join(directory, clean_name)
+
+    if os.path.exists(dest_path):
+        raise FileExistsError(f"File {dest_path} already exists")
 
     handle, temp_path = tempfile.mkstemp(suffix=".pdf", dir=directory)
     try:
