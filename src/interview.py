@@ -203,3 +203,15 @@ def match_faq(text: str) -> Optional[str]:
             return answer
     return None
 
+
+def get_request_route(payload: dict, has_file: bool = False) -> str:
+    """Determine whether a request is on the Workday or EPIF path.
+
+    Returns 'epif' if the payload explicitly specifies it, or if there is
+    an uploaded file. Otherwise returns 'workday'.
+    """
+    if payload and payload.get("route"):
+        return payload["route"]
+    if has_file or (payload and payload.get("source") == "epif"):
+        return "epif"
+    return "workday"

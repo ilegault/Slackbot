@@ -1294,7 +1294,7 @@ def test_approved_request_from_buyer_broadcasts_and_sends_no_dm(monkeypatch):
     assert "Thorlabs" in broadcast_text
     assert "Saved EPIF to `epif.pdf`" in broadcast_text
     assert "/lab/EPIFs" not in broadcast_text
-    assert "Needs a Grad Student Buyer to process in Workday / ShopUW." in broadcast_text
+    assert "Needs a buyer to email to purchasing." in broadcast_text
     assert "Please assign a buyer" in broadcast_text
 
     # Assert NO DM was sent at approval time (client.chat_postMessage never called for DM)

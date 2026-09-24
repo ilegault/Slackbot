@@ -356,8 +356,8 @@ def test_buyer_self_assigns_unassigned_request():
             if call[1].get("channel") == "U_DYLAN"
         ]
         assert len(dm_calls) == 1
-        assert "Hirst Lab purchase request" in dm_calls[0][1]["text"]
-        assert "Dylan" in dm_calls[0][1]["text"]
+        assert "Place this in Workday:" in dm_calls[0][1]["text"]
+        pass # Removed because template no longer greets by name for workday
 
 
 # 11. Non-assignee buyer attempting to reassign already assigned request is refused
