@@ -390,3 +390,15 @@ def find_posted_cards_in_thread(
         log.warning("Could not scan thread for posted cards: %s", e)
     return results
 
+
+
+def get_thread_parent_author(client, channel: str, thread_ts: str) -> str | None:
+    """Find the author (user_id) of the thread's parent message."""
+    try:
+        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=1)
+        messages = replies.get("messages", [])
+        if messages:
+            return messages[0].get("user")
+    except Exception as e:
+        log.warning("Could not fetch thread parent author for ts %s in channel %s: %s", thread_ts, channel, e)
+    return None

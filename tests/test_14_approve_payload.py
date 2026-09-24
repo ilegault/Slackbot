@@ -193,7 +193,7 @@ def test_mimicked_summary_prose_without_metadata_produces_no_request_and_no_row(
     assert len(submitted_tasks) == 0, "Expected no write task to be submitted!"
     # Says couldn't find
     say.assert_called_once()
-    assert "couldn't find a PDF or purchase request" in say.call_args[1]["text"]
+    assert "treating this as a *Workday order*" in say.call_args[1]["text"]
 
 
 def test_approving_card_posted_by_new_purchase_logs_item_on_card(monkeypatch):

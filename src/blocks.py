@@ -387,6 +387,55 @@ def build_request_blocks(
             ],
         })
 
+    if state == "waiting_for_details":
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "Approved — waiting for details",
+                }
+            ],
+        })
+        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping")}
+        if "parsed" in safe_req and isinstance(safe_req["parsed"], dict):
+            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping")}
+        btn_value = json.dumps(
+            {
+                "state": state,
+                "requester": requester,
+                "thread_ts": request.get("thread_ts"),
+                "request": safe_req,
+                "history": history or [],
+            },
+            default=str,
+        )
+        blocks.append({
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Fill in details", "emoji": True},
+                    "action_id": "req_fill_details",
+                    "value": btn_value,
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "This needs an EPIF", "emoji": True},
+                    "action_id": "req_needs_epif",
+                    "value": btn_value,
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Cancel", "emoji": True},
+                    "style": "danger",
+                    "action_id": "req_cancel",
+                    "value": btn_value,
+                }
+            ]
+        })
+        return blocks
+
     if state == "superseded":
         blocks.append({
             "type": "context",
@@ -1021,3 +1070,111 @@ def build_roster_set_name_view(
         ],
     }
 
+
+
+def build_workday_details_view(channel: str, thread_ts: str, card_ts: str, vendors: list[str]) -> dict:
+    """Generate Block Kit modal for filling Workday details from a bare-thread approval."""
+    vendor_options = [{"text": {"type": "plain_text", "text": v}, "value": v} for v in vendors]
+
+    blocks = [
+        {
+            "type": "input",
+            "block_id": "block_vendor",
+            "label": {"type": "plain_text", "text": "Vendor"},
+            "element": {
+                "type": "static_select",
+                "action_id": "vendor",
+                "placeholder": {"type": "plain_text", "text": "Select a vendor"},
+                "options": vendor_options,
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "block_item_description",
+            "label": {"type": "plain_text", "text": "What is being purchased?"},
+            "element": {"type": "plain_text_input", "action_id": "item_description"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_purpose",
+            "label": {"type": "plain_text", "text": "Why is this being purchased?"},
+            "element": {"type": "plain_text_input", "action_id": "purpose", "multiline": True},
+        },
+        {
+            "type": "input",
+            "block_id": "block_link",
+            "label": {"type": "plain_text", "text": "Link to item (optional)"},
+            "optional": True,
+            "element": {"type": "plain_text_input", "action_id": "link"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_total_price",
+            "label": {"type": "plain_text", "text": "Total price including shipping ($)"},
+            "element": {"type": "plain_text_input", "action_id": "total_price"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_date_of_purchase",
+            "label": {"type": "plain_text", "text": "Date of Purchase"},
+            "element": {"type": "datepicker", "action_id": "date_of_purchase", "initial_date": datetime.now().strftime("%Y-%m-%d")},
+        },
+        {
+            "type": "input",
+            "block_id": "block_delivery_room",
+            "label": {"type": "plain_text", "text": "Delivery Room"},
+            "element": {"type": "plain_text_input", "action_id": "delivery_room"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_project_id",
+            "label": {"type": "plain_text", "text": "Project ID"},
+            "element": {"type": "plain_text_input", "action_id": "project_id"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_fund",
+            "label": {"type": "plain_text", "text": "Fund"},
+            "element": {"type": "plain_text_input", "action_id": "fund"},
+        },
+        {
+            "type": "input",
+            "block_id": "block_category",
+            "label": {"type": "plain_text", "text": "Category"},
+            "element": {
+                "type": "static_select",
+                "action_id": "category",
+                "options": [
+                    {"text": {"type": "plain_text", "text": "Lab Consumable"}, "value": "Lab Consumable"},
+                    {"text": {"type": "plain_text", "text": "Equipment / Software"}, "value": "Equipment / Software"},
+                    {"text": {"type": "plain_text", "text": "Office Supply"}, "value": "Office Supply"},
+                    {"text": {"type": "plain_text", "text": "Service"}, "value": "Service"},
+                    {"text": {"type": "plain_text", "text": "Fabrication Component"}, "value": "Fabrication Component"},
+                ],
+                "initial_option": {"text": {"type": "plain_text", "text": "Lab Consumable"}, "value": "Lab Consumable"},
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "block_line_items",
+            "optional": True,
+            "label": {"type": "plain_text", "text": "Line items (optional)"},
+            "hint": {"type": "plain_text", "text": "Add line items with qty, unit, name, part, price, link. Last line must be shipping if not $0."},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "line_items",
+                "multiline": True,
+                "placeholder": {"type": "plain_text", "text": "2 EA | Flask | FL-1 | 10.00\nShipping | 5.00"},
+            },
+        },
+    ]
+
+    return {
+        "type": "modal",
+        "callback_id": "modal_workday_details",
+        "title": {"type": "plain_text", "text": "Workday Order Details"},
+        "submit": {"type": "plain_text", "text": "Submit"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps({"channel_id": channel, "thread_ts": thread_ts, "card_ts": card_ts}),
+        "blocks": blocks,
+    }
