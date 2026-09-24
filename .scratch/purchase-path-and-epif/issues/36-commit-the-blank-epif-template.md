@@ -1,16 +1,21 @@
 # 36: Commit the blank EPIF template as a test fixture
 
-**Status:** human-task
+**Status:** ready-for-developer
+
+**Runner:** developer
+
+**Auto-merge:** yes
 
 **Blocked by:** None (can start immediately)
 
-**What to build:** Isaac copies the blank `EPIF_TEMPLATE_HIRST.pdf` from the OneDrive
-`Purchasing/_TEMPLATE` folder into the repo's test fixtures directory (`tests/fixtures/`,
-creating it if needed) and commits it to `master`. It is a blank university form with no
-personal data. Ticket 37's round-trip test fills this exact file. **An agent must not
-claim this ticket.**
+Spec: `.scratch/purchase-path-and-epif/spec.md`, Testing Decisions (seam 2).
 
-- [ ] `EPIF_TEMPLATE_HIRST.pdf` is committed under `tests/fixtures/` on `master`.
-- [ ] It is the blank form: every field is empty, and it has not been flattened.
+**What to build:** The developer copies the blank `EPIF_TEMPLATE_HIRST.pdf` from the
+lab's `Purchasing/_TEMPLATE` folder into `tests/fixtures/` and commits it. It is a blank
+university form with no personal data. Ticket 37's round-trip test fills this exact
+file. **An agent must not claim this ticket.**
+
+- [ ] `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf` is on `master`.
+- [ ] It is the blank, unflattened form: `epif_parser.read_fields(open(path, "rb").read())` returns every field empty.
 
 ## Comments
