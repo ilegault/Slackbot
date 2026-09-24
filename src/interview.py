@@ -2,6 +2,8 @@
 
 Pure Python logic separated from Slack API plumbing for testability.
 """
+import difflib
+import re
 from typing import Any, Dict, Optional
 
 try:
@@ -44,6 +46,55 @@ def needs_asset_details(category: Optional[str]) -> bool:
     required_cats = getattr(config, "ASSET_REQUIRED_CATEGORIES", {"Fabrication Component (4670) > $200"})
     return category in required_cats
 
+
+def _normalize_vendor(name: str) -> str:
+    # Lowercase, remove punctuation
+    name = name.lower()
+    name = re.sub(r'[^\w\s]', '', name)
+
+    # Remove multiple spaces to ensure single spaces between words
+    name = re.sub(r'\s+', ' ', name).strip()
+
+    # Drop trailing suffixes
+    suffixes = r'\s+(inc|llc|ltd|co|corp|corporation|company)$'
+    name = re.sub(suffixes, '', name)
+
+    # Remove all remaining spaces for final comparison
+    name = re.sub(r'\s+', '', name)
+    return name
+
+def check_near_miss_vendor(typed_name: str, listed_vendors: set[str]) -> str | None:
+    """Check if the typed vendor name is a near miss for any listed vendor.
+
+    WHY THIS EXISTS: If a user types a vendor name on the EPIF path that is already
+    in Workday, we want to warn them so they switch to the Workday path. We do this
+    by dropping common suffixes (Inc, LLC, etc.) and checking for >0.85 SequenceMatcher
+    similarity (see ADR 0007).
+
+    Returns the listed vendor name if a near miss is found, otherwise None.
+    """
+    if not typed_name:
+        return None
+
+    norm_typed = _normalize_vendor(typed_name)
+    if not norm_typed:
+        return None
+
+    best_match = None
+    best_ratio = 0.0
+
+    for vendor in listed_vendors:
+        norm_vendor = _normalize_vendor(vendor)
+        if norm_typed == norm_vendor:
+            return vendor
+
+        ratio = difflib.SequenceMatcher(None, norm_typed, norm_vendor).ratio()
+        threshold = getattr(config, "NEAR_MISS_VENDOR_RATIO", 0.85)
+        if ratio >= threshold and ratio > best_ratio:
+            best_match = vendor
+            best_ratio = ratio
+
+    return best_match
 
 def validate_stage1(vendor_choice: str, vendor_custom: str) -> Dict[str, str]:
     """Validate Stage 1 inputs. Returns {block_id: error_message} dict (empty if valid)."""
