@@ -179,7 +179,8 @@ unchanged; a BOM belongs to exactly one EPIF.** A draft is posted to the thread
 before approval. At approval it is archived as `BOMS_DIR/NNNN_<Vendor>_BOM.xlsx`
 (`NNNN` = the log row), named in the row's Notes column, and attached to the
 assignee's email-draft DM. The items must add up to the EPIF amount (plus a
-shipping line). Frozen at approval.
+shipping line). Frozen at approval. Laid out like the lab's hand-made BOM:
+item prices only, no shipping row, live formulas, an empty Notes column (ADR 0008).
 
 **Edit** — changing a **posted** card before anyone approves it. The requester, a
 buyer or an admin may edit. A modal-born card reopens the full Screen 2 form. A

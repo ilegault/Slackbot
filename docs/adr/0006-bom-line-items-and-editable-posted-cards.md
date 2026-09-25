@@ -3,6 +3,7 @@
 **Status:** accepted
 **Date:** 2026-09-21
 **Related:** ADR 0002 (lifecycle and surfaces), ADR 0003 (decline / cancel), ADR 0005 (the posted card)
+**Superseded in part:** decision 10 (sheet layout) by ADR 0008
 
 ## Context
 

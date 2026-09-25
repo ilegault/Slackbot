@@ -347,12 +347,13 @@ names ADR 0007 in the commit message. This is the only kind of test edit allowed
 
 ## Further Notes
 
-- The parser reads 25 of the template's 28 fields. The implementer of block 2 lists all
-  28 from the committed fixture and records the three unused names, and what they
-  appear to be, in `epif_filler`'s module docstring. They are left blank. If one of
-  them looks like a required approval or signature field, stop and escalate rather
-  than guess (ADR 0001 escalation path).
-- The fixture is a blank university form with no personal data. It is safe to commit.
+- The parser reads 25 of the template's 28 fields. The three it does not read are
+  `Signature1` (a `/Sig` digital-signature field, always left empty; a person signs
+  outside the bot), `Telephone # for ?'s` (pre-filled in the template, never written) and
+  `List of Other` (left empty). This is decided; the implementer records them in
+  `epif_filler`'s module docstring and does not escalate over them.
+- The fixture is the university form with three fields pre-filled (PI, end user, and the
+  PI's office phone, which is in the public directory). It is safe to commit.
 - `@p-bot add-vendor` replaces the only route that ever added vendors (the suggest
   option → alert → Approve Vendor). Until it ships, the vendor list can't grow, so
   block 1 should land early.
