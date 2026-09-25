@@ -32,7 +32,7 @@ def route_vendor(vendor_choice: str) -> str:
     """Route a vendor selection to either 'workday' or 'epif'.
 
     Returns 'workday' if vendor_choice is in the Workday punchout list,
-    otherwise 'epif' (including for 'Suggest a new vendor', 'Not listed / other', or custom vendors).
+    otherwise 'epif' (including for 'None of these — this will be an EPIF order', or custom vendors).
     """
     if vendor_choice in get_available_vendors():
         return "workday"
@@ -99,9 +99,8 @@ def check_near_miss_vendor(typed_name: str, listed_vendors: set[str]) -> str | N
 def validate_stage1(vendor_choice: str, vendor_custom: str) -> Dict[str, str]:
     """Validate Stage 1 inputs. Returns {block_id: error_message} dict (empty if valid)."""
     errors: Dict[str, str] = {}
-    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday")
-    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
-    if vendor_choice in (suggest_opt, other_opt) and not str(vendor_custom or "").strip():
+    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "None of these — this will be an EPIF order")
+    if vendor_choice == other_opt and not str(vendor_custom or "").strip():
         errors["block_vendor_custom"] = "Please enter the vendor name."
     return errors
 
@@ -138,9 +137,8 @@ def build_parsed_from_stages(
 
     # Determine final vendor name
     vendor_choice = str(stage1.get("vendor_choice") or "").strip()
-    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday")
-    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
-    if vendor_choice in (suggest_opt, other_opt):
+    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "None of these — this will be an EPIF order")
+    if vendor_choice == other_opt:
         custom_v = str(stage1.get("vendor_custom") or "").strip()
         final_vendor = custom_v if custom_v else vendor_choice
     else:

@@ -449,3 +449,25 @@ def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch
     assert "*Link:*" not in call_kwargs["text"]
 
 
+
+def test_stage1_view_vendor_options_last_is_epif_and_no_suggest():
+    """
+    Test that the last option in the vendor dropdown is exactly VENDOR_OTHER_OPTION,
+    and that no option contains the word 'Suggest'.
+    """
+    view = blocks.build_stage1_view(resolved_name="Requester", user_id="U123")
+
+    # Find the vendor select block
+    vendor_block = next(b for b in view["blocks"] if b.get("block_id") == "block_vendor")
+    vendor_select = vendor_block["element"]
+    options = vendor_select["options"]
+
+    # Last option should be the EPIF option
+    last_option = options[-1]
+    assert last_option["value"] == config.VENDOR_OTHER_OPTION
+    assert last_option["text"]["text"] == config.VENDOR_OTHER_OPTION
+
+    # Verify 'Suggest' is not in any option text or value
+    for opt in options:
+        assert "Suggest" not in opt["value"]
+        assert "Suggest" not in opt["text"]["text"]

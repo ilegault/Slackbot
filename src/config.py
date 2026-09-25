@@ -232,8 +232,7 @@ WORKDAY_VENDORS = {
     "Vanguard", "VWR-AVANTOR", "Anixter", "Kranz", "NASSCO",
 }
 
-VENDOR_SUGGEST_OPTION = "Suggest a new vendor that was added to workday"
-VENDOR_OTHER_OPTION = "Not listed / other"
+VENDOR_OTHER_OPTION = "None of these — this will be an EPIF order"
 WORKDAY_PAYMENT_METHOD = "Workday"
 NEAR_MISS_VENDOR_RATIO = 0.85
 
