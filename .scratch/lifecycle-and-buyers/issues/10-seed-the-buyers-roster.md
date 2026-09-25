@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 (deploy it first, then seed)
 
-**Status:** ready-for-developer done
+**Status:** done
 
 ## Why
 
@@ -32,7 +32,7 @@ missing from `requesters` is refused with the `/roster-set-name` message.
 
 ## Acceptance criteria
 
-- [ ] All four buyers appear in `roster.json` `buyers`
-- [ ] All four appear in `requesters` with a name that matches the Purchasing Log's
+- [x] All four buyers appear in `roster.json` `buyers`
+- [x] All four appear in `requesters` with a name that matches the Purchasing Log's
       Requester dropdown exactly
-- [ ] One end-to-end approval names a buyer and that buyer receives the draft DM
+- [x] One end-to-end approval names a buyer and that buyer receives the draft DM
