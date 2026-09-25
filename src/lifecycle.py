@@ -284,12 +284,7 @@ def finalize_purchase_request(
                 req_for_bom = dict(parsed)
                 if requester and not req_for_bom.get("requester"):
                     req_for_bom["requester"] = requester
-                xlsx_bytes = bom.build_bom_workbook(
-                    req_for_bom,
-                    items,
-                    shipping=shipping,
-                    row=row_num,
-                )
+                xlsx_bytes = bom.build_bom_workbook(req_for_bom, items)
                 saved_bom_path = log_writer.save_bom(xlsx_bytes, bom_fname)
                 notes_text = f"BOM: {bom_fname} ({len(items)} items)"
                 log_writer.update_row(row_num, {config.COLUMN_NOTES: notes_text})
@@ -1626,12 +1621,7 @@ def upload_draft_bom(
 
     vendor = (parsed or {}).get("vendor") or "Vendor"
     draft_filename = bom.bom_filename(None, vendor)
-    xlsx_bytes = bom.build_bom_workbook(
-        parsed or {},
-        items,
-        shipping=shipping,
-        row=None,
-    )
+    xlsx_bytes = bom.build_bom_workbook(parsed or {}, items)
     try:
         if hasattr(client, "files_upload_v2"):
             client.files_upload_v2(

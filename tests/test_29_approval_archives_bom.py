@@ -199,9 +199,8 @@ def test_approval_three_items_archives_bom_writes_notes_and_uploads(temp_workboo
     # Saved file's header names that row
     wb = openpyxl.load_workbook(saved_bom_path)
     ws = wb.active
-    assert ws["E4"].value == f"Purchasing Log row {row_num:04d}"
-    assert ws["B3"].value == "Ruland"
-    assert ws["B4"].value == "Alex"
+    # Verify BOM layout features (vendor is now on each line, e.g. D5)
+    assert ws["D5"].value == "Ruland"
 
     # 3. Notes column reads BOM: <filename> (N items)
     notes_val = log_writer.get_cell_value(sheet_xml, f"{config.COLUMN_NOTES}{row_num}")

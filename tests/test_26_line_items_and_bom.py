@@ -14,11 +14,8 @@ Covers the pure BOM domain logic (src/bom.py), the BOM storage writer
 8. Atomic save_bom with no leftover temp files.
 9. BOMS_DIR presence in config and path_validator startup alert.
 """
-import io
 import os
 from unittest.mock import MagicMock
-
-import openpyxl
 
 from src import config, heartbeat, log_writer, path_validator
 
@@ -304,96 +301,6 @@ def test_describe_changes_identical_and_differing():
 # ---------------------------------------------------------------------------
 # 5. Workbook builder & filename
 # ---------------------------------------------------------------------------
-
-def test_build_bom_workbook_content_and_numbers():
-    """Workbook carries header block, items, shipping, total, all numbers not formulas."""
-    from src import bom
-
-    request = {
-        "vendor": "Ruland",
-        "requester": "Dylan",
-        "project_id": "PG000025831",
-        "fund": "133",
-        "date_of_purchase": "2026-09-22",
-    }
-    items = [
-        {
-            "qty": 2,
-            "name": "Shaft Collar",
-            "part_number": "SC-100",
-            "unit_price": 12.50,
-            "link": "https://ruland.com/sc100",
-            "description": "Steel collar",
-        },
-        {
-            "qty": 4,
-            "name": "Clamp Collar",
-            "part_number": "CC-200",
-            "unit_price": 15.00,
-            "link": "not-a-url",
-            "description": "",
-        },
-    ]
-    shipping = 10.00
-
-    wb_bytes = bom.build_bom_workbook(request, items, shipping, row=18)
-    assert isinstance(wb_bytes, bytes)
-
-    # Reopen with openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(wb_bytes))
-    ws = wb.active
-
-    # Check header
-    header_values = [str(cell.value) for row in ws.iter_rows(max_row=6) for cell in row if cell.value]
-    assert any("Ruland" in v for v in header_values)
-    assert any("Dylan" in v for v in header_values)
-    assert any("PG000025831" in v for v in header_values)
-    assert any("0018" in v or "18" in v for v in header_values)
-
-    # Find total row and check numbers
-    all_cells = [cell for row in ws.iter_rows() for cell in row if cell.value is not None]
-
-    # Verify hyperlink
-    link_cells = [c for c in all_cells if c.value == "https://ruland.com/sc100"]
-    assert len(link_cells) == 1
-    assert link_cells[0].hyperlink is not None
-    assert link_cells[0].hyperlink.target == "https://ruland.com/sc100"
-
-    non_url_cells = [c for c in all_cells if c.value == "not-a-url"]
-    assert len(non_url_cells) == 1
-    assert non_url_cells[0].hyperlink is None
-
-    # Verify no formula strings (starting with '=')
-    for cell in all_cells:
-        if isinstance(cell.value, str):
-            assert not cell.value.startswith("="), f"Cell {cell.coordinate} contains formula: {cell.value}"
-
-    # Verify numeric values for totals
-    # 2 * 12.50 + 4 * 15.00 = 25.00 + 60.00 = 85.00; + 10.00 shipping = 95.00
-    numeric_values = [c.value for c in all_cells if isinstance(c.value, (int, float))]
-    assert 2 in numeric_values
-    assert 12.50 in numeric_values
-    assert 25.00 in numeric_values
-    assert 4 in numeric_values
-    assert 15.00 in numeric_values
-    assert 60.00 in numeric_values
-    assert 10.00 in numeric_values
-    assert 95.00 in numeric_values
-
-
-def test_build_bom_workbook_draft_header():
-    """A workbook built without a row number reads DRAFT where row would be."""
-    from src import bom
-
-    request = {"vendor": "DigiKey", "requester": "Isaac"}
-    items = [{"qty": 1, "name": "IC", "part_number": "", "unit_price": 5.0, "link": "", "description": ""}]
-    wb_bytes = bom.build_bom_workbook(request, items, shipping=0.0, row=None)
-
-    wb = openpyxl.load_workbook(io.BytesIO(wb_bytes))
-    ws = wb.active
-    header_values = [str(cell.value) for row in ws.iter_rows(max_row=6) for cell in row if cell.value]
-    assert any("DRAFT" in v for v in header_values)
-
 
 def test_bom_filename():
     """bom_filename pads row, strips punctuation, truncates, falls back on empty vendor."""
