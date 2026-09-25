@@ -88,6 +88,14 @@ def temp_boms_dir(tmp_path, monkeypatch):
     boms_path = str(tmp_path / "BOMs")
     os.makedirs(boms_path, exist_ok=True)
     monkeypatch.setattr(config, "BOMS_DIR", boms_path)
+
+    # Also provide a dummy template so EPIF generation doesn't crash on default paths
+    epif_template = tmp_path / "EPIF_TEMPLATE.pdf"
+    import shutil
+    FIXTURES = os.path.join(PROJECT_ROOT, "tests", "fixtures")
+    shutil.copy(os.path.join(FIXTURES, "EPIF_TEMPLATE_HIRST.pdf"), str(epif_template))
+    monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", str(epif_template))
+
     return boms_path
 
 

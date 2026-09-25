@@ -268,6 +268,7 @@ def finalize_purchase_request(
         bom_fname = None
         saved_bom_path = None
         try:
+            route = interview.get_request_route(parsed, has_file=bool(pdf_bytes))
             if pdf_bytes and file_name:
                 vendor = parsed.get("vendor") or "Vendor"
                 total_price = parsed.get("total_price") or 0.0
@@ -277,6 +278,27 @@ def finalize_purchase_request(
                     vendor, total_price, project_id, existing_files
                 )
                 saved_epif_path = log_writer.save_epif(pdf_bytes, archive_name)
+            elif not pdf_bytes and route == "epif":
+                try:
+                    from . import epif_filler
+                except ImportError:
+                    import epif_filler
+
+                vendor = parsed.get("vendor") or "Vendor"
+                total_price = parsed.get("total_price") or 0.0
+                project_id = parsed.get("project_id") or "NoProject"
+                existing_files = os.listdir(config.EPIFS_DIR) if os.path.exists(config.EPIFS_DIR) else []
+                archive_name = log_writer.epif_archive_name(
+                    vendor, total_price, project_id, existing_files
+                )
+                try:
+                    with open(config.EPIF_TEMPLATE_PATH, "rb") as f:
+                        template_bytes = f.read()
+                    filled_bytes = epif_filler.fill_epif(template_bytes, parsed)
+                    saved_epif_path = log_writer.save_epif(filled_bytes, archive_name)
+                except FileNotFoundError:
+                    # Reraise so blank_row executes as this is an all-or-nothing step
+                    raise
 
             if items and bom.needs_bom(items):
                 vendor = parsed.get("vendor") or "Vendor"
