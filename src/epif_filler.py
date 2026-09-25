@@ -2,7 +2,7 @@
 
 WHY THIS EXISTS:
 Per ADR 0007, an approved EPIF request needs to generate an actual PDF so that it
-can be emailed to the purchasing team, using the same template already manually
+can be emailed to purchasing, using the same template already manually
 used by the lab. This is the pure domain logic that creates the filled PDF. It reads
 back to the same dictionary `epif_parser.parse_epif` extracts.
 
