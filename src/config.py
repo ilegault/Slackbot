@@ -192,6 +192,10 @@ COLUMN_DATE_DELIVERY = "W"  # Date package delivered to lab
 COLUMN_RECEIVED_BY = "X"    # Lab member who received package
 COLUMN_NOTES = "Y"          # Notes
 
+EPIF_PI_AND_END_USER = "Charles Hirst"
+EPIF_PI_FIELD = "PI of Funding"
+EPIF_END_USER_FIELD = "Name"
+
 # --- Checkbox field name -> the exact string in the EPIF Category dropdown -----
 CHECKBOX_TO_CATEGORY = {
     "Researchlab suppliesCode to 3105": "Research/Lab Supplies (3105)",

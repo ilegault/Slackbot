@@ -1,6 +1,6 @@
 # 37: Fill the EPIF from a request (pure, round-trip tested)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -54,7 +54,7 @@ the same values. Nothing calls it yet; tickets 45 and 41–42 do.
 
 ## Acceptance criteria
 
-- [ ] **Fields written.** `fill_epif` writes every field `epif_parser.parse_epif` reads:
+- [x] **Fields written.** `fill_epif` writes every field `epif_parser.parse_epif` reads:
   the text fields in `config.FIELD_TO_COLUMN`, and `PI of Funding` and `Name`. Take field
   names from `config.FIELD_TO_COLUMN`, `config.CHECKBOX_TO_CATEGORY` and
   `config.PAYMENT_CHECKBOXES`, never retype them. For `PI of Funding` and `Name`, add
@@ -62,16 +62,16 @@ the same values. Nothing calls it yet; tickets 45 and 41–42 do.
   new constant and use those. Exactly one category checkbox is `/On` and the other eight
   are `/Off`; exactly one payment checkbox is `/On` and the other is `/Off`. It does no
   file or Slack I/O: bytes in, bytes out.
-- [ ] **PI and end user.** `config.EPIF_PI_AND_END_USER` is a new `str` constant holding the
+- [x] **PI and end user.** `config.EPIF_PI_AND_END_USER` is a new `str` constant holding the
   name ADR 0007 decision 6 gives. `fill_epif` writes it to both `PI of Funding` and `Name`.
   Any field with no source value is left blank.
-- [ ] **BOM.** With two or more `items`, `What is being purchased` is
+- [x] **BOM.** With two or more `items`, `What is being purchased` is
   `See attached BOM — N items` (N is the count) and the amount is `total_price`, which
   `bom.check_total` already guarantees is the BOM total including shipping.
-- [ ] **Docstring.** The `src/epif_filler.py` module docstring names the three fields
+- [x] **Docstring.** The `src/epif_filler.py` module docstring names the three fields
   `parse_epif` does not read (`Signature1`, `Telephone # for ?'s`, `List of Other`), says
   what each is, and says `fill_epif` never writes them.
-- [ ] **Round trip** in `tests/test_37_fill_epif.py`, on `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`
+- [x] **Round trip** in `tests/test_37_fill_epif.py`, on `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`
   read from disk as bytes. For one request per category and for both payment methods,
   `parse_epif(fill_epif(template, parsed))` equals the input for item, purpose, amount,
   vendor, contact name and email, date, room, project, fund, asset ID, name of system,
@@ -80,7 +80,7 @@ the same values. Nothing calls it yet; tickets 45 and 41–42 do.
   `Signature1` is still empty and `Telephone # for ?'s` equals the value the fixture has.
   A BOM case with three items reads back `See attached BOM — 3 items` and the BOM total.
   Nothing is faked: the test fills the real fixture and reads the real filled bytes.
-- [ ] **Full gate green**, in CI order: `ruff check .`, `python scripts/check_tests_first.py`,
+- [x] **Full gate green**, in CI order: `ruff check .`, `python scripts/check_tests_first.py`,
   `pytest -q`. Before pushing, also confirm `pypdf` is in `requirements.txt` (it is, do not
   add it elsewhere).
 
@@ -97,3 +97,5 @@ constant" while a later edit said "never write them", and because it treated the
 university form with three pre-filled fields; PI and Name are written from a constant per ADR 0007
 decision 6; `Signature1` stays empty by decision. The earlier attempt's "ADR 0002 forbids
 real names" was a misreading: that rule is about ticket text, and ADR 0002 is the lifecycle ADR.
+
+2026-09-25 (implementer): Built `src/epif_filler.py` containing `fill_epif`, which maps incoming parsed values backward to AcroForm field values, handles dates and prices natively, manages the metadata strip bug on cloning, and preserves unread fields exactly as specified. Implemented full `tests/test_37_fill_epif.py` running against the Hirst template fixture to ensure perfect round-trip data retrieval through `parse_epif`.
