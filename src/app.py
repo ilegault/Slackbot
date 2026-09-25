@@ -536,6 +536,7 @@ def handle_workday_details_submit(ack, body, client, view):
     thread_ts = meta["thread_ts"]
     card_ts = meta["card_ts"]
     user_id = body.get("user", {}).get("id")
+    _ = user_id
 
     # Re-check card state
     card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
@@ -551,6 +552,11 @@ def handle_workday_details_submit(ack, body, client, view):
     purpose = state_vals.get("block_purpose", {}).get("purpose", {}).get("value")
     link = state_vals.get("block_link", {}).get("link", {}).get("value", "")
     total_price = state_vals.get("block_total_price", {}).get("total_price", {}).get("value")
+    if total_price:
+        try:
+            total_price = float(str(total_price).replace('$', '').replace(',', '').strip())
+        except ValueError:
+            pass
     date_str = state_vals.get("block_date_of_purchase", {}).get("date_of_purchase", {}).get("selected_date")
     room = state_vals.get("block_delivery_room", {}).get("delivery_room", {}).get("value")
     project = state_vals.get("block_project_id", {}).get("project_id", {}).get("value")
@@ -585,9 +591,14 @@ def handle_workday_details_submit(ack, body, client, view):
         "fund": fund,
         "category": category,
         "route": "workday",
+        "vendor_contact_name": "",
+        "vendor_contact_email": "workday@workday.com",
+        "payment_method": "Workday",
+        "name_of_system": "",
+        "asset_id": "",
     }
 
-    requester = slack_io.resolve_requester(client, user_id)
+    requester = card_payload.get("requester")
 
     # Validate
     problems = validators.validate(parsed, requester_name=requester)
@@ -637,10 +648,10 @@ def handle_workday_details_submit(ack, body, client, view):
         say=say,
         channel=channel,
         thread_ts=thread_ts,
-        event_ts="1234567890.123456",
+        event_ts=card_ts,
         parsed=parsed,
         requester=requester,
-        notify_target=user_id,
+        notify_target=card_payload.get("user_id"),
         is_pending_name=False,
         assignee_id=card_payload.get("assignee_id"),
         assignee_name=card_payload.get("assignee"),
