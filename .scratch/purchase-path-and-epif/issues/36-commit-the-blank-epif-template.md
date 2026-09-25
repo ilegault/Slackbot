@@ -15,7 +15,7 @@ lab's `Purchasing/_TEMPLATE` folder into `tests/fixtures/` and commits it. It is
 university form with no personal data. Ticket 37's round-trip test fills this exact
 file. **An agent must not claim this ticket.**
 
-- [ ] `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf` is on `master`.
-- [ ] It is the blank, unflattened form: `epif_parser.read_fields(open(path, "rb").read())` returns every field empty.
+- [x] `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf` is on `master`.
+- [x] It is the blank, unflattened form: `epif_parser.read_fields(open(path, "rb").read())` returns every field empty.
 
 ## Comments

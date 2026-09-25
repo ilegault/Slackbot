@@ -521,12 +521,6 @@ EPIF. Smeet has been making these by hand.
 Alongside it: a posted card cannot be corrected today, and a re-uploaded EPIF
 leaves two approvable cards for one purchase.
 
-## Next up — ticket 26
-
-**26 — Line items, the BOM workbook, and the BOMs folder.** No blockers. The
-pasted-items parser and the spreadsheet builder as pure functions, plus the new
-`BOMS_DIR` storage path in the startup check. Everything after it hangs off this.
-
 ## Dependency order
 
 ```
