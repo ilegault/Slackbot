@@ -209,6 +209,8 @@ CHECKBOX_TO_CATEGORY = {
 
 PAYMENT_CHECKBOXES = ("PCard", "Req")
 
+EPIF_PI_AND_END_USER = "Charles Hirst"
+
 # --- Allowed values, mirrored from the 'Roles & Lists' sheet -------------------
 # These are the dropdown sources. Writing a value that is not in these lists
 # produces a cell Excel flags as invalid, so validate before writing.

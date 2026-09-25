@@ -1,6 +1,6 @@
 # 37: Fill the blank EPIF from a request (pure, round-trip tested)
 
-**Status:** ready-for-agent
+**Status:** blocked
 
 **Runner:** any
 
@@ -23,3 +23,12 @@ reads back to the same values. Nothing calls it yet; tickets 45 and 41–42 do.
 - [ ] Full gate green, in CI order: `ruff check .`, `python scripts/check_tests_first.py`, `pytest -q`.
 
 ## Comments
+
+## Escalation — 2026-09-22
+Ticket: 37 Fill the blank EPIF from a request   Branch: ticket/37-fill-the-epif
+Goal: A new pure module `src/epif_filler.py` with `fill_epif(template_bytes: bytes, parsed: dict) -> bytes`.
+Attempt 1: Found unread fields `Telephone # for ?'s`, `Signature1`, and `List of Other` in `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`. → Ticket instructions explicitly say to escalate if one looks like a signature or approval field.
+Failing output (exact, trimmed to the relevant lines):
+```
+```
+Decision needed: Should `Signature1` be left blank, skipped, or filled with a specific value? The instructions forbid guessing when a field looks like a signature or approval field.
