@@ -402,6 +402,7 @@ def finalize_purchase_request(
         appr_name = slack_io.resolve_requester(client, approver) or (f"<@{approver}>" if approver else "Approver")
         if target_card_ts:
             req_payload = dict(target_req)
+            req_payload["state"] = "approved"
             req_payload["assignee_id"] = assignee_id
             req_payload["assignee"] = assignee_name
             if bom_fname:
@@ -636,9 +637,12 @@ def handle_epif_processing(
     # 2. Post a waiting_for_details card
     req_data = {
         "user_id": requester_id,
+        "requester": requester_name,
+        "approver": approver,
         "assignee_id": assignee_id,
         "assignee": assignee_name,
         "thread_ts": thread_ts,
+        "state": "waiting_for_details",
     }
 
     card_blocks = blocks.build_request_blocks(
@@ -653,6 +657,10 @@ def handle_epif_processing(
         text="Approved — waiting for details",
         blocks=card_blocks,
         thread_ts=thread_ts,
+        metadata={
+            "event_type": "purchase_request",
+            "event_payload": req_data,
+        },
     )
     # No row is written (absence asserted)
 
@@ -1585,7 +1593,8 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
         else:
             log.warning("Cancel: no logged rows found in thread %s; nothing blanked", thread_ts)
 
-    say(text="🚫 Purchase request cancelled.", thread_ts=thread_ts)
+    if state == "waiting_for_details":
+        say(text="🚫 Purchase request cancelled.", thread_ts=thread_ts)
     cancelled_blocks = blocks.build_request_blocks("cancelled", req_data, history=history)
     try:
         client.chat_update(
