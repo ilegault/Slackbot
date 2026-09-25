@@ -269,7 +269,14 @@ def finalize_purchase_request(
         saved_bom_path = None
         try:
             if pdf_bytes and file_name:
-                saved_epif_path = log_writer.save_epif(pdf_bytes, file_name)
+                vendor = parsed.get("vendor") or "Vendor"
+                total_price = parsed.get("total_price") or 0.0
+                project_id = parsed.get("project_id") or "NoProject"
+                existing_files = os.listdir(config.EPIFS_DIR) if os.path.exists(config.EPIFS_DIR) else []
+                archive_name = log_writer.epif_archive_name(
+                    vendor, total_price, project_id, existing_files
+                )
+                saved_epif_path = log_writer.save_epif(pdf_bytes, archive_name)
 
             if items and bom.needs_bom(items):
                 vendor = parsed.get("vendor") or "Vendor"
@@ -398,6 +405,8 @@ def finalize_purchase_request(
         target_card_ts = card_ts or found_ts
         target_req = found_req or parsed or {}
         target_hist = found_hist or []
+        if saved_path:
+            target_req["epif_file"] = os.path.basename(saved_path.replace("\\", "/"))
         now_str = datetime.now().strftime("%m/%d/%y %H:%M")
         appr_name = slack_io.resolve_requester(client, approver) or (f"<@{approver}>" if approver else "Approver")
         if target_card_ts:
@@ -1491,6 +1500,26 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
     except Exception as e:
         log.error("Failed to update message on decline: %s", e)
 
+def _move_epif_to_cancelled(epif_fname: str) -> None:
+    """Move the named EPIF file from EPIFS_DIR into EPIFS_DIR/Cancelled/.
+
+    WHY THIS EXISTS:
+        Cancel must move the archived EPIF out of the live folder (ticket 39).
+    """
+    src_path = os.path.join(config.EPIFS_DIR, epif_fname)
+    if not os.path.exists(src_path):
+        log.warning(
+            "Cancel: EPIF %s not found at %s; cancellation continues without moving it",
+            epif_fname,
+            src_path,
+        )
+        return
+    cancelled_dir = os.path.join(config.EPIFS_DIR, "Cancelled")
+    os.makedirs(cancelled_dir, exist_ok=True)
+    dst_path = os.path.join(cancelled_dir, epif_fname)
+    shutil.move(src_path, dst_path)
+    log.info("Moved EPIF %s to Cancelled/ on cancel", epif_fname)
+
 
 def _move_bom_to_cancelled(bom_fname: str) -> None:
     """Move the named BOM file from BOMS_DIR into BOMS_DIR/Cancelled/.
@@ -1551,6 +1580,7 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
 
     rows = slack_io.find_all_rows_in_thread(client, channel, thread_ts)
     bom_fname = req_data.get("bom_file")
+    epif_fname = req_data.get("epif_file")
 
     if rows:
         def write_action():
@@ -1558,6 +1588,8 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
                 log_writer.blank_row(row)
             if bom_fname:
                 _move_bom_to_cancelled(bom_fname)
+            if epif_fname:
+                _move_epif_to_cancelled(epif_fname)
             return rows
 
         def on_success(res):
@@ -1580,6 +1612,8 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
     else:
         if bom_fname:
             _move_bom_to_cancelled(bom_fname)
+        if epif_fname:
+            _move_epif_to_cancelled(epif_fname)
         if state == "waiting_for_details":
             log.info("Cancel: waiting_for_details request cancelled with no row written.")
         else:
