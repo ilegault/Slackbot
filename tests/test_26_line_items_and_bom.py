@@ -14,8 +14,11 @@ Covers the pure BOM domain logic (src/bom.py), the BOM storage writer
 8. Atomic save_bom with no leftover temp files.
 9. BOMS_DIR presence in config and path_validator startup alert.
 """
+import io
 import os
 from unittest.mock import MagicMock
+
+import openpyxl
 
 from src import config, heartbeat, log_writer, path_validator
 
