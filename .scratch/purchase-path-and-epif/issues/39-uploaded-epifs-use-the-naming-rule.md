@@ -1,6 +1,6 @@
 # 39: Uploaded EPIFs are archived under the naming rule
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
