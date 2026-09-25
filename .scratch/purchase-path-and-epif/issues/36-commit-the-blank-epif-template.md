@@ -1,6 +1,6 @@
 # 36: Commit the blank EPIF template as a test fixture
 
-**Status:** ready-for-developer
+**Status:** done
 
 **Runner:** developer
 
