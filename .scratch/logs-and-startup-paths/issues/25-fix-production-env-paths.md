@@ -3,9 +3,9 @@
 **What to build:** The live bot writes to the real Purchasing Log again, and the
 DB15 breakout board request that failed on 2026-09-21 is logged.
 
-**Blocked by:** Done
+**Blocked by:** none
 
-**Status:** ready-for-developer
+**Status:** Done
 
 An agent must not claim this. It needs someone physically at the production
 server, and it needs Charlie.
