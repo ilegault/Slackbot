@@ -32,12 +32,16 @@ def valid_storage(tmp_path):
     boms = tmp_path / "BOMs"
     boms.mkdir()
 
+    epif_template = tmp_path / "EPIF_TEMPLATE.pdf"
+    epif_template.write_text("PDF", encoding="utf-8")
+
     return {
         "WORKBOOK_PATH": str(wb),
         "EPIFS_DIR": str(epifs),
         "CONFIRMATIONS_DIR": str(confirmations),
         "QUOTES_DIR": str(quotes),
         "BOMS_DIR": str(boms),
+        "EPIF_TEMPLATE_PATH": str(epif_template),
     }
 
 

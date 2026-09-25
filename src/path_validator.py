@@ -55,6 +55,7 @@ def check_storage_paths() -> list[PathProblem]:
         ("CONFIRMATIONS_DIR", getattr(config, "CONFIRMATIONS_DIR", ""), "folder"),
         ("QUOTES_DIR", getattr(config, "QUOTES_DIR", ""), "folder"),
         ("BOMS_DIR", getattr(config, "BOMS_DIR", ""), "folder"),
+        ("EPIF_TEMPLATE_PATH", getattr(config, "EPIF_TEMPLATE_PATH", ""), "file"),
     ]
 
     problems: list[PathProblem] = []
@@ -134,6 +135,12 @@ STORAGE_PATHS = {
         "config_attr": "BOMS_DIR",
         "description": "BOMs directory (itemised BOM spreadsheets)",
         "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\BOMs",
+    },
+    "EPIF_TEMPLATE_PATH": {
+        "env": "EPIF_TEMPLATE_PATH",
+        "config_attr": "EPIF_TEMPLATE_PATH",
+        "description": "EPIF template file",
+        "example": r"C:\Users\<your-windows-account>\OneDrive\Purchasing\_TEMPLATE\EPIF_TEMPLATE_HIRST.pdf",
     },
 }
 

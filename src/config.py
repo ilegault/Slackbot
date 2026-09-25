@@ -139,6 +139,11 @@ TEMPLATE_DIR = os.environ.get(
     os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\_TEMPLATE"),
 )
 
+EPIF_TEMPLATE_PATH = os.environ.get(
+    "EPIF_TEMPLATE_PATH",
+    os.path.join(TEMPLATE_DIR, "EPIF_TEMPLATE_HIRST.pdf"),
+)
+
 SHEET_XML = "xl/worksheets/sheet1.xml"  # 'Order Log' is the first sheet
 HEADER_ROW = 11                          # OrderLog table header
 FIRST_DATA_ROW = 12
