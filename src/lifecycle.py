@@ -1258,8 +1258,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     requester = meta.get("resolved_name")
     is_pending_name = meta.get("is_pending_name", False)
     user_id = meta.get("user_id") or body.get("user", {}).get("id")
-    vendor_choice = meta.get("vendor_choice")
-    custom_vendor = meta.get("vendor_custom")
 
     dummy_valid_name = list(roster.get_valid_requesters())[0] if (hasattr(roster, "get_valid_requesters") and roster.get_valid_requesters()) else "Isaac"
     problems = validators.validate(parsed, requester_name=requester if not is_pending_name else dummy_valid_name)
@@ -1316,7 +1314,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         log.error("PURCHASING_CHANNEL is not configured; refusing to post purchase request.")
         return
     display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or f"<@{user_id}>")
-    suggest_note = f"\n💡 *Note:* Suggested new vendor: `{custom_vendor}`" if (vendor_choice == config.VENDOR_SUGGEST_OPTION and custom_vendor) else ""
 
     items = stage2.get("items")
     shipping = float(stage2.get("shipping") or 0.0)
@@ -1332,7 +1329,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         "requester": requester,
         "user_id": user_id,
         "is_pending_name": is_pending_name,
-        "suggest_note": suggest_note,
         "source": "modal",
     }
     if items:
@@ -1353,8 +1349,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         f"• *Delivery Room:* {parsed['delivery_room']}\n"
         f"• *Purpose:* {parsed['purpose']}"
         f"{link_line}"
-        f"{items_line}"
-        f"{suggest_note}\n\n"
+        f"{items_line}\n\n"
         f"Use the buttons below to approve and track this request."
     )
 
@@ -1434,43 +1429,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
             )
         except Exception as e:
             log.warning("Could not post new requester alert to admin channel: %s", e)
-
-    # If suggested vendor, post alert with approve button to ADMIN_ALERT_CHANNEL (Phase 2 Ticket 2.4)
-    if vendor_choice == config.VENDOR_SUGGEST_OPTION and custom_vendor and config.ADMIN_ALERT_CHANNEL:
-        try:
-            client.chat_postMessage(
-                channel=config.ADMIN_ALERT_CHANNEL,
-                text=f"💡 New vendor suggested by <@{user_id}>: '{custom_vendor}'.",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": (
-                                f"💡 *Suggested Vendor Approval Needed:*\n"
-                                f"Suggested Name: *{custom_vendor}*\n"
-                                f"Suggested by: <@{user_id}>\n"
-                                f"Add to Workday catalog vendor list in `roster.json`?"
-                            ),
-                        },
-                    },
-                    {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "Approve Vendor"},
-                                "style": "primary",
-                                "action_id": "approve_new_vendor",
-                                "value": json.dumps({"vendor": custom_vendor}),
-                            }
-                        ],
-                    },
-                ],
-            )
-        except Exception as e:
-            log.warning("Could not post new vendor alert to admin channel: %s", e)
-
 
 # States where cancel is refused — the request has already gone to purchasing (ADR 0003 decision 5).
 _CANCEL_REFUSED_STATES = {"processed", "confirmed", "delivered"}

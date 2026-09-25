@@ -592,7 +592,6 @@ def build_stage1_view(prefill_name_field: bool = False, resolved_name: str | Non
         {"text": {"type": "plain_text", "text": v[:75]}, "value": v}
         for v in vendors
     ]
-    vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_SUGGEST_OPTION[:75]}, "value": config.VENDOR_SUGGEST_OPTION})
     vendor_options.append({"text": {"type": "plain_text", "text": config.VENDOR_OTHER_OPTION[:75]}, "value": config.VENDOR_OTHER_OPTION})
 
     blocks = []
@@ -613,7 +612,7 @@ def build_stage1_view(prefill_name_field: bool = False, resolved_name: str | Non
         "elements": [
             {
                 "type": "mrkdwn",
-                "text": "💡 *Fast path vs Full EPIF:* Listed vendors are pre-approved UW Workday punch-out vendors (skips EPIF paperwork). For any other vendor, choose *Not listed / other*.",
+                    "text": "💡 *Fast path vs Full EPIF:* Listed vendors are pre-approved UW Workday punch-out vendors (skips EPIF paperwork). For any other vendor, choose *None of these — this will be an EPIF order*.",
             }
         ],
     })
@@ -713,9 +712,8 @@ def build_stage2_view(meta: dict) -> dict:
     is_edit = bool(meta.get("is_edit"))
     v_choice = meta.get("vendor_choice") or ""
     v_custom = meta.get("vendor_custom") or ""
-    suggest_opt = getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday")
-    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")
-    if v_choice in (suggest_opt, other_opt) and v_custom:
+    other_opt = getattr(config, "VENDOR_OTHER_OPTION", "None of these — this will be an EPIF order")
+    if v_choice == other_opt and v_custom:
         vendor_display = v_custom
     else:
         vendor_display = v_choice

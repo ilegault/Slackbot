@@ -432,7 +432,7 @@ def handle_stage1_submit(ack, body, client, view):
     if not vendor_choice:
         errors["block_vendor"] = "Please select a vendor."
 
-    if not errors and vendor_choice in (getattr(config, "VENDOR_SUGGEST_OPTION", "Suggest a new vendor that was added to workday"), getattr(config, "VENDOR_OTHER_OPTION", "Not listed / other")):
+    if not errors and vendor_choice == getattr(config, "VENDOR_OTHER_OPTION", "None of these — this will be an EPIF order"):
         last_warned = metadata.get("warned_vendor")
         if vendor_custom != last_warned:
             matched_vendor = interview.check_near_miss_vendor(vendor_custom, interview.get_available_vendors())

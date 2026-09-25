@@ -181,7 +181,7 @@ LISTED = {"Fisher Scientific", "Dell"}
 
 
 def _submit(view: dict, typed_name: str) -> dict:
-    """Submit `view` with Not listed / other + `typed_name`; return the ack kwargs."""
+    """Submit `view` with None of these — this will be an EPIF order + `typed_name`; return the ack kwargs."""
     submitted = dict(view)
     submitted["id"] = "V123"
     submitted["hash"] = "hash123"
