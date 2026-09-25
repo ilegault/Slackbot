@@ -1,6 +1,6 @@
 # 37: Fill the blank EPIF from a request (pure, round-trip tested)
 
-**Status:** ready-for-agent
+**Status:** blocked
 
 **Runner:** any
 
@@ -22,4 +22,15 @@ reads back to the same values. Nothing calls it yet; tickets 45 and 41–42 do.
 - [ ] **Round trip** in `tests/test_37_fill_epif.py`, on `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`: for one request per category and for both payment methods, `parse_epif(fill_epif(template, parsed))` equals the input for item, purpose, amount, vendor, contact, date, room, project, fund, asset ID, name of system, category and payment method, and reads `config.EPIF_PI_AND_END_USER` for PI and end user. A BOM case reads back `See attached BOM — 3 items` and the BOM total. Nothing may be faked here: it reads the real filled bytes.
 - [ ] Full gate green, in CI order: `ruff check .`, `python scripts/check_tests_first.py`, `pytest -q`.
 
-## Comments
+## Escalation — 2026-09-25
+Ticket: 37 Fill the blank EPIF from a request   Branch: ticket/purchase-path-and-epif-37
+Goal: A new pure module `src/epif_filler.py` with `fill_epif(template_bytes: bytes, parsed: dict) -> bytes`.
+Attempt 1: Read the acceptance criteria to plan the implementation.
+Attempt 2: Discovered a direct contradiction between the first and second acceptance criteria regarding `Name`, `PI of Funding`, and the constant `EPIF_PI_AND_END_USER`.
+Attempt 3: Confirmed ADR 0007 decision 6 states that **PI of Funding** and **Name** are always *Charles Hirst*. However, the ticket still gives mutually exclusive instructions on how to implement this.
+Failing output (exact, trimmed to the relevant lines):
+```
+- [ ] fill_epif never writes Name, PI of Funding or Telephone # for ?'s; the template already contains them. No EPIF_PI_AND_END_USER constant is added.
+- [ ] PI of Funding and Name come from a new constant `config.EPIF_PI_AND_END_USER`, holding the name ADR 0007 decision 6 gives.
+```
+Decision needed: Should `EPIF_PI_AND_END_USER` be added and used to populate these fields (per AC 2 and ADR 0007), or should the fields be left completely untouched because the template already contains them, with no constant added (per AC 1)?
