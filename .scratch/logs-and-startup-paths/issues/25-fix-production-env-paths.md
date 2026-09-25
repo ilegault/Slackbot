@@ -3,7 +3,7 @@
 **What to build:** The live bot writes to the real Purchasing Log again, and the
 DB15 breakout board request that failed on 2026-09-21 is logged.
 
-**Blocked by:** None (can start immediately)
+**Blocked by:** Done
 
 **Status:** ready-for-developer
 
@@ -18,10 +18,10 @@ visible at boot, but only a person at the server can fix it.
 
 ## Steps
 
-- [ ] On the server, edit `C:\Isaac_programs\Slackbot\.env` so that `PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR` and `QUOTES_DIR` read `C:\Users\ilegault\…`
-- [ ] Confirm the Hirst-Lab OneDrive shortcut is synced under the `ilegault` account, so those paths exist on disk
-- [ ] Restart the service
-- [ ] `@Purchasing health` in the alert channel reports storage healthy
-- [ ] Charlie re-approves the DB15 breakout board request. The row appears in the Purchasing Log and the card posts
+- [x] On the server, edit `C:\Isaac_programs\Slackbot\.env` so that `PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR` and `QUOTES_DIR` read `C:\Users\ilegault\…`
+- [x] Confirm the Hirst-Lab OneDrive shortcut is synced under the `ilegault` account, so those paths exist on disk
+- [x] Restart the service
+- [x] `@Purchasing health` in the alert channel reports storage healthy
+- [x] Charlie re-approves the DB15 breakout board request. The row appears in the Purchasing Log and the card posts
 
 ## Comments
