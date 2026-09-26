@@ -1,6 +1,6 @@
 # 41: "This needs an EPIF" turns a waiting request into an EPIF order
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -17,12 +17,17 @@ and archived in the same queued write, the card becomes an ordinary approved car
 the buyer gets the EPIF DM with the PDF attached. No new card is posted and the approver
 is not asked again.
 
-- [ ] `app.handle_req_needs_epif` keeps its permission check (ticket 40), and instead of the "coming in ticket 41" DM opens `blocks.build_stage2_view` with `route = epif` and the bare-thread context in private metadata: channel, thread, card ts, requester ID and name, approver, assignee.
-- [ ] On completion, `lifecycle._process_interview_completion` sees that context and calls `finalize_purchase_request` against the existing card (`card_ts`) instead of posting a new posted card. Proof: after the scenario, `chat_postMessage` was called with no new card blocks, and no button with `action_id` `req_approve` exists in any posted blocks.
-- [ ] Row, EPIF and card update happen in the one queued task that ticket 45 built. If it fails, the card stays `waiting_for_details`: a test makes `config.EPIF_TEMPLATE_PATH` point at a missing file and asserts no row, no `chat_update` to `approved`, and a failure line in the thread.
-- [ ] **Scenario**, bare approval then This needs an EPIF submitted by the assignee: one row with `route = epif`, one PDF in `EPIFS_DIR` named by `log_writer.epif_archive_name`, the card updated to `approved`, and the assignee's DM has a `files_upload_v2` call for that PDF.
-- [ ] Full gate green, in CI order: `ruff check .`, `python scripts/check_tests_first.py`, `pytest -q`.
+- [x] `app.handle_req_needs_epif` keeps its permission check (ticket 40), and instead of the "coming in ticket 41" DM opens `blocks.build_stage2_view` with `route = epif` and the bare-thread context in private metadata: channel, thread, card ts, requester ID and name, approver, assignee.
+- [x] On completion, `lifecycle._process_interview_completion` sees that context and calls `finalize_purchase_request` against the existing card (`card_ts`) instead of posting a new posted card. Proof: after the scenario, `chat_postMessage` was called with no new card blocks, and no button with `action_id` `req_approve` exists in any posted blocks.
+- [x] Row, EPIF and card update happen in the one queued task that ticket 45 built. If it fails, the card stays `waiting_for_details`: a test makes `config.EPIF_TEMPLATE_PATH` point at a missing file and asserts no row, no `chat_update` to `approved`, and a failure line in the thread.
+- [x] **Scenario**, bare approval then This needs an EPIF submitted by the assignee: one row with `route = epif`, one PDF in `EPIFS_DIR` named by `log_writer.epif_archive_name`, the card updated to `approved`, and the assignee's DM has a `files_upload_v2` call for that PDF.
+- [x] Full gate green, in CI order: `ruff check .`, `python scripts/check_tests_first.py`, `pytest -q`.
 
 **Tests may fake:** the Slack client (a `MagicMock` that records calls) and the network. **Tests must use real:** the handlers, `log_writer`, and a temporary copy of the workbook (copy the `temp_workbook` and `sync_queue` fixtures from `tests/test_29_approval_archives_bom.py`). A test that patches out the function this ticket changes does not count. Point `config.EPIFS_DIR` at `tmp_path` and `config.EPIF_TEMPLATE_PATH` at `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`.
 
 ## Comments
+
+## Summary - 2026-09-26
+- Implemented `app.handle_req_needs_epif` to open `blocks.build_stage2_view` with `route = epif` and thread context in metadata.
+- Updated `lifecycle._process_interview_completion` to call `finalize_purchase_request` targeting the existing card (`card_ts`) instead of posting a new request when completing the modal from a bare-thread approval.
+- Wrote `tests/test_41_needs_epif.py` to cover the scenario: bare approval, "This needs an EPIF" pressed, row logged, PDF generated in EPIFS_DIR, card updated to approved, and DM sent with attachment. Also added a test for the failure path (missing template aborts row update). All tests passing.

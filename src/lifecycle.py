@@ -1372,6 +1372,41 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     if items is None and line_items_text.strip():
         items, shipping, _ = bom.parse_line_items(line_items_text)
 
+    # Ticket 41: If this originated from a "This needs an EPIF" on an existing bare-thread card
+    if "card_ts" in meta:
+        channel = meta.get("channel")
+        thread_ts = meta.get("thread_ts")
+        card_ts = meta.get("card_ts")
+        assignee_id = meta.get("assignee_id")
+        approver = meta.get("approver")
+
+        def _say(text, thread_ts=None):
+            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+
+        parsed["route"] = meta.get("route", "workday")
+        finalize_purchase_request(
+            client=client,
+            say=_say,
+            channel=channel,
+            thread_ts=thread_ts,
+            event_ts=thread_ts,  # fallback
+            parsed=parsed,
+            requester=requester,
+            notify_target=user_id,
+            pdf_bytes=None,  # Generated inside write_action since route is epif
+            file_name=None,
+            is_pending_name=is_pending_name,
+            assignee_id=assignee_id,
+            assignee_name=slack_io.resolve_requester(client, assignee_id) if assignee_id else None,
+            refusal_msg=None,
+            approver=approver,
+            input_note=None,
+            card_ts=card_ts,
+            items=items,
+            shipping=shipping,
+        )
+        return
+
     req_payload = {
         "parsed": {
             **parsed,

@@ -214,7 +214,7 @@ def test_cancel_on_waiting_for_details(monkeypatch):
     log_writer.blank_row.assert_not_called()
 
 def test_this_needs_an_epif_replies_privately_and_writes_nothing(monkeypatch):
-    """Clicking 'This needs an EPIF' responds with a private message (stub for ticket 41)."""
+    """Clicking 'This needs an EPIF' opens the stage 2 modal."""
     client = MagicMock()
     ack = MagicMock()
     respond = MagicMock()
@@ -230,8 +230,8 @@ def test_this_needs_an_epif_replies_privately_and_writes_nothing(monkeypatch):
     app.handle_req_needs_epif(ack, body, respond, client)
 
     ack.assert_called_once()
-    client.chat_postMessage.assert_called_once()
-    assert "ticket 41" in client.chat_postMessage.call_args[1]["text"]
+    client.views_open.assert_called_once()
+
 
 def test_scenario_end_to_end(temp_workbook, sync_queue, monkeypatch):
     client = MagicMock()
