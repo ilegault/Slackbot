@@ -1017,8 +1017,28 @@ def handle_req_needs_epif(ack, body, respond, client):
         slack_io.deny(respond, "🔒 Only the requester, assignee, or admin can change this.")
         return
 
-    # In this ticket, it must only reply privately that it is coming in ticket 41.
-    slack_io.tell(client, user_id, "The EPIF path for bare threads is coming in ticket 41.")
+    # Build stage 2 view
+    channel_id = body.get("channel", {}).get("id")
+    msg_ts = body.get("message", {}).get("ts")
+    thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
+
+    vendor = req_data.get("vendor", "")
+
+    meta = {
+        "channel": channel_id,
+        "thread_ts": thread_ts,
+        "card_ts": msg_ts,
+        "user_id": req_data.get("user_id"),
+        "resolved_name": req_data.get("requester"),
+        "approver": val_data.get("approver") or req_data.get("approver"),
+        "assignee_id": req_data.get("assignee_id"),
+        "route": "epif",
+        "vendor_choice": "None of these — this will be an EPIF order" if vendor else "",
+        "vendor_custom": vendor,
+    }
+
+    view = blocks.build_stage2_view(meta)
+    client.views_open(trigger_id=body.get("trigger_id"), view=view)
 
 @app.action("req_cancel")
 def handle_req_cancel_action(ack, body, respond, client):
