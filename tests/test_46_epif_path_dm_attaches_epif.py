@@ -31,6 +31,11 @@ def _valid_request(total_price=50.0, category="Supplies"):
         "asset_id": ""
     }
 
+def _make_client_with_dm():
+    client = MagicMock()
+    client.conversations_open.return_value = {"channel": {"id": "D_BUYER"}}
+    return client
+
 @pytest.fixture(autouse=True)
 def clean_roster(tmp_path, monkeypatch):
     roster_file = str(tmp_path / "roster.json")
@@ -138,7 +143,7 @@ def test_epif_path_dm_attaches_epif_and_thread_message(temp_epifs_dir, temp_boms
     assert "```" in dm_text
 
 def test_unassigned_epif_path_thread_message(temp_epifs_dir, temp_boms_dir, sync_queue):
-    client = MagicMock()
+    client = _make_client_with_dm()
     say = MagicMock()
 
     parsed = _valid_request(total_price=50.0, category="Supplies")
@@ -163,8 +168,7 @@ def test_unassigned_epif_path_thread_message(temp_epifs_dir, temp_boms_dir, sync
     assert "⚠️ *Needs a buyer to email to purchasing.*" in say_text
 
 def test_workday_path_makes_no_upload(temp_epifs_dir, temp_boms_dir, sync_queue):
-    client = MagicMock()
-    client.conversations_open.return_value = {"channel": {"id": "D_BUYER"}}
+    client = _make_client_with_dm()
     say = MagicMock()
 
     parsed = _valid_request(total_price=50.0, category="Software")
