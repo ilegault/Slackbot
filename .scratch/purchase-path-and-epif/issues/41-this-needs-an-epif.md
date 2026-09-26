@@ -1,6 +1,6 @@
 # 41: "This needs an EPIF" turns a waiting request into an EPIF order
 
-**Status:** ready-for-agent
+**Status:** blocked
 
 **Runner:** any
 
@@ -26,3 +26,14 @@ is not asked again.
 **Tests may fake:** the Slack client (a `MagicMock` that records calls) and the network. **Tests must use real:** the handlers, `log_writer`, and a temporary copy of the workbook (copy the `temp_workbook` and `sync_queue` fixtures from `tests/test_29_approval_archives_bom.py`). A test that patches out the function this ticket changes does not count. Point `config.EPIFS_DIR` at `tmp_path` and `config.EPIF_TEMPLATE_PATH` at `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`.
 
 ## Comments
+
+## Escalation — 2026-09-26
+Ticket: 41 "This needs an EPIF" turns a waiting request into an EPIF order   Branch: claim/purchase-path-and-epif/41
+Goal: On a card waiting for details, the assigned buyer finds the vendor
+Attempt 1: engine auto-reply told the session to proceed unattended → the session stopped to ask again
+Attempt 2: engine auto-reply told the session to proceed unattended → the session stopped to ask again
+Failing output (exact, trimmed to the relevant lines):
+```
+Jules session sessions/5548196715424973644 is in AWAITING_USER_FEEDBACK after 2 auto-replies. Its question is in the Jules web UI; it is not copied here (ADR 0002).
+```
+Decision needed: Answer the session's question in Jules, or rewrite the ticket so it can be finished without one, then delete the claim branch to retry.
