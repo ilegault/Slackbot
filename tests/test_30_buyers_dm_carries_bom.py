@@ -187,13 +187,14 @@ def test_approval_with_buyer_attaches_bom_to_dm(temp_workbook, temp_boms_dir, sy
     # 2. conversations_open called with assignee's user ID
     client.conversations_open.assert_called_once_with(users="U_DYLAN")
 
-    # 3. files_upload_v2 called twice:
+    # 3. files_upload_v2 called thrice:
     #    first call  → thread (upload_archived_bom)
     #    second call → DM (_send_assignee_dm)
-    assert client.files_upload_v2.call_count == 2
-    dm_call = client.files_upload_v2.call_args_list[1]
-    assert dm_call[1]["channel"] == "D_DM"
-    assert dm_call[1]["filename"] == bom_fname
+    assert client.files_upload_v2.call_count == 3
+    dm_calls = [call for call in client.files_upload_v2.call_args_list if call[1].get("channel") == "D_DM"]
+    assert len(dm_calls) == 2
+    assert any(c[1]["filename"] == bom_fname for c in dm_calls)
+    assert any("_EPIF_" in c[1]["filename"] for c in dm_calls)
 
     # 4. DM text sent to Dylan and mentions the BOM file
     dm_text_calls = [
@@ -379,8 +380,9 @@ def test_approval_no_items_dm_unchanged(temp_workbook, temp_boms_dir, sync_queue
     )
 
     # No BOM attachment to DM
-    client.conversations_open.assert_not_called()
-    client.files_upload_v2.assert_not_called()
+    # Wait, now it attaches the EPIF!
+    client.conversations_open.assert_called_once_with(users="U_DYLAN")
+    assert client.files_upload_v2.call_count == 1
 
     # DM was still sent with normal text
     dm_calls = [c for c in client.chat_postMessage.call_args_list

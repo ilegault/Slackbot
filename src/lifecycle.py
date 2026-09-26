@@ -126,6 +126,8 @@ def _send_assignee_dm(
     row,
     bom_path: str | None = None,
     bom_fname: str | None = None,
+    epif_path: str | None = None,
+    epif_fname: str | None = None,
     route: str = "workday",
     parsed: dict | None = None,
 ) -> None:
@@ -170,6 +172,8 @@ def _send_assignee_dm(
             f"```\n{email_draft}\n```\n\n"
             f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
         )
+        if epif_fname:
+            dm_text += f"\n\n📄 The filled EPIF *{epif_fname}* is attached."
         if bom_fname:
             dm_text += f"\n\n📊 The BOM spreadsheet *{bom_fname}* is attached."
     try:
@@ -178,37 +182,48 @@ def _send_assignee_dm(
         log.warning("Could not DM assignee %s: %s", assignee_id, e)
         return
 
-    if route == "epif" and bom_path and bom_fname and os.path.exists(bom_path):
-        try:
-            resp = client.conversations_open(users=assignee_id)
-            dm_channel = resp["channel"]["id"]
-            with open(bom_path, "rb") as fh:
-                content = fh.read()
-            if hasattr(client, "files_upload_v2"):
-                client.files_upload_v2(
-                    channel=dm_channel,
-                    content=content,
-                    filename=bom_fname,
-                    title=bom_fname,
-                )
-            else:
-                client.files_upload(
-                    channels=dm_channel,
-                    content=content,
-                    filename=bom_fname,
-                    title=bom_fname,
-                )
-            log.info("Uploaded BOM %s to DM for %s", bom_fname, assignee_id)
-        except Exception as e:
-            log.warning("Could not upload BOM %s to DM for %s: %s", bom_fname, assignee_id, e)
-            if config.ADMIN_ALERT_CHANNEL:
-                try:
-                    client.chat_postMessage(
-                        channel=config.ADMIN_ALERT_CHANNEL,
-                        text=f"⚠️ Failed to attach BOM *{bom_fname}* to {assignee_name}'s DM: {e}",
-                    )
-                except Exception as alert_err:
-                    log.warning("Could not alert admin about BOM DM failure: %s", alert_err)
+    if route == "epif":
+        files_to_upload = []
+        if epif_path and epif_fname and os.path.exists(epif_path):
+            files_to_upload.append((epif_path, epif_fname))
+        if bom_path and bom_fname and os.path.exists(bom_path):
+            files_to_upload.append((bom_path, bom_fname))
+
+        if files_to_upload:
+            try:
+                resp = client.conversations_open(users=assignee_id)
+                dm_channel = resp["channel"]["id"]
+                for path, fname in files_to_upload:
+                    try:
+                        with open(path, "rb") as fh:
+                            content = fh.read()
+                        if hasattr(client, "files_upload_v2"):
+                            client.files_upload_v2(
+                                channel=dm_channel,
+                                content=content,
+                                filename=fname,
+                                title=fname,
+                            )
+                        else:
+                            client.files_upload(
+                                channels=dm_channel,
+                                content=content,
+                                filename=fname,
+                                title=fname,
+                            )
+                        log.info("Uploaded %s to DM for %s", fname, assignee_id)
+                    except Exception as e:
+                        log.warning("Could not upload %s to DM for %s: %s", fname, assignee_id, e)
+                        if config.ADMIN_ALERT_CHANNEL:
+                            try:
+                                client.chat_postMessage(
+                                    channel=config.ADMIN_ALERT_CHANNEL,
+                                    text=f"⚠️ Failed to attach *{fname}* to {assignee_name}'s DM: {e}",
+                                )
+                            except Exception as alert_err:
+                                log.warning("Could not alert admin about DM attachment failure: %s", alert_err)
+            except Exception as e:
+                log.warning("Could not open DM channel for assignee %s: %s", assignee_id, e)
 
 
 def finalize_purchase_request(
@@ -391,6 +406,8 @@ def finalize_purchase_request(
                 row=row,
                 bom_path=saved_bom_path,
                 bom_fname=bom_fname,
+                epif_path=saved_path,
+                epif_fname=saved_name,
                 route=route,
                 parsed=parsed,
             )
@@ -922,6 +939,8 @@ def handle_assign(
     bom_path = os.path.join(config.BOMS_DIR, bom_fname) if bom_fname else None
     email_draft = text_rules.generate_email_draft(draft_data, target_name, bom_filename=bom_fname)
     item_desc = draft_data.get("item_description") or "supplies"
+    epif_fname = req_data.get("epif_file")
+    epif_path = os.path.join(config.EPIFS_DIR, epif_fname) if epif_fname else None
     _send_assignee_dm(
         client=client,
         assignee_id=target_user_id,
@@ -931,6 +950,8 @@ def handle_assign(
         row=row,
         bom_path=bom_path,
         bom_fname=bom_fname,
+        epif_path=epif_path,
+        epif_fname=epif_fname,
         route=route,
         parsed=draft_data,
     )
