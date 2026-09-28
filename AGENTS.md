@@ -30,11 +30,11 @@ why a green test suite that was made green by editing a test is worse than a red
 
 | | |
 |---|---|
-| Language / runtime | Python 3.12+ (dev venv is Windows, `.venv\Scripts\`) |
+| Language / runtime | Python 3.12+ (dev venv is Windows, `.venv\Scripts\`); CI runs 3.14 |
 | Framework | `slack_bolt` in **Socket Mode** — no public HTTP endpoint |
 | Entry point | `python app.py` → `src/app.py:main()` |
-| Package | `src/` — ~5 500 lines across 12 modules |
-| Tests | `pytest` — ~100 test functions in `tests/` |
+| Package | `src/` — ~10 300 lines across 19 modules |
+| Tests | `pytest` — ~460 test functions in `tests/`. Needs dummy `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` env vars, as `.github/workflows/tests.yml` sets, or `src/app.py` fails at import |
 | Build | `pyinstaller p_bot.spec` (see `docs/EXECUTABLE_BUILD.md`) |
 | Deploy target | **A separate production server, not the dev machine.** `@p-bot update` pulls git and restarts. |
 | Repo | `master`; remote `origin` = `github.com/ilegault/Slackbot`. CI on push and PR. |
@@ -67,9 +67,11 @@ config.py      constants only. Paths, column letters, callback IDs, category map
                No Slack, no I/O, no state.
 domain         pure functions. Parse, validate, route, draft, decide. Given the
                same input they return the same output, and none of them import
-               slack_bolt: epif_parser.py, validators.py, interview.py
-storage        the outside world that is not Slack: Excel, OneDrive, JSON files.
-               log_writer.py, queue_worker.py, roster.py, path_validator.py
+               slack_bolt: epif_parser.py, validators.py, interview.py, bom.py,
+               text_rules.py
+storage        the outside world that is not Slack: Excel, OneDrive, JSON files, PDFs.
+               log_writer.py, queue_worker.py, roster.py, path_validator.py,
+               epif_filler.py
 blocks         Block Kit builders. Take a dict, return a list of blocks. They do
                not hold a Slack client and they do not call one.
 handlers       one function per lifecycle operation. Takes a client plus channel
@@ -82,7 +84,7 @@ listeners      `@app.command` / `@app.action` / `@app.view` / `@app.event`
 **Imports flow downward only:** `listeners → handlers → blocks → storage → domain → config`.
 
 `blocks.py` builds UI, `lifecycle.py` and `ops.py` contain handlers, `slack_io.py`
-wraps Slack client calls, and `src/app.py` (~1 050 lines) registers Bolt listeners.
+wraps Slack client calls, and `src/app.py` (~1 770 lines) registers Bolt listeners.
 Nothing imports `app`.
 
 ### Five invariants the whole design rests on
@@ -162,10 +164,9 @@ help text, the App Home definitions, and the silent `@p-bot` keyword aliases.
 | **delivered** | the package is in the lab | W + X, Date of Delivery / Received By |
 
 **The word is `processed`.** Not "submitted", not "submit", not "ordered". The
-code currently says `submitted` in eighteen places and `processed` in one; the
-Excel column has always been *Date Processed*. Renaming is part of ticket 05 —
-until then, do not add a nineteenth `submitted`, and do not rename them
-piecemeal in an unrelated ticket either.
+rename (ticket 05) has landed: `submitted` survives only as a silent `@p-bot`
+keyword alias in `config.PROCESSED_KEYWORDS`. Do not reintroduce it in a button
+label, action id, history line or help text.
 
 This matters for the same reason ticket status vocabulary matters: a word with
 three spellings stops being searchable and stops being teachable.
@@ -182,6 +183,9 @@ EPIF and a real workbook:
 | `epif_parser.py` | what is in this EPIF PDF? (AcroForm, 28 named fields — never coordinate scraping) |
 | `validators.py` | is this parsed EPIF good enough to log? Returns sentences a grad student can act on |
 | `interview.py` | Workday or EPIF path? does this category need asset details? what does the FAQ say? |
+| `bom.py` | what are the line items in this paste, do they add up to the EPIF amount, and what does the BOM spreadsheet look like? (ADR 0006, 0008) |
+| `text_rules.py` | string rules and templating: parsing, formatting, the assignee email-draft text |
+| `epif_filler.py` | fill the blank EPIF template from a parsed request, for the EPIF path (ADR 0007) |
 | `log_writer.py` | what row does this become, and how is it written without wrecking the workbook? |
 | `roster.py` | who is a requester / admin / approver / vendor, and how does an admin change that from Slack? |
 | `admin.py` | is this user allowed? plus health, uptime, log tail, git update, restart |
@@ -203,9 +207,10 @@ domain logic, and belongs above this line.
 | `EPIFs/` | `log_writer.save_epif` |
 | `Order-Confirmations/` | `log_writer.save_confirmation` |
 | `Quotes/` | `log_writer.save_quote` |
+| `BOMs/` | `log_writer.save_bom` — `DRAFT_<Vendor>_BOM.xlsx` in the thread before approval, `NNNN_<Vendor>_BOM.xlsx` archived on approval. Needs `BOMS_DIR` on the server (ticket 48, human task) |
 | `roster.json` | `roster.py`, atomic write. Every getter re-reads from disk — **roster changes take effect immediately, no restart** |
 | `p_bot.log` | `RotatingFileHandler`, 10 MB × 5 |
-| `requests.json` | `store.py` — **nothing calls it.** See invariant 3 |
+| `requests.json` | `store.py` — **nothing in `src/` calls it** (only `tests/test_store.py` imports it). See invariant 3 |
 
 **Excel is the final reference for the current status of a purchase.** Slack is
 where the conversation happens; the workbook is what the lab reads. If the two
@@ -282,6 +287,22 @@ disagree, the workbook is what someone acts on.
    entry falls through to a Slack-profile name guess that silently fails for a
    display name that does not line up.
 8. **Line-ending normalisation is in effect.** `.gitattributes` normalises LF/CRLF.
+9. **Line items never go in a button `value`.** Slack caps it near 2 000 characters and
+   the request already fills much of it. They ride in the card message's Slack metadata
+   (ADR 0006 decision 5). One handler saves them, called by the EPIF path, the interview
+   path and Edit alike.
+10. **The BOM sheet uses live formulas** (ADR 0008). openpyxl stores no cached results, so
+    Slack's file preview shows the Total cells blank until opened in Excel — not a bug.
+    The sheet has no shipping row, so its Total can be below the EPIF amount by the
+    shipping entered. Intended.
+11. **One items box.** Every modal that takes a paste builds it with
+    `blocks.line_items_input`, whose placeholder is a real example row that a test parses.
+    Do not hand-write a `block_line_items` block; a test counts the literal.
+12. **The approval write is all-or-nothing.** Row append, BOM save and Notes write happen in
+    one queued task; on failure the row is blanked. A log row with no sheet behind it is
+    the failure to prevent.
+13. **The local `pytest` needs a working `cryptography`.** If `from pypdf import PdfReader`
+    panics with a pyo3 error, use a fresh venv rather than the system Python.
 
 ---
 
@@ -367,7 +388,8 @@ only the tool that has that command.
    around it.
 3. Set the ticket's `Status:` line to `in-progress` before you start, and to
    `done` when it lands. Use exactly those words. The status vocabulary is
-   `ready-for-agent` / `in-progress` / `done` / `blocked` / `human-task`, and
+   `ready-for-agent` / `in-progress` / `done` / `blocked` / `ready-for-developer`
+   (`human-task` is a legacy spelling the dispatcher cannot read), and
    nothing else — three spellings of "finished" make the frontier unreadable.
 4. One ticket per branch. One pull request per ticket. Never commit to `master`.
 5. Run the full gate before you start and before you open the PR:
