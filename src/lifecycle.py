@@ -44,6 +44,13 @@ Per Ticket 32:
   the card (blocks + metadata), posts the edit line, and re-posts the draft BOM
   when items changed. No changes → nothing posted, no history line.
 
+Per Ticket 41 (ADR 0007 decision 4):
+- A bare-thread "This needs an EPIF" interview carries `bare_thread` context in its
+  private metadata. _process_interview_completion hands that to
+  _finalize_bare_thread_epif, which calls finalize_purchase_request against the
+  existing waiting card; no new card (and no Approve button) is ever posted, because
+  approval already happened.
+
 Per Ticket 28:
 - _process_interview_completion stores line items and shipping on modal-born cards
   and uploads draft BOM spreadsheets when needs_bom is True.
@@ -1291,6 +1298,61 @@ def handle_quote(client, say, channel: str, thread_ts: str, event_ts: str, files
         say(text="Failed to save attached quote file.", thread_ts=thread_ts)
 
 
+def _finalize_bare_thread_epif(ack, client, bare: dict, parsed: dict,
+                               requester: str | None, user_id: str | None, stage2: dict):
+    """Finish a bare-thread "This needs an EPIF" interview against the existing card.
+
+    WHY THIS EXISTS:
+    ----------------
+    Approval already happened (ADR 0007 decision 5: approval is never asked twice), so
+    this must not post a new posted card with an Approve button. It hands the finished
+    request to finalize_purchase_request (invariant 1) with the waiting card's ts; that
+    one queued task appends the row, generates and archives the EPIF, and only then turns
+    the card into `approved`. If the task fails the row is blanked and the card is left in
+    `waiting_for_details` so the buyer can try again.
+    """
+    channel = bare["channel"]
+    thread_ts = bare["thread_ts"]
+    card_ts = bare["card_ts"]
+
+    card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+    if not card_payload or card_payload.get("state") != "waiting_for_details":
+        ack(response_action="errors", errors={"block_item_description": "This request is no longer waiting for details."})
+        return
+
+    ack()
+
+    items = stage2.get("items")
+    shipping = float(stage2.get("shipping") or 0.0)
+    line_items_text = stage2.get("line_items") or ""
+    if items is None and line_items_text.strip():
+        items, shipping, _ = bom.parse_line_items(line_items_text)
+
+    parsed = dict(parsed)
+    parsed["route"] = "epif"
+
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, **kw)
+
+    finalize_purchase_request(
+        client=client,
+        say=say,
+        channel=channel,
+        thread_ts=thread_ts,
+        event_ts=card_ts,
+        parsed=parsed,
+        requester=requester,
+        notify_target=user_id,
+        is_pending_name=False,
+        assignee_id=bare.get("assignee_id"),
+        assignee_name=bare.get("assignee_name"),
+        approver=bare.get("approver"),
+        card_ts=card_ts,
+        items=items,
+        shipping=shipping,
+    )
+
+
 def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, stage3: dict | None = None):
     """Validate staged inputs, report errors or finalize and post to purchasing channel."""
     stage1 = {
@@ -1350,6 +1412,11 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
                 errors.setdefault("block_item_description", p)
 
         ack(response_action="errors", errors=errors)
+        return
+
+    bare = meta.get("bare_thread")
+    if bare:
+        _finalize_bare_thread_epif(ack, client, bare, parsed, requester, user_id, stage2)
         return
 
     ack()

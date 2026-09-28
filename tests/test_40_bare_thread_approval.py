@@ -214,24 +214,27 @@ def test_cancel_on_waiting_for_details(monkeypatch):
     log_writer.blank_row.assert_not_called()
 
 def test_this_needs_an_epif_replies_privately_and_writes_nothing(monkeypatch):
-    """Clicking 'This needs an EPIF' responds with a private message (stub for ticket 41)."""
+    """Clicking 'This needs an EPIF' no longer sends the ticket-41 stub reply (ticket 41 replaced it).
+
+    It opens the EPIF-path modal instead and posts nothing; no row is written until the
+    interview is submitted (covered in test_41). The name is kept so the test is rewritten
+    in place rather than deleted.
+    """
     client = MagicMock()
     ack = MagicMock()
     respond = MagicMock()
 
-    # Mock admin/approver check
     monkeypatch.setattr(admin, "is_admin_user", MagicMock(return_value=True))
 
     body = _make_button_body("req_needs_epif", state="waiting_for_details", req={"requester": "Katarina"})
-
-    # Needs a trigger id
     body["trigger_id"] = "TRIG123"
 
     app.handle_req_needs_epif(ack, body, respond, client)
 
     ack.assert_called_once()
-    client.chat_postMessage.assert_called_once()
-    assert "ticket 41" in client.chat_postMessage.call_args[1]["text"]
+    client.views_open.assert_called_once()
+    assert json.loads(client.views_open.call_args[1]["view"]["private_metadata"])["route"] == "epif"
+    client.chat_postMessage.assert_not_called()
 
 def test_scenario_end_to_end(temp_workbook, sync_queue, monkeypatch):
     client = MagicMock()
