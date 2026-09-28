@@ -330,3 +330,4 @@ ACTION_REQ_ITEMS = "req_items"
 ACTION_REQ_EDIT = "req_edit"
 
 
+SWITCH_EPIF_CALLBACK_ID = "purchase_switch_epif_submit"

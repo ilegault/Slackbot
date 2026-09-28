@@ -521,6 +521,13 @@ def build_request_blocks(
             if assignee_id:
                 picker_elem["initial_user"] = assignee_id
             elements.append(picker_elem)
+        if state == "approved" and not request.get("date_processed") and interview.get_request_route(request) == "workday":
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Switch to EPIF", "emoji": True},
+                "action_id": "req_switch_epif",
+                "value": btn_value,
+            })
         blocks.append({
             "type": "actions",
             "elements": elements,
@@ -710,6 +717,7 @@ def build_stage2_view(meta: dict) -> dict:
     Ticket 32: Pre-fill / edit mode added.
     """
     is_edit = bool(meta.get("is_edit"))
+    is_switch_epif = bool(meta.get("is_switch_epif"))
     v_choice = meta.get("vendor_choice") or ""
     v_custom = meta.get("vendor_custom") or ""
     other_opt = getattr(config, "VENDOR_OTHER_OPTION", "None of these — this will be an EPIF order")
@@ -982,7 +990,11 @@ def build_stage2_view(meta: dict) -> dict:
             "label": {"type": "plain_text", "text": "Name of System (required for Fabrication category)"},
         })
 
-    if is_edit:
+    if is_switch_epif:
+        callback_id = config.SWITCH_EPIF_CALLBACK_ID
+        title_text = "Switch to EPIF"
+        submit_text = "Switch to EPIF"
+    elif is_edit:
         callback_id = config.EDIT_CALLBACK_ID
         title_text = "Edit Request"
         submit_text = "Save changes"
