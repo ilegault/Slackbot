@@ -1,6 +1,6 @@
 # 43: Place the template on the production server and deploy
 
-**Status:** dome
+**Status:** done
 
 **Runner:** developer
 
