@@ -1,6 +1,6 @@
 # 48: Create the BOMs folder on the production server
 
-**Status:** ready-for-developer
+**Status:** done
 
 **Blocked by:** 26
 
@@ -24,6 +24,6 @@ confirms it. Deploying is a human step: merge, then `@Purchasing update`.
 
 ## Acceptance criteria
 
-- [ ] The `BOMs` folder exists on the production server's OneDrive Purchasing folder
-- [ ] `BOMS_DIR` is set in the server's `.env` and points at it
-- [ ] The startup admin alert after a restart reports no bad storage paths
+- [x] The `BOMs` folder exists on the production server's OneDrive Purchasing folder
+- [x] `BOMS_DIR` is set in the server's `.env` and points at it
+- [x] The startup admin alert after a restart reports no bad storage paths
