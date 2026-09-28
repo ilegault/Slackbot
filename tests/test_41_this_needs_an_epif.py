@@ -215,6 +215,14 @@ def test_click_opens_epif_stage2_with_bare_thread_context(monkeypatch):
     fake = FakeSlack()
     _post_waiting_card(fake, monkeypatch)
 
+    # a stranger is denied: no modal, nothing posted
+    monkeypatch.setattr(admin, "is_admin_user", lambda uid: uid == "U_ADMIN")
+    posted_before = len(fake.messages)
+    _click_needs_epif(fake, "U_STRANGER")
+    fake.client.views_open.assert_not_called()
+    assert len(fake.messages) == posted_before
+
+    # the assigned buyer gets the modal
     ack, respond = _click_needs_epif(fake, "U_BUYER")
 
     ack.assert_called_once()
@@ -236,18 +244,6 @@ def test_click_opens_epif_stage2_with_bare_thread_context(monkeypatch):
     block_ids = [b.get("block_id") for b in view["blocks"]]
     assert "block_vendor_name" in block_ids
     assert "block_payment_method" in block_ids
-
-
-def test_stranger_is_denied_and_no_modal_opens(monkeypatch):
-    fake = FakeSlack()
-    _post_waiting_card(fake, monkeypatch)
-    monkeypatch.setattr(admin, "is_admin_user", MagicMock(return_value=False))
-    posted_before = len(fake.messages)
-
-    ack, respond = _click_needs_epif(fake, "U_STRANGER")
-
-    fake.client.views_open.assert_not_called()
-    assert len(fake.messages) == posted_before
 
 
 def test_scenario_bare_approval_then_needs_epif(temp_workbook, temp_epifs_dir, sync_queue, monkeypatch):

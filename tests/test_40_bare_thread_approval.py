@@ -213,8 +213,13 @@ def test_cancel_on_waiting_for_details(monkeypatch):
     # Assert no write to workbook
     log_writer.blank_row.assert_not_called()
 
-def test_this_needs_an_epif_opens_the_epif_interview_and_writes_nothing(monkeypatch):
-    """Clicking 'This needs an EPIF' opens the EPIF-path modal; nothing is written yet (ticket 41 owns the rest)."""
+def test_this_needs_an_epif_replies_privately_and_writes_nothing(monkeypatch):
+    """Clicking 'This needs an EPIF' no longer sends the ticket-41 stub reply (ticket 41 replaced it).
+
+    It opens the EPIF-path modal instead and posts nothing; no row is written until the
+    interview is submitted (covered in test_41). The name is kept so the test is rewritten
+    in place rather than deleted.
+    """
     client = MagicMock()
     ack = MagicMock()
     respond = MagicMock()
