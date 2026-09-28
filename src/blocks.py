@@ -529,6 +529,52 @@ def build_request_blocks(
     return blocks
 
 
+def line_items_input(
+    action_id: str,
+    *,
+    optional: bool,
+    initial_value: str | None = None,
+    max_length: int | None = None,
+) -> dict:
+    """The one line-items input block, shared by every modal that takes a paste.
+
+    WHY ONE BUILDER: three modals each carried their own copy, and the Workday details
+    modal's copy showed an example (`2 EA | Flask ...`) that bom.parse_line_items rejects.
+    The placeholder here is a real example row and is tested by parsing it, so the example
+    we show can never drift from the format the parser accepts.
+    """
+    element: dict = {
+        "type": "plain_text_input",
+        "action_id": action_id,
+        "multiline": True,
+        "placeholder": {
+            "type": "plain_text",
+            "text": "2 | Flask | FL-1 | 10.00 | https://example.com/fl-1 | 250 mL\nshipping | 24.50",
+        },
+    }
+    if initial_value is not None:
+        element["initial_value"] = initial_value
+    if max_length is not None:
+        element["max_length"] = max_length
+    block: dict = {
+        "type": "input",
+        "block_id": "block_line_items",
+        "element": element,
+        "label": {"type": "plain_text", "text": "Line items (optional)" if optional else "Line items"},
+        "hint": {
+            "type": "plain_text",
+            "text": (
+                "One item per line (pipe or tab separated): "
+                "qty | name | part # | unit price | link | description. "
+                "Optional line: shipping | <amount>"
+            ),
+        },
+    }
+    if optional:
+        block["optional"] = True
+    return block
+
+
 def build_items_view(
     channel: str,
     thread_ts: str,
@@ -541,33 +587,8 @@ def build_items_view(
     if initial_text is None and items:
         initial_text = bom.format_line_items(items, shipping)
 
-    element = {
-        "type": "plain_text_input",
-        "action_id": "action_line_items",
-        "multiline": True,
-        "placeholder": {
-            "type": "plain_text",
-            "text": "qty | name | part # | unit price | link | description\nshipping | 24.50",
-        },
-    }
-    if initial_text:
-        element["initial_value"] = initial_text
-
     blocks_list = [
-        {
-            "type": "input",
-            "block_id": "block_line_items",
-            "element": element,
-            "label": {"type": "plain_text", "text": "Line items"},
-            "hint": {
-                "type": "plain_text",
-                "text": (
-                    "One item per line (pipe or tab separated): "
-                    "qty | name | part # | unit price | link | description. "
-                    "Optional line: shipping | <amount>"
-                ),
-            },
-        }
+        line_items_input("action_line_items", optional=False, initial_value=initial_text or None)
     ]
 
     return {
@@ -838,31 +859,12 @@ def build_stage2_view(meta: dict) -> dict:
             ),
             "label": {"type": "plain_text", "text": "Total Price ($ Amount)"},
         },
-        {
-            "type": "input",
-            "block_id": "block_line_items",
-            "optional": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "line_items",
-                "multiline": True,
-                "max_length": getattr(config, "MAX_LINE_ITEMS_LEN", 1500),
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "qty | name | part # | unit price | link | description\nshipping | 24.50",
-                },
-                **({"initial_value": meta["line_items"]} if meta.get("line_items") else {}),
-            },
-            "label": {"type": "plain_text", "text": "Line items (optional)"},
-            "hint": {
-                "type": "plain_text",
-                "text": (
-                    "One item per line (pipe or tab separated): "
-                    "qty | name | part # | unit price | link | description. "
-                    "Optional line: shipping | <amount>"
-                ),
-            },
-        },
+        line_items_input(
+            "line_items",
+            optional=True,
+            initial_value=meta.get("line_items") or None,
+            max_length=getattr(config, "MAX_LINE_ITEMS_LEN", 1500),
+        ),
         {
             "type": "input",
             "block_id": "block_vendor_contact_name",
@@ -1185,19 +1187,7 @@ def build_workday_details_view(channel: str, thread_ts: str, card_ts: str, vendo
                 "initial_option": {"text": {"type": "plain_text", "text": "Lab Consumable"}, "value": "Lab Consumable"},
             },
         },
-        {
-            "type": "input",
-            "block_id": "block_line_items",
-            "optional": True,
-            "label": {"type": "plain_text", "text": "Line items (optional)"},
-            "hint": {"type": "plain_text", "text": "Add line items with qty, unit, name, part, price, link. Last line must be shipping if not $0."},
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "line_items",
-                "multiline": True,
-                "placeholder": {"type": "plain_text", "text": "2 EA | Flask | FL-1 | 10.00\nShipping | 5.00"},
-            },
-        },
+        line_items_input("line_items", optional=True),
     ]
 
     return {

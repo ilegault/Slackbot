@@ -14,11 +14,8 @@ Covers the pure BOM domain logic (src/bom.py), the BOM storage writer
 8. Atomic save_bom with no leftover temp files.
 9. BOMS_DIR presence in config and path_validator startup alert.
 """
-import io
 import os
 from unittest.mock import MagicMock
-
-import openpyxl
 
 from src import config, heartbeat, log_writer, path_validator
 
@@ -306,7 +303,11 @@ def test_describe_changes_identical_and_differing():
 # ---------------------------------------------------------------------------
 
 def test_build_bom_workbook_content_and_numbers():
-    """Workbook carries header block, items, shipping, total, all numbers not formulas."""
+    """Rewritten for ADR 0008: lab layout, live formulas, no shipping/requester/log row."""
+    import io
+
+    import openpyxl
+
     from src import bom
 
     request = {
@@ -317,82 +318,67 @@ def test_build_bom_workbook_content_and_numbers():
         "date_of_purchase": "2026-09-22",
     }
     items = [
-        {
-            "qty": 2,
-            "name": "Shaft Collar",
-            "part_number": "SC-100",
-            "unit_price": 12.50,
-            "link": "https://ruland.com/sc100",
-            "description": "Steel collar",
-        },
-        {
-            "qty": 4,
-            "name": "Clamp Collar",
-            "part_number": "CC-200",
-            "unit_price": 15.00,
-            "link": "not-a-url",
-            "description": "",
-        },
+        {"qty": 2, "name": "Shaft Collar", "part_number": "SC-100", "unit_price": 12.50,
+         "link": "https://ruland.com/sc100", "description": "Steel collar"},
+        {"qty": 4, "name": "Clamp Collar", "part_number": "CC-200", "unit_price": 15.00,
+         "link": "not-a-url", "description": ""},
     ]
-    shipping = 10.00
 
-    wb_bytes = bom.build_bom_workbook(request, items, shipping, row=18)
+    wb_bytes = bom.build_bom_workbook(request, items)
     assert isinstance(wb_bytes, bytes)
+    ws = openpyxl.load_workbook(io.BytesIO(wb_bytes)).active
 
-    # Reopen with openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(wb_bytes))
-    ws = wb.active
+    assert ws.title == "BOM"
+    assert ws["A1"].value == "BILL OF MATERIALS"
+    assert ws["A2"].value == "Total Cost"
+    assert ws["B2"].value == "=G7"
+    assert [c.value for c in ws[4]][:8] == [
+        "Item", "Description", "Product #", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes"]
 
-    # Check header
-    header_values = [str(cell.value) for row in ws.iter_rows(max_row=6) for cell in row if cell.value]
-    assert any("Ruland" in v for v in header_values)
-    assert any("Dylan" in v for v in header_values)
-    assert any("PG000025831" in v for v in header_values)
-    assert any("0018" in v or "18" in v for v in header_values)
+    # Item rows carry the entered numbers; totals are live formulas, not concrete values.
+    assert [ws.cell(5, c).value for c in (1, 3, 4, 5, 6)] == ["Shaft Collar", "SC-100", "Ruland", 12.50, 2]
+    assert [ws.cell(6, c).value for c in (1, 3, 4, 5, 6)] == ["Clamp Collar", "CC-200", "Ruland", 15.00, 4]
+    assert ws["G5"].value == "=E5*F5"
+    assert ws["G6"].value == "=E6*F6"
+    assert ws["F7"].value == "Total"
+    assert ws["G7"].value == "=SUM(G5:G6)"
 
-    # Find total row and check numbers
-    all_cells = [cell for row in ws.iter_rows() for cell in row if cell.value is not None]
+    # Hyperlink only for a real URL.
+    assert ws["A5"].hyperlink is not None
+    assert ws["A5"].hyperlink.target == "https://ruland.com/sc100"
+    assert ws["A6"].hyperlink is None
 
-    # Verify hyperlink
-    link_cells = [c for c in all_cells if c.value == "https://ruland.com/sc100"]
-    assert len(link_cells) == 1
-    assert link_cells[0].hyperlink is not None
-    assert link_cells[0].hyperlink.target == "https://ruland.com/sc100"
-
-    non_url_cells = [c for c in all_cells if c.value == "not-a-url"]
-    assert len(non_url_cells) == 1
-    assert non_url_cells[0].hyperlink is None
-
-    # Verify no formula strings (starting with '=')
-    for cell in all_cells:
-        if isinstance(cell.value, str):
-            assert not cell.value.startswith("="), f"Cell {cell.coordinate} contains formula: {cell.value}"
-
-    # Verify numeric values for totals
-    # 2 * 12.50 + 4 * 15.00 = 25.00 + 60.00 = 85.00; + 10.00 shipping = 95.00
-    numeric_values = [c.value for c in all_cells if isinstance(c.value, (int, float))]
-    assert 2 in numeric_values
-    assert 12.50 in numeric_values
-    assert 25.00 in numeric_values
-    assert 4 in numeric_values
-    assert 15.00 in numeric_values
-    assert 60.00 in numeric_values
-    assert 10.00 in numeric_values
-    assert 95.00 in numeric_values
+    # ADR 0008 decisions 4 and 6: nothing about requester, project, fund, date or shipping.
+    text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
+    for banned in ("Dylan", "PG000025831", "2026-09-22", "Shipping", "DRAFT", "Purchasing Log"):
+        assert not any(banned in t for t in text), banned
+    assert all(c.value is None for c in ws[3])
 
 
 def test_build_bom_workbook_draft_header():
-    """A workbook built without a row number reads DRAFT where row would be."""
+    """Rewritten for ADR 0008: a draft and an archived sheet are identical; only the file name differs."""
+    import io
+
+    import openpyxl
+
     from src import bom
 
     request = {"vendor": "DigiKey", "requester": "Isaac"}
     items = [{"qty": 1, "name": "IC", "part_number": "", "unit_price": 5.0, "link": "", "description": ""}]
-    wb_bytes = bom.build_bom_workbook(request, items, shipping=0.0, row=None)
+    ws = openpyxl.load_workbook(io.BytesIO(bom.build_bom_workbook(request, items))).active
 
-    wb = openpyxl.load_workbook(io.BytesIO(wb_bytes))
-    ws = wb.active
-    header_values = [str(cell.value) for row in ws.iter_rows(max_row=6) for cell in row if cell.value]
-    assert any("DRAFT" in v for v in header_values)
+    assert ws["A1"].value == "BILL OF MATERIALS"
+    assert ws["D5"].value == "DigiKey"
+    assert ws["G6"].value == "=SUM(G5:G5)"
+    assert ws["B2"].value == "=G6"
+    assert ws.freeze_panes == "A5"
+    assert not any("DRAFT" in str(c.value) for row in ws.iter_rows() for c in row if c.value)
+    assert bom.bom_filename(None, "DigiKey") == "DRAFT_DigiKey_BOM.xlsx"
+    assert bom.bom_filename(18, "DigiKey") == "0018_DigiKey_BOM.xlsx"
+
+    # Unknown vendor fallback (ADR 0008 decision 1).
+    ws2 = openpyxl.load_workbook(io.BytesIO(bom.build_bom_workbook({}, items))).active
+    assert ws2["D5"].value == "Unknown Vendor"
 
 
 def test_bom_filename():

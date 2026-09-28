@@ -1,6 +1,6 @@
 # 50: One items box everywhere
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
@@ -51,15 +51,15 @@ Slack requires a string. Join with `"\n"`, exactly as `handle_items_modal_submit
 
 ## Acceptance criteria
 
-- [ ] **The example we show parses.** In `tests/test_50_one_items_box.py`: for each of the
+- [x] **The example we show parses.** In `tests/test_50_one_items_box.py`: for each of the
   three views, find the `block_line_items` block, take its placeholder text, run
   `bom.parse_line_items` on it, and assert zero errors and one item plus shipping 24.50.
   This fails today for the Workday view. Build the views with their real builders; fake
   nothing but inputs.
-- [ ] **Same hint and placeholder in all three.** Assert the three blocks' `hint` and
+- [x] **Same hint and placeholder in all three.** Assert the three blocks' `hint` and
   `placeholder` text are identical to each other, and that Screen 2's element still has
   `max_length == config.MAX_LINE_ITEMS_LEN`.
-- [ ] **A bad paste in the Workday modal shows the error.** Call
+- [x] **A bad paste in the Workday modal shows the error.** Call
   `app.handle_workday_details_submit` with `block_line_items.line_items.value` set to
   `2 EA | Flask | FL-1 | 10.00`, using the **real** `bom.parse_line_items` (do not
   monkeypatch it — the existing test in `tests/test_40_bare_thread_approval.py` mocks it
@@ -67,10 +67,10 @@ Slack requires a string. Join with `"\n"`, exactly as `handle_items_modal_submit
   `response_action="errors"` and that `errors["block_line_items"]` is a `str` containing
   `line 1:`. Assert `lifecycle.finalize_purchase_request` was **not** called. Copy the
   fake-client setup from `test_fill_in_details_writes_row_and_updates_card` in that file.
-- [ ] No other file under `src/` builds a `block_line_items` block: a test greps
+- [x] No other file under `src/` builds a `block_line_items` block: a test greps
   `src/blocks.py` source for the literal `"block_line_items"` and asserts it appears
   exactly once (inside `line_items_input`).
-- [ ] Full gate green, in CI order: `ruff check .`, `python scripts/check_tests_first.py`,
+- [x] Full gate green, in CI order: `ruff check .`, `python scripts/check_tests_first.py`,
   `pytest -q`.
 
 ## Out of scope
@@ -80,3 +80,8 @@ Slack requires a string. Join with `"\n"`, exactly as `handle_items_modal_submit
 - The BOM spreadsheet layout (ticket 49).
 
 ## Comments
+
+Implementer note: the placeholder specified above (`qty | name | ...` header text) is rejected
+by `bom.parse_line_items`, which contradicts the "the example we show parses" criterion. The
+shared builder uses a real example row instead (`2 | Flask | FL-1 | 10.00 | https://example.com/fl-1 | 250 mL`
+then `shipping | 24.50`); the format template stays in the hint.
