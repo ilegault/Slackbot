@@ -716,6 +716,27 @@ def _select_initial_option(value: str | None, options: list) -> dict | None:
     return None
 
 
+def _bare_thread_vendor_blocks(meta: dict) -> list[dict]:
+    """The vendor box for a bare-thread "This needs an EPIF" interview (ticket 41).
+
+    A bare-thread card has no vendor (nothing in the thread named one), and Screen 1 is
+    skipped, so the vendor is typed here on the first screen shown. Empty for every
+    other Screen 2.
+    """
+    if not meta.get("bare_thread"):
+        return []
+    return [{
+        "type": "input",
+        "block_id": "block_vendor_name",
+        "element": {
+            "type": "plain_text_input",
+            "action_id": "vendor_name",
+            "placeholder": {"type": "plain_text", "text": "Enter vendor name"},
+        },
+        "label": {"type": "plain_text", "text": "Who are you buying from?"},
+    }]
+
+
 def build_stage2_view(meta: dict) -> dict:
     """Generate Screen 2 (Details) Block Kit modal shaped by Screen 1 route.
 
@@ -741,7 +762,7 @@ def build_stage2_view(meta: dict) -> dict:
 
     route = meta.get("route") or interview.route_vendor(v_choice)
     path_title = "Workday" if route == "workday" else "Full EPIF"
-    header_context = f"📋 *Path:* {path_title} — {vendor_display}"
+    header_context = f"📋 *Path:* {path_title} — {vendor_display}" if vendor_display else f"📋 *Path:* {path_title}"
     if is_edit:
         header_context += "\n_Vendor and route are not editable. To change vendor, Decline and resubmit._"
 
@@ -815,6 +836,7 @@ def build_stage2_view(meta: dict) -> dict:
             "block_id": "block_path_context",
             "elements": [{"type": "mrkdwn", "text": header_context}],
         },
+        *_bare_thread_vendor_blocks(meta),
         {
             "type": "input",
             "block_id": "block_item_description",

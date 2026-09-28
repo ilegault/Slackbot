@@ -481,6 +481,12 @@ def handle_stage2_submit(ack, body, client, view):
     meta = json.loads(view.get("private_metadata") or "{}")
     route = meta.get("route", "workday")
 
+    if meta.get("bare_thread"):
+        # No Screen 1 on this path: the typed vendor is a "None of these" vendor by definition.
+        vendor_name = (text_rules._extract_modal_field(values, "block_vendor_name", "vendor_name") or "").strip()
+        meta["vendor_choice"] = getattr(config, "VENDOR_OTHER_OPTION", "None of these — this will be an EPIF order")
+        meta["vendor_custom"] = vendor_name
+
     payment_method_val = (
         text_rules._extract_modal_field(values, "block_payment_method", "payment_method", field_type="selected_option")
         if route == "epif"
@@ -1017,8 +1023,26 @@ def handle_req_needs_epif(ack, body, respond, client):
         slack_io.deny(respond, "🔒 Only the requester, assignee, or admin can change this.")
         return
 
-    # In this ticket, it must only reply privately that it is coming in ticket 41.
-    slack_io.tell(client, user_id, "The EPIF path for bare threads is coming in ticket 41.")
+    # Open Screen 2 on the EPIF path. The bare-thread context rides in private metadata so
+    # completion updates this card instead of posting a new one (ADR 0007 decision 4).
+    channel_id = body.get("channel", {}).get("id")
+    card_ts = body.get("message", {}).get("ts")
+    thread_ts = body.get("container", {}).get("thread_ts") or card_ts
+    meta = {
+        "route": "epif",
+        "resolved_name": req_data.get("requester") or requester_name,
+        "user_id": req_data.get("user_id"),
+        "bare_thread": {
+            "channel": channel_id,
+            "thread_ts": thread_ts,
+            "card_ts": card_ts,
+            "approver": req_data.get("approver"),
+            "assignee_id": req_data.get("assignee_id"),
+            "assignee_name": req_data.get("assignee"),
+        },
+    }
+    client.views_open(trigger_id=body["trigger_id"], view=blocks.build_stage2_view(meta))
+    log.info("Opened EPIF interview for bare-thread card %s in %s (pressed by %s)", card_ts, channel_id, user_id)
 
 @app.action("req_cancel")
 def handle_req_cancel_action(ack, body, respond, client):
