@@ -1,6 +1,6 @@
 # 42: Switch an approved Workday request to EPIF before it's processed
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
