@@ -39,8 +39,7 @@ def test_same_hint_and_placeholder_in_all_three():
     assert stage2["element"]["max_length"] == config.MAX_LINE_ITEMS_LEN
     assert "max_length" not in _box(_views()["workday"])["element"]
 
-
-def test_action_ids_and_optional_flags_unchanged():
+    # Each view keeps its action id and optional flag, so no submit handler changes its lookup.
     v = _views()
     assert _box(v["items"])["element"]["action_id"] == "action_line_items"
     assert _box(v["stage2"])["element"]["action_id"] == "line_items"
