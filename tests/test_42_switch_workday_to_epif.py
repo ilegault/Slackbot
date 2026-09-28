@@ -1,10 +1,10 @@
 import json
 import os
 from unittest.mock import MagicMock
+
 import pytest
 
 from src import app, blocks, config, log_writer
-from tests.test_29_approval_archives_bom import temp_workbook, sync_queue  # reuse fixtures
 
 
 @pytest.fixture
@@ -115,7 +115,7 @@ def test_permission_switch_to_epif(mock_client, base_request, monkeypatch):
 
 def test_switch_refused_if_already_processed_in_queue(temp_workbook, mock_client, monkeypatch):
     # Setup row 15 in the temp workbook
-    log_writer.update_row(15, {"A": "15", "B": "Vendor", "C": "Item"}, workbook_path=temp_workbook)
+    log_writer.update_row(15, {"B": "Vendor", "C": "Item"}, workbook_path=temp_workbook)
 
     # We will simulate marking it processed just before the task runs
     def mock_submit_write_task(action_fn, *args, **kwargs):
@@ -162,7 +162,7 @@ def test_switch_success_flow(temp_workbook, sync_queue, mock_client, tmp_path, m
     monkeypatch.setattr("src.config.EPIF_TEMPLATE_PATH", template_path)
     monkeypatch.setattr("src.config.BOMS_DIR", str(tmp_path / "BOMs"))
 
-    log_writer.update_row(15, {"A": "15", config.COLUMN_REQUESTER: "Original Requester", "C": "Old Item", config.COLUMN_DATE_OF_REQUEST: "2026-09-20"}, workbook_path=temp_workbook)
+    log_writer.update_row(15, {config.COLUMN_REQUESTER: "Original Requester", "C": "Old Item", config.COLUMN_DATE_OF_REQUEST: "2026-09-20"}, workbook_path=temp_workbook)
 
     view = {
         "private_metadata": json.dumps({"channel_id": "C1", "thread_ts": "T1", "card_ts": "123.4", "vendor_choice": "Vendor"}),
