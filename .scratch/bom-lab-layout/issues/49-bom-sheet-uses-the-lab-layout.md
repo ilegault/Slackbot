@@ -1,6 +1,6 @@
 # 49: The BOM sheet uses the lab layout
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 

@@ -12,10 +12,12 @@ This module provides the pure domain logic for multi-item orders:
    with precise per-line error reporting.
 2. Formatting line items back to standard text for pre-filling edit modals.
 3. Checking line item totals against request total ($0.01 tolerance).
-4. Building an in-memory openpyxl workbook (BOM) carrying header details, item rows,
-   shipping, and grand totals written as concrete numbers (never formulas) so all
-   spreadsheet viewers read the exact values without formula evaluation errors.
-5. Hyperlinking URL links in openpyxl so Tina can click straight through to parts.
+4. Building an in-memory openpyxl workbook (BOM) in the lab's hand-made layout (ADR 0008).
+   Totals are live formulas to match that sheet so purchasing can adjust a quantity; the
+   accepted cost is that Slack's preview shows the formula cells blank, because openpyxl
+   stores no cached results. The sheet has no shipping row, so its Total can be below the
+   EPIF amount by the shipping entered, and that is intended.
+5. Hyperlinking the Item cell to the item's URL so Tina can click straight through to parts.
 6. Generating standardized file names (NNNN_<Vendor>_BOM.xlsx) with safe slugging.
 7. Computing concise change descriptions for card edit threads.
 
@@ -24,11 +26,10 @@ to guarantee isolation and fast, deterministic testability.
 """
 import io
 import re
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Font, PatternFill
 
 try:
     from . import epif_parser
@@ -295,198 +296,82 @@ def bom_filename(row: Optional[int], vendor: str) -> str:
     return f"{int(row):04d}_{v_slug}_BOM.xlsx"
 
 
-def build_bom_workbook(
-    request: Dict[str, Any],
-    items: List[Dict[str, Any]],
-    shipping: float = 0.0,
-    row: Optional[int] = None,
-) -> bytes:
-    """Build an in-memory BOM spreadsheet with openpyxl and return its bytes.
+def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> bytes:
+    """Build the BOM spreadsheet in the lab's hand-made layout (ADR 0008) and return its bytes.
 
-    All totals and prices are written as concrete numbers, never formulas.
+    Totals are live formulas. Shipping, requester, project, fund, date and log row are
+    deliberately not rendered.
     """
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "BOM"
 
-    # Font definitions
-    title_font = Font(name="Calibri", size=14, bold=True)
-    header_label_font = Font(name="Calibri", size=11, bold=True)
-    regular_font = Font(name="Calibri", size=11)
-    bold_font = Font(name="Calibri", size=11, bold=True)
-    link_font = Font(name="Calibri", size=11, color="0000FF", underline="single")
+    font_name, font_size = "Aptos Narrow", 12
+    money = '"$"#,##0.00'
 
-    fill_header = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    def fnt(bold=False, color=None, underline=None):
+        return Font(name=font_name, size=font_size, bold=bold, color=color, underline=underline)
 
-    thin_border = Border(
-        left=Side(style="thin", color="CCCCCC"),
-        right=Side(style="thin", color="CCCCCC"),
-        top=Side(style="thin", color="CCCCCC"),
-        bottom=Side(style="thin", color="CCCCCC"),
-    )
-    total_border = Border(
-        top=Side(style="thin", color="000000"),
-        bottom=Side(style="double", color="000000"),
-    )
+    def fill(hex_rgb):
+        return PatternFill(start_color=hex_rgb, end_color=hex_rgb, fill_type="solid")
 
-    # Header block
-    vendor = str(request.get("vendor") or "Unknown Vendor").strip()
-    requester = str(request.get("requester") or request.get("requester_name") or "Lab Member").strip()
-    project_id = str(request.get("project_id") or "").strip()
-    fund = str(request.get("fund") or "").strip()
-    date_val = str(
-        request.get("date_of_purchase")
-        or request.get("date_of_request")
-        or datetime.now().strftime("%Y-%m-%d")
-    ).strip()
+    title_fill, block_fill, head_fill = fill("0B3041"), fill("DCEAF7"), fill("104862")
+    vendor = str(request.get("vendor") or "").strip() or "Unknown Vendor"
 
-    row_text = f"Purchasing Log row {int(row):04d}" if row is not None else "DRAFT — not yet approved"
+    first_item_row = 5
+    total_row = first_item_row + len(items)
 
-    ws["A1"] = "Bill of Materials (BOM)"
-    ws["A1"].font = title_font
+    ws.merge_cells("A1:B1")
+    ws["A1"] = "BILL OF MATERIALS"
+    ws["A1"].font = fnt(bold=True, color="FFFFFF")
+    ws["A1"].fill = title_fill
+    ws["B1"].fill = title_fill
 
-    ws["A3"] = "Vendor:"
-    ws["A3"].font = header_label_font
-    ws["B3"] = vendor
-    ws["B3"].font = regular_font
+    ws["A2"] = "Total Cost"
+    ws["A2"].font = fnt(bold=True)
+    ws["A2"].fill = block_fill
+    ws["B2"] = f"=G{total_row}"
+    ws["B2"].font = fnt()
+    ws["B2"].fill = block_fill
+    ws["B2"].number_format = money
+    ws["B2"].alignment = Alignment(horizontal="left")
 
-    ws["D3"] = "Date:"
-    ws["D3"].font = header_label_font
-    ws["E3"] = date_val
-    ws["E3"].font = regular_font
+    headers = ["Item", "Description", "Product #", "Vendor", "Unit Cost",
+               "Quantity", "Total Cost", "Notes"]
+    for col, name in enumerate(headers, start=1):
+        c = ws.cell(row=4, column=col, value=name)
+        c.font = fnt(bold=True, color="FFFFFF")
+        c.fill = head_fill
 
-    ws["A4"] = "Requester:"
-    ws["A4"].font = header_label_font
-    ws["B4"] = requester
-    ws["B4"].font = regular_font
-
-    ws["D4"] = "Log Row:"
-    ws["D4"].font = header_label_font
-    ws["E4"] = row_text
-    ws["E4"].font = bold_font if row is None else regular_font
-
-    ws["A5"] = "Project ID / Fund:"
-    ws["A5"].font = header_label_font
-    ws["B5"] = f"{project_id} / {fund}" if (project_id or fund) else "N/A"
-    ws["B5"].font = regular_font
-
-    # Table Header Row (Row 7)
-    headers = ["#", "Item", "Part #", "Description", "Link", "Qty", "Unit cost", "Line total"]
-    table_header_row = 7
-    for col_idx, col_name in enumerate(headers, start=1):
-        cell = ws.cell(row=table_header_row, column=col_idx, value=col_name)
-        cell.font = bold_font
-        cell.fill = fill_header
-        cell.border = thin_border
-        if col_name in ("#", "Qty"):
-            cell.alignment = Alignment(horizontal="center")
-        elif col_name in ("Unit cost", "Line total"):
-            cell.alignment = Alignment(horizontal="right")
+    for i, item in enumerate(items):
+        r = first_item_row + i
+        link = str(item.get("link") or "").strip()
+        a = ws.cell(row=r, column=1, value=str(item.get("name", "")).strip())
+        if link.startswith(("http://", "https://")):
+            a.hyperlink = link
+            a.font = fnt(color="467886", underline="single")
         else:
-            cell.alignment = Alignment(horizontal="left")
+            a.font = fnt()
+        ws.cell(row=r, column=2, value=str(item.get("description") or "").strip())
+        ws.cell(row=r, column=3, value=str(item.get("part_number") or "").strip())
+        ws.cell(row=r, column=4, value=vendor)
+        ws.cell(row=r, column=5, value=float(item.get("unit_price", 0.0))).number_format = money
+        ws.cell(row=r, column=6, value=int(item.get("qty", 1)))
+        ws.cell(row=r, column=7, value=f"=E{r}*F{r}").number_format = money
+        ws.cell(row=r, column=8, value=None)
+        for col in range(2, 9):
+            ws.cell(row=r, column=col).font = fnt()
 
-    current_row = table_header_row + 1
-    items_total = 0.0
+    for col in range(1, 9):
+        ws.cell(row=total_row, column=col).fill = head_fill
+    ws.cell(row=total_row, column=6, value="Total").font = fnt(bold=True, color="FFFFFF")
+    g = ws.cell(row=total_row, column=7, value=f"=SUM(G{first_item_row}:G{total_row - 1})")
+    g.font = fnt(bold=True, color="FFFFFF")
+    g.number_format = money
 
-    for idx, item in enumerate(items, start=1):
-        qty = int(item.get("qty", 1))
-        name = str(item.get("name", "")).strip()
-        part = str(item.get("part_number", "")).strip()
-        desc = str(item.get("description", "")).strip()
-        link_str = str(item.get("link", "")).strip()
-        unit_cost = float(item.get("unit_price", 0.0))
-        line_total = qty * unit_cost
-        items_total += line_total
-
-        # Col 1: #
-        c1 = ws.cell(row=current_row, column=1, value=idx)
-        c1.font = regular_font
-        c1.alignment = Alignment(horizontal="center")
-        c1.border = thin_border
-
-        # Col 2: Item
-        c2 = ws.cell(row=current_row, column=2, value=name)
-        c2.font = regular_font
-        c2.border = thin_border
-
-        # Col 3: Part #
-        c3 = ws.cell(row=current_row, column=3, value=part)
-        c3.font = regular_font
-        c3.border = thin_border
-
-        # Col 4: Description
-        c4 = ws.cell(row=current_row, column=4, value=desc)
-        c4.font = regular_font
-        c4.border = thin_border
-
-        # Col 5: Link
-        c5 = ws.cell(row=current_row, column=5, value=link_str)
-        c5.border = thin_border
-        if link_str.startswith("http://") or link_str.startswith("https://"):
-            c5.hyperlink = link_str
-            c5.font = link_font
-        else:
-            c5.font = regular_font
-
-        # Col 6: Qty
-        c6 = ws.cell(row=current_row, column=6, value=qty)
-        c6.font = regular_font
-        c6.number_format = "#,##0"
-        c6.alignment = Alignment(horizontal="center")
-        c6.border = thin_border
-
-        # Col 7: Unit cost
-        c7 = ws.cell(row=current_row, column=7, value=unit_cost)
-        c7.font = regular_font
-        c7.number_format = "$#,##0.00"
-        c7.alignment = Alignment(horizontal="right")
-        c7.border = thin_border
-
-        # Col 8: Line total (as concrete number, not formula)
-        c8 = ws.cell(row=current_row, column=8, value=line_total)
-        c8.font = regular_font
-        c8.number_format = "$#,##0.00"
-        c8.alignment = Alignment(horizontal="right")
-        c8.border = thin_border
-
-        current_row += 1
-
-    # Shipping row
-    shipping_val = float(shipping or 0.0)
-    c_ship_label = ws.cell(row=current_row, column=7, value="Shipping / tax")
-    c_ship_label.font = bold_font
-    c_ship_label.alignment = Alignment(horizontal="right")
-    c_ship_val = ws.cell(row=current_row, column=8, value=shipping_val)
-    c_ship_val.font = regular_font
-    c_ship_val.number_format = "$#,##0.00"
-    c_ship_val.alignment = Alignment(horizontal="right")
-    c_ship_val.border = thin_border
-    current_row += 1
-
-    # Grand total row (as concrete number, not formula)
-    grand_total = items_total + shipping_val
-    c_tot_label = ws.cell(row=current_row, column=7, value="Total")
-    c_tot_label.font = bold_font
-    c_tot_label.alignment = Alignment(horizontal="right")
-    c_tot_val = ws.cell(row=current_row, column=8, value=grand_total)
-    c_tot_val.font = bold_font
-    c_tot_val.number_format = "$#,##0.00"
-    c_tot_val.alignment = Alignment(horizontal="right")
-    c_tot_val.border = total_border
-
-    # Column widths
-    col_widths = {
-        "A": 6,
-        "B": 28,
-        "C": 18,
-        "D": 32,
-        "E": 28,
-        "F": 8,
-        "G": 14,
-        "H": 16,
-    }
-    for col_letter, width in col_widths.items():
-        ws.column_dimensions[col_letter].width = width
+    ws.freeze_panes = "A5"
+    for letter, width in {"A": 35, "B": 68, "C": 14, "D": 17, "E": 12, "F": 10, "G": 13, "H": 47}.items():
+        ws.column_dimensions[letter].width = width
 
     bio = io.BytesIO()
     wb.save(bio)

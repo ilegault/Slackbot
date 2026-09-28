@@ -196,12 +196,14 @@ def test_approval_three_items_archives_bom_writes_notes_and_uploads(temp_workboo
     saved_bom_path = os.path.join(temp_boms_dir, expected_fname)
     assert os.path.exists(saved_bom_path), f"Expected {saved_bom_path} to exist"
 
-    # Saved file's header names that row
+    # ADR 0008: the row number lives in the file name (asserted above), not in the sheet;
+    # the sheet carries the vendor on every item row and no requester or log-row text.
     wb = openpyxl.load_workbook(saved_bom_path)
     ws = wb.active
-    assert ws["E4"].value == f"Purchasing Log row {row_num:04d}"
-    assert ws["B3"].value == "Ruland"
-    assert ws["B4"].value == "Alex"
+    assert ws["A1"].value == "BILL OF MATERIALS"
+    assert [ws.cell(r, 4).value for r in (5, 6, 7)] == ["Ruland"] * 3
+    all_text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
+    assert not any("Purchasing Log" in t or "Alex" in t for t in all_text)
 
     # 3. Notes column reads BOM: <filename> (N items)
     notes_val = log_writer.get_cell_value(sheet_xml, f"{config.COLUMN_NOTES}{row_num}")
