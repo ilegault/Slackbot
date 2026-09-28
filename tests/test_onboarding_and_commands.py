@@ -559,7 +559,7 @@ def test_build_request_blocks_buttons_per_state():
         assert len(action_blocks) == 1, f"state={state}: expected 1 actions block"
         elements = action_blocks[0].get("elements", [])
         button_elements = [e for e in elements if e.get("type") == "button"]
-        assert len(button_elements) == 2, f"state={state}: expected 2 buttons (primary + secondary)"
+        assert len(button_elements) in (2, 3), f"state={state}: expected 2 buttons (primary + secondary) or 3 if Switch to EPIF is visible"
         assert button_elements[0].get("action_id") == primary_id, f"state={state}: primary button"
         assert button_elements[1].get("action_id") == secondary_id, f"state={state}: secondary button"
 

@@ -115,7 +115,7 @@ def test_permission_switch_to_epif(mock_client, base_request, monkeypatch):
 
 def test_switch_refused_if_already_processed_in_queue(temp_workbook, mock_client, monkeypatch):
     # Setup row 15 in the temp workbook
-    log_writer.update_row(15, {"B": "Vendor", "C": "Item"}, workbook_path=temp_workbook)
+    log_writer.update_row(15, {"B": "Original Requester", "C": "Item"}, workbook_path=temp_workbook)
 
     # We will simulate marking it processed just before the task runs
     def mock_submit_write_task(action_fn, *args, **kwargs):
