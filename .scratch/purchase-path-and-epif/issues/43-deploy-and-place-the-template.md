@@ -1,6 +1,6 @@
 # 43: Place the template on the production server and deploy
 
-**Status:** ready-for-developer
+**Status:** done
 
 **Runner:** developer
 
@@ -13,9 +13,9 @@ server's `Purchasing/_TEMPLATE` folder, sets `EPIF_TEMPLATE_PATH` in the server'
 only if it lives elsewhere, merges, and runs `@p-bot update`. **An agent must not claim
 this ticket.**
 
-- [ ] The startup storage alert does not name the EPIF template.
-- [ ] One real EPIF-path order puts a filled EPIF in the buyer's DM, and it opens in Acrobat with every field editable.
-- [ ] One bare-thread approval posts the Workday reply and the waiting-for-details card, and Fill in details logs a row.
-- [ ] `@p-bot add-vendor` works in production, and Screen 1 has no "Suggest a new vendor" option.
+- [x] The startup storage alert does not name the EPIF template.
+- [x] One real EPIF-path order puts a filled EPIF in the buyer's DM, and it opens in Acrobat with every field editable.
+- [x] One bare-thread approval posts the Workday reply and the waiting-for-details card, and Fill in details logs a row.
+- [x] `@p-bot add-vendor` works in production, and Screen 1 has no "Suggest a new vendor" option.
 
 ## Comments
