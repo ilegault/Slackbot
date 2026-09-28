@@ -569,7 +569,7 @@ def handle_workday_details_submit(ack, body, client, view):
     if line_items_str:
         parsed_items, shipping, err = bom.parse_line_items(line_items_str)
         if err:
-            ack(response_action="errors", errors={"block_line_items": err})
+            ack(response_action="errors", errors={"block_line_items": "\n".join(err)})
             return
 
     # Check total
