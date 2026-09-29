@@ -43,12 +43,12 @@ def test_parse_keyword_exists_and_is_pure():
     assert text_rules.parse_keyword("quote") == "quote"
 
     # Two-word admin and command keywords
-    assert text_rules.parse_keyword("remove buyer") == "remove buyer"
-    assert text_rules.parse_keyword("add buyer") == "add buyer"
-    assert text_rules.parse_keyword("promote admin") == "promote admin"
-    assert text_rules.parse_keyword("add approver") == "add approver"
-    assert text_rules.parse_keyword("remove approver") == "remove approver"
-    assert text_rules.parse_keyword("remove vendor") == "remove vendor"
+    assert text_rules.parse_keyword("remove buyer") == "remove-buyer"
+    assert text_rules.parse_keyword("add buyer") == "add-buyer"
+    assert text_rules.parse_keyword("promote admin") == "promote-admin"
+    assert text_rules.parse_keyword("add approver") == "add-approver"
+    assert text_rules.parse_keyword("remove approver") == "remove-approver"
+    assert text_rules.parse_keyword("remove vendor") == "remove-vendor"
     assert text_rules.parse_keyword("git pull") == "git pull"
     assert text_rules.parse_keyword("lock queue") == "lock queue"
 
@@ -64,7 +64,7 @@ def test_parse_keyword_exists_and_is_pure():
     assert text_rules.parse_keyword("*approved*") == "approved"
     assert text_rules.parse_keyword('"approved"') == "approved"
     assert text_rules.parse_keyword("help?") == "help"
-    assert text_rules.parse_keyword("remove buyer:") == "remove buyer"
+    assert text_rules.parse_keyword("remove buyer:") == "remove-buyer"
 
     # Non-matching words return None
     assert text_rules.parse_keyword("") is None

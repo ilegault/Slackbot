@@ -1,6 +1,6 @@
 # 52: A hyphen and a space are the same in two-word commands
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -41,23 +41,23 @@ by hand. Make the rule structural instead.
 
 ## Acceptance criteria
 
-- [ ] **Both spellings, every two-word keyword.** In `tests/test_52_hyphen_equals_space.py`,
+- [x] **Both spellings, every two-word keyword.** In `tests/test_52_hyphen_equals_space.py`,
   iterate over every multi-word phrase in `config.ALL_KEYWORD_TUPLES` and assert
   `parse_keyword` returns the same canonical value for the hyphen spelling and the space
   spelling, followed by an argument (`remove-vendor Thorlabs`, `remove vendor Thorlabs`).
   Iterate over the real tuples — do not hand-list phrases — so a phrase added later is
   covered.
-- [ ] **Rewrite in place:** `tests/test_16_exact_keywords.py::test_parse_keyword_exists_and_is_pure`
+- [x] **Rewrite in place:** `tests/test_16_exact_keywords.py::test_parse_keyword_exists_and_is_pure`
   asserts `parse_keyword("remove vendor") == "remove-vendor"` (it asserts the space form
   today). Same test name; no other assertion in it is removed.
-- [ ] **The vendor really goes.** Drive the real `app.dispatch_command` as an admin with
+- [x] **The vendor really goes.** Drive the real `app.dispatch_command` as an admin with
   `@Purchasing remove-vendor Temporary Vendor Inc` against a temp roster seeded with that
   vendor; assert the temp roster file no longer lists it. Repeat with the space spelling on
   a fresh temp roster. Repeat both for `add-vendor`, asserting the vendor is now in the
   file. Fake only the Slack client.
-- [ ] **`keyword_argument` is pure and tested directly**: hyphen spelling, space spelling,
+- [x] **`keyword_argument` is pure and tested directly**: hyphen spelling, space spelling,
   extra spaces, and a keyword with no argument (returns `""`).
-- [ ] **Help and App Home.** The help text contains `remove-vendor` and not
+- [x] **Help and App Home.** The help text contains `remove-vendor` and not
   `remove vendor <`; both the help text and the App Home view text contain the
   hyphen-or-space line. Build them with their real builders.
 
@@ -72,4 +72,14 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-29
+- Consolidated keyword tuples in `src/config.py` to single canonical spelling per phrase (hyphen form for admin ops, space form for lifecycle phrases).
+- Updated `text_rules.parse_keyword` to normalise hyphen and space for two-word phrases, splitting hyphenated first token where present, matching against canonical keyword tuples.
+- Implemented pure `text_rules.keyword_argument` extracting arguments after matched keywords across hyphen and space spellings.
+- Updated `ops.handle_add_vendor` and `ops.handle_remove_vendor` to use `text_rules.keyword_argument` rather than bespoke regexes.
+- Updated `blocks._ADMIN_COMMANDS` so both `blocks.build_app_home_view` and `blocks.get_help_message` show `@Purchasing remove-vendor <name>` and include `Two-word commands work with a hyphen or a space: \`remove-vendor\` = \`remove vendor\`.`.
+- Rewrote `tests/test_16_exact_keywords.py::test_parse_keyword_exists_and_is_pure` in place and updated `tests/test_20_remove_member.py`.
+- Added comprehensive unit and integration tests in `tests/test_52_hyphen_equals_space.py`.
+- Full gate passed (ruff, check_tests_first, full pytest 458 passed).
 
