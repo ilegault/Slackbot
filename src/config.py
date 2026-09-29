@@ -292,6 +292,25 @@ ALL_KEYWORD_TUPLES = (
     REMOVE_MEMBER_KEYWORDS,
 )
 
+KEYWORD_SUGGESTION_CUTOFF = 0.75
+
+ADMIN_ONLY_KEYWORDS = (
+    "promote-admin",
+    "add-approver",
+    "remove-approver",
+    "add-buyer",
+    "remove-buyer",
+    "remove-member",
+    "add-vendor",
+    "remove-vendor",
+    "update",
+    "restart",
+    "logs",
+)
+
+CANONICAL_KEYWORDS = tuple(kw[0] for kw in ALL_KEYWORD_TUPLES)
+
+
 # --- Phase 4 Staged Purchasing Interview Constants ----------------------------
 # The categories for which Asset ID and Name of System are required (Screen 3)
 ASSET_REQUIRED_CATEGORIES = {"Fabrication Component (4670) > $200"}

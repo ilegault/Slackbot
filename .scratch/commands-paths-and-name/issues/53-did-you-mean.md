@@ -1,6 +1,6 @@
 # 53: "Did you mean …?" for an unknown word
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -37,19 +37,19 @@ reply teach the right command, publicly, in the thread (so later readers learn t
 
 ## Acceptance criteria
 
-- [ ] **`closest_keyword` is tested directly** in `tests/test_53_did_you_mean.py`:
+- [x] **`closest_keyword` is tested directly** in `tests/test_53_did_you_mean.py`:
   `remve-vendor` → `remove-vendor`; `remve vendor` → `remove-vendor`; `aprooved` →
   `approved`; `flurb` → `None`; `banana` → `None`. Use the real vocabulary from
   `config`, not a test list.
-- [ ] **The reply through the real listener.** Invoke the real `app_mention` listener
+- [x] **The reply through the real listener.** Invoke the real `app_mention` listener
   (as ticket 51's test does) with `<@BOT> remve-vendor Thorlabs`: one `say`, in the
   thread, text contains `@Purchasing remove-vendor` and `admin only`. And the temp
   roster still lists `Thorlabs` if seeded with it (assert nothing was removed).
-- [ ] **No close match.** `<@BOT> flurb`: one `say` containing `@Purchasing help` and not
+- [x] **No close match.** `<@BOT> flurb`: one `say` containing `@Purchasing help` and not
   containing `Did you mean`.
-- [ ] **A lifecycle suggestion is not marked admin-only**: `aprooved` → the reply
+- [x] **A lifecycle suggestion is not marked admin-only**: `aprooved` → the reply
   contains `@Purchasing approved` and not `admin only`.
-- [ ] The cutoff lives only in `config.KEYWORD_SUGGESTION_CUTOFF`; no numeric literal
+- [x] The cutoff lives only in `config.KEYWORD_SUGGESTION_CUTOFF`; no numeric literal
   cutoff in `text_rules.py`.
 
 ## Gate
@@ -64,3 +64,9 @@ pytest -q --tb=short --durations=25
 
 ## Comments
 
+### Landed — 2026-09-29
+- Added `KEYWORD_SUGGESTION_CUTOFF = 0.75`, `ADMIN_ONLY_KEYWORDS`, and `CANONICAL_KEYWORDS` to `src/config.py`.
+- Implemented pure `closest_keyword` and rewritten `format_unknown_keyword_message` in `src/text_rules.py` with difflib matching and admin-only marking.
+- Updated `src/app.py` `dispatch_command` unknown word branch to resolve closest keyword suggestion and pass it to `format_unknown_keyword_message`.
+- Updated `tests/test_16_exact_keywords.py` assertions for the new unknown-word reply format.
+- Added comprehensive unit and listener integration tests in `tests/test_53_did_you_mean.py` verifying criteria 1–5.

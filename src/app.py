@@ -1637,8 +1637,15 @@ def dispatch_command(
         tokens = stripped_text.strip().split()
         punct = string.punctuation + "“”‘’…"
         first_token = tokens[0].strip(punct) if tokens else None
-        reply_text = text_rules.format_unknown_keyword_message(first_token)
+        suggestion = text_rules.closest_keyword(stripped_text, config.CANONICAL_KEYWORDS)
+        if suggestion and len(tokens) > 1 and ("-" in suggestion or " " in suggestion) and "-" not in (first_token or ""):
+            w2 = tokens[1].strip(punct)
+            word_to_show = f"{first_token} {w2}"
+        else:
+            word_to_show = first_token
+        reply_text = text_rules.format_unknown_keyword_message(word_to_show, suggestion)
         say(text=reply_text, thread_ts=thread_ts)
+
 
 
 @app.event("app_mention")
