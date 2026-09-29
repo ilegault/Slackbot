@@ -128,6 +128,9 @@ def test_can_you_check_this_writes_nothing_calls_no_lifecycle_and_replies_unknow
         assert say.call_args[1]["thread_ts"] == "100.1"
         assert '🤔 I don\'t know "can".' in reply
         assert "@Purchasing help" in reply
+        assert "Did you mean" not in reply
+        assert "for the list of commands" in reply
+
 
 
 
@@ -159,6 +162,7 @@ def test_unknown_words_please_and_waiting():
         mock_assign.assert_not_called()
         say.assert_called_once()
         assert '🤔 I don\'t know "please".' in say.call_args[1]["text"]
+        assert "@Purchasing help" in say.call_args[1]["text"]
 
         # 2. "waiting on confirmation"
         say.reset_mock()
@@ -175,6 +179,8 @@ def test_unknown_words_please_and_waiting():
         mock_conf.assert_not_called()
         say.assert_called_once()
         assert '🤔 I don\'t know "waiting".' in say.call_args[1]["text"]
+        assert "@Purchasing help" in say.call_args[1]["text"]
+
 
 
 # ---------------------------------------------------------------------------
