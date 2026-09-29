@@ -251,14 +251,23 @@ def test_get_system_health_and_build_blocks(tmp_path):
     assert "uptime" in health
     assert "disk" in health
     assert "memory" in health
-    assert "workbook" in health
+    assert "storage" in health
     assert "queue" in health
+    assert "workbook" not in health
+    assert "epifs" not in health
+    assert "confirmations" not in health
+    assert "quotes" not in health
+
+    assert isinstance(health["storage"], list)
+    for entry in health["storage"]:
+        assert {"setting", "path", "kind", "source", "exists", "writable", "locked"} <= entry.keys()
 
     blocks = admin.build_health_blocks(health)
     assert isinstance(blocks, list)
     assert len(blocks) >= 4
     # Check that header block is present
     assert blocks[0]["text"]["text"] == "🩺 P-Bot System Health & Status"
+
 
 
 def test_get_tail_logs_and_token_masking(tmp_path):
