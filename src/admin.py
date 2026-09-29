@@ -14,6 +14,12 @@ Unified log reader and masking function for remote diagnosis via Slack alert cha
 Removes arbitrary 100-line clamp on tail requests, supports whole-file reads of
 p_bot.log and rejections.log, and ensures sensitive tokens and webhook URLs are
 consistently masked across inline posts and file uploads.
+
+Ticket 55 / ADR 0009 Decision 5:
+The health screen previously checked only four locations, omitted BOMS_DIR and
+EPIF_TEMPLATE_PATH, showed no paths, and kept a hard-coded list separate from the
+startup check. Now get_system_health and build_health_blocks read config.STORAGE_SETTINGS
+in order, report per-setting status and full paths, and format unset paths cleanly as "not set".
 """
 import logging
 import os
@@ -178,11 +184,23 @@ def get_system_health() -> Dict[str, Any]:
     mem_mb = get_process_memory_mb()
     mem_str = f"{mem_mb:.1f} MB" if mem_mb > 0 else "N/A"
 
-    # Storage & OneDrive Paths
-    wb_health = check_path_health(config.WORKBOOK_PATH, is_file=True)
-    epifs_health = check_path_health(config.EPIFS_DIR, is_file=False)
-    conf_health = check_path_health(config.CONFIRMATIONS_DIR, is_file=False)
-    quotes_health = check_path_health(config.QUOTES_DIR, is_file=False)
+    # Storage & OneDrive Paths (Ticket 55 / ADR 0009 Decision 5)
+    storage_list = []
+    for setting, attr, kind in getattr(config, "STORAGE_SETTINGS", ()):
+        raw_val = getattr(config, attr, "")
+        path_str = "" if raw_val is None else str(raw_val)
+        source = ".env" if path_str.strip() else "not set"
+        is_file = (kind == "file")
+        check = check_path_health(path_str, is_file=is_file)
+        storage_list.append({
+            "setting": setting,
+            "path": path_str,
+            "kind": kind,
+            "source": source,
+            "exists": check["exists"],
+            "writable": check["writable"],
+            "locked": check["locked"],
+        })
 
     # Queue Status
     q_status = queue_worker.get_queue_status()
@@ -193,10 +211,7 @@ def get_system_health() -> Dict[str, Any]:
         "uptime": uptime_str,
         "disk": disk_str,
         "memory": mem_str,
-        "workbook": wb_health,
-        "epifs": epifs_health,
-        "confirmations": conf_health,
-        "quotes": quotes_health,
+        "storage": storage_list,
         "queue": q_status,
         "bot_version": config.BOT_VERSION,
     }
@@ -206,19 +221,52 @@ def build_health_blocks(health: Optional[Dict[str, Any]] = None) -> List[Dict[st
     """Generate Slack Block Kit payload for health & diagnostic reports."""
     h = health or get_system_health()
 
-    def format_status(check: Dict[str, Any], is_file: bool = False) -> str:
-        if check.get("locked"):
-            return "⏳ Locked in Excel (`~$` active)"
-        if not check.get("exists"):
+    def format_storage_status(entry: Dict[str, Any]) -> str:
+        if not entry.get("path") or entry.get("source") == "not set":
+            return "⚪ Not set"
+        if entry.get("locked"):
+            return "⏳ Locked in Excel"
+        if not entry.get("exists"):
             return "❌ Missing"
-        if not check.get("writable"):
+        if not entry.get("writable"):
             return "⚠️ Read-Only"
         return "✅ Ready & Writable"
 
-    wb_status = format_status(h["workbook"], is_file=True)
-    epifs_status = format_status(h["epifs"])
-    conf_status = format_status(h["confirmations"])
-    quotes_status = format_status(h["quotes"])
+    storage_entries = h.get("storage", [])
+    storage_blocks: List[Dict[str, Any]] = []
+
+    header = "*📁 Storage & OneDrive Directory Health:*\n"
+    current_text = header
+
+    for entry in storage_entries:
+        setting = entry.get("setting", "")
+        source = entry.get("source", "not set")
+        path = entry.get("path", "")
+        status_text = format_storage_status(entry)
+
+        path_line = f"`{path}`" if path else "_not set_"
+        entry_text = f"• *{setting}* — {status_text} — {source}\n{path_line}"
+
+        if current_text and len(current_text) + len(entry_text) + 1 > 3000:
+            storage_blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": current_text.rstrip("\n"),
+                },
+            })
+            current_text = entry_text + "\n"
+        else:
+            current_text += entry_text + "\n"
+
+    if current_text:
+        storage_blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": current_text.rstrip("\n"),
+            },
+        })
 
     pending = h["queue"]["pending_count"]
     queue_str = f"✅ `{pending} pending`" if pending == 0 else f"⏳ `{pending} write(s) queued`"
@@ -258,19 +306,7 @@ def build_health_blocks(health: Optional[Dict[str, Any]] = None) -> List[Dict[st
         {
             "type": "divider",
         },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*📁 Storage & OneDrive Directory Health:*\n"
-                    f"• `Purchasing-Log.xlsx`: {wb_status}\n"
-                    f"• `EPIFs/`: {epifs_status}\n"
-                    f"• `Order-Confirmations/`: {conf_status}\n"
-                    f"• `Quotes/`: {quotes_status}"
-                ),
-            },
-        },
+        *storage_blocks,
         {
             "type": "section",
             "fields": [

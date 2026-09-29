@@ -1,6 +1,6 @@
 # 55: The health screen shows all six storage paths
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -34,18 +34,18 @@ it; do not add a permission check.
 
 ## Acceptance criteria
 
-- [ ] **All six, from the one list.** In `tests/test_55_health_paths.py`: point five
+- [x] **All six, from the one list.** In `tests/test_55_health_paths.py`: point five
   settings at real temp paths and leave `BOMS_DIR` empty. Build the blocks with the real
   `build_health_blocks(get_system_health())`. Assert all six setting names appear, both
   of two chosen real temp paths appear verbatim, and the `BOMS_DIR` line says `Not set`
   and `not set`. Fake only the queue status if needed.
-- [ ] **Driven by the list.** Monkeypatch `config.STORAGE_SETTINGS` to add a seventh entry;
+- [x] **Driven by the list.** Monkeypatch `config.STORAGE_SETTINGS` to add a seventh entry;
   assert it appears in the blocks. Fails if the health screen keeps its own list.
-- [ ] **A missing path shows as missing, with its path.** Point `QUOTES_DIR` at a
+- [x] **A missing path shows as missing, with its path.** Point `QUOTES_DIR` at a
   non-existent temp path: its line contains `Missing` and that path.
-- [ ] **Long paths fit.** Six settings each set to a 300-character path: every section
+- [x] **Long paths fit.** Six settings each set to a 300-character path: every section
   block's text is ≤ 3 000 characters and all six paths still appear.
-- [ ] **Rewrite in place:**
+- [x] **Rewrite in place:**
   `tests/test_monitoring_and_queue.py::test_get_system_health_and_build_blocks` asserts
   the new `storage` shape instead of the four old keys. Same test name. (Its header-text
   assertion is left for ticket 58.)
@@ -61,4 +61,12 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-29
+- Updated `admin.get_system_health` to return a `storage` list driven strictly by `config.STORAGE_SETTINGS` in order, with entries containing `setting`, `path`, `kind`, `source`, `exists`, `writable`, and `locked`. Dropped the legacy four keys `workbook`, `epifs`, `confirmations`, `quotes`.
+- Updated `admin.build_health_blocks` to render storage entries with full paths in code format (or `_not set_`), status indicators (`✅ Ready & Writable`, `❌ Missing`, `⚠️ Read-Only`, `⏳ Locked in Excel`, `⚪ Not set`), and sources (`.env` vs `not set`). Automatically splits across multiple section blocks if text approaches Slack's 3 000-character limit.
+- Updated module docstrings in `src/admin.py` with ADR 0009 Decision 5 reasoning.
+- Updated `tests/test_monitoring_and_queue.py::test_get_system_health_and_build_blocks` to assert new `storage` dictionary structure.
+- Created `tests/test_55_health_paths.py` verifying all 6 settings, dynamic list extension, missing paths, and long 300-character paths.
+
 
