@@ -1,6 +1,6 @@
 # 51: An unknown word no longer crashes the bot
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -31,7 +31,7 @@ it is for slash commands and block actions only, never the event path, and why.
 
 ## Acceptance criteria
 
-- [ ] **The crash regression.** In `tests/test_51_unknown_word_no_crash.py`: find the
+- [x] **The crash regression.** In `tests/test_51_unknown_word_no_crash.py`: find the
   real `app_mention` listener in Bolt's listener registry (copy how an existing test
   finds a registered listener; do not call a monkeypatched stand-in), and invoke it with
   an event whose text is `<@BOT> flurb`, a fake client, a fake `say` that records calls,
@@ -39,18 +39,18 @@ it is for slash commands and block actions only, never the event path, and why.
   is no response_url")` when called — exactly as Bolt's does on an event. Assert no
   exception, exactly one `say` call, `thread_ts` equal to the event's `ts`, and text
   containing `flurb`. This test must fail on today's code.
-- [ ] **The same for a DM.** Invoke the real `message` listener with `channel_type`
+- [x] **The same for a DM.** Invoke the real `message` listener with `channel_type`
   `im`, text `flurb`, and the same raising `respond`. Assert no exception and one `say`
   call.
-- [ ] **A slash command still replies privately.** An existing test that asserts
+- [x] **A slash command still replies privately.** An existing test that asserts
   `/purchasing-help` or `/roster-list` replies through `respond` with
   `response_type="ephemeral"` still passes unchanged (name it in the PR description).
-- [ ] **A denial on the event path goes to the thread.** A non-admin sends
+- [x] **A denial on the event path goes to the thread.** A non-admin sends
   `@Purchasing remove-member <@U2>` through the real `app_mention` listener with the
   raising `respond`: no exception, one `say` containing `Only bot administrators`, and
   the temp roster file still lists `U2` (assert the absence of the removal). Use a temp
   copy of the roster, never the real `roster.json`.
-- [ ] `slack_io.deny`'s docstring states it is not for the `app_mention` / `message`
+- [x] `slack_io.deny`'s docstring states it is not for the `app_mention` / `message`
   event path and why.
 
 ## Gate
@@ -64,4 +64,13 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-29
+- Stopped forwarding `respond` from `on_mention` and `on_direct_message` to `dispatch_command`.
+- Updated `dispatch_command` unknown-word branch to always reply in-thread via `say(text=..., thread_ts=thread_ts)`.
+- Updated `parse_mentions` in `src/text_rules.py` to match all `<@...>` mentions so `<@BOT>` or any bot mention is cleanly stripped before keyword matching.
+- Updated `slack_io.deny` docstring to clarify it is strictly for slash commands and block actions where `response_url` is available.
+- Updated `test_16_exact_keywords.py` unknown-word test to reflect ADR 0009 public in-thread reply rule.
+- Added `tests/test_51_unknown_word_no_crash.py` covering all acceptance criteria against Bolt's real listener registry.
+- All gates passed cleanly (ruff, check_tests_first, full pytest suite 453 passed).
 

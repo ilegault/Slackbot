@@ -1638,10 +1638,7 @@ def dispatch_command(
         punct = string.punctuation + "“”‘’…"
         first_token = tokens[0].strip(punct) if tokens else None
         reply_text = text_rules.format_unknown_keyword_message(first_token)
-        if respond and callable(respond):
-            slack_io.deny(respond, reply_text)
-        else:
-            say(text=reply_text, thread_ts=thread_ts)
+        say(text=reply_text, thread_ts=thread_ts)
 
 
 @app.event("app_mention")
@@ -1653,12 +1650,11 @@ def on_mention(event, client, say, context=None):
     event_ts = event["ts"]
     files = event.get("files", [])
     bot_user_id = context.get("bot_user_id") if context else None
-    respond = context.get("respond") if context else None
 
     log.info("Received app_mention from user %s in channel %s: '%s'", user, channel, text)
     dispatch_command(
         client, say, channel, thread_ts, user, event_ts, text,
-        files=files, bot_user_id=bot_user_id, respond=respond,
+        files=files, bot_user_id=bot_user_id,
     )
 
 
@@ -1675,7 +1671,6 @@ def on_direct_message(event, client, say, context=None):
     text = event.get("text", "")
     channel_type = event.get("channel_type")
     bot_user_id = context.get("bot_user_id") if context else None
-    respond = context.get("respond") if context else None
 
     # If it is a Direct Message (DM)
     if channel_type == "im":
@@ -1695,7 +1690,7 @@ def on_direct_message(event, client, say, context=None):
 
         dispatch_command(
             client, say, channel, thread_ts, user, event_ts, text,
-            files=files, direct_file=direct_file, bot_user_id=bot_user_id, respond=respond,
+            files=files, direct_file=direct_file, bot_user_id=bot_user_id,
         )
         return
 

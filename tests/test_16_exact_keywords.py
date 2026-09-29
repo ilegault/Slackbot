@@ -385,15 +385,15 @@ def test_ordinary_channel_message_with_no_mention_produces_no_reply():
 
 
 # ---------------------------------------------------------------------------
-# 9. Unknown-word reply routing: ephemeral via deny vs in-thread
+# 9. Unknown-word reply routing: always in-thread via say (ADR 0009 / Ticket 51)
 # ---------------------------------------------------------------------------
-def test_unknown_word_reply_routing_deny_vs_in_thread():
-    """Unknown word reply goes via deny with response_url/respond, and in-thread on app_mention."""
+def test_unknown_word_reply_routing_always_in_thread():
+    """Unknown word reply always goes in-thread via say per ADR 0009 / Ticket 51."""
     client = MagicMock()
     say = MagicMock()
     mock_respond = MagicMock()
 
-    # Case A: with respond helper (response_url present) -> ephemeral via deny
+    # Even with respond provided, unknown word always replies in-thread via say, never deny
     with patch("src.app.slack_io.deny") as mock_deny:
         dispatch_command(
             client=client,
@@ -406,12 +406,12 @@ def test_unknown_word_reply_routing_deny_vs_in_thread():
             bot_user_id="U_BOT",
             respond=mock_respond,
         )
-        mock_deny.assert_called_once()
-        assert mock_deny.call_args[0][0] == mock_respond
-        assert '🤔 I don\'t know the word "foobar".' in mock_deny.call_args[0][1]
-        say.assert_not_called()
+        mock_deny.assert_not_called()
+        say.assert_called_once()
+        assert say.call_args[1]["thread_ts"] == "100.1"
+        assert '🤔 I don\'t know the word "foobar".' in say.call_args[1]["text"]
 
-    # Case B: without respond (standard app_mention in thread) -> say in thread
+    # Without respond (standard app_mention in thread) -> say in thread
     say.reset_mock()
     dispatch_command(
         client=client,

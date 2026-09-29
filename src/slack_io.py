@@ -24,6 +24,12 @@ Ticket 27:
 Adds get_card_payload to fetch the metadata payload of the exact card message at
 card_ts, supporting multi-card threads without falling back to newest card.
 
+Ticket 51:
+Clarifies that `deny()` is for slash commands and block actions only, never for
+the `app_mention` / `message` event path. Bolt puts a `respond` object in event
+contexts, but invoking it raises `ValueError` because events have no `response_url`.
+Event replies must always use `say()` in-thread.
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -49,7 +55,13 @@ log = logging.getLogger("p-bot")
 
 
 def deny(respond, text: str) -> None:
-    """Reply privately to whoever acted, leaving the original message intact."""
+    """Reply privately to whoever acted, leaving the original message intact.
+
+    NOTE: For slash commands and block actions ONLY, never for app_mention or message
+    event paths. Bolt provides a respond callable in event contexts, but calling it raises
+    ValueError because event payloads do not contain a response_url. Event replies must
+    always use say() in the thread.
+    """
     respond(text=text, response_type="ephemeral", replace_original=False)
 
 

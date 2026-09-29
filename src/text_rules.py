@@ -34,8 +34,8 @@ def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list
     user_ids: list[str] = []
     group_ids: list[str] = []
 
-    # Find user mentions: <@U...>, <@W...>, with optional |label
-    for m in re.finditer(r"<@([UW][A-Za-z0-9_]+)(?:\|[^>]*)?>", text):
+    # Find user/bot mentions: <@U...>, <@W...>, <@BOT>, with optional |label
+    for m in re.finditer(r"<@([A-Za-z0-9_]+)(?:\|[^>]*)?>", text):
         uid = m.group(1)
         if bot_user_id is None or uid.upper() != bot_user_id.upper():
             user_ids.append(uid)
@@ -45,7 +45,7 @@ def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list
         group_ids.append(m.group(1))
 
     # Strip all mentions from text
-    stripped = re.sub(r"<@[UW][A-Za-z0-9_]+(?:\|[^>]*)?>", "", text)
+    stripped = re.sub(r"<@[A-Za-z0-9_]+(?:\|[^>]*)?>", "", text)
     stripped = re.sub(r"<!subteam\^[A-Za-z0-9_]+(?:\|[^>]*)?>", "", stripped)
     stripped = re.sub(r"@(?i:p-bot|purchasing)\b", "", stripped)
     stripped = re.sub(r" +", " ", stripped).strip()
