@@ -75,9 +75,11 @@ def temp_roster(tmp_path, monkeypatch):
     return r_file
 
 
-def test_remove_vendor_hyphen_and_space_drives_dispatch_command(temp_roster, tmp_path, monkeypatch):
+def test_vendor_really_goes_and_adds(temp_roster, tmp_path, monkeypatch):
     """Drive real app.dispatch_command as admin with '@Purchasing remove-vendor Temporary Vendor Inc'
-    and '@Purchasing remove vendor Temporary Vendor Inc' against temp rosters, asserting removal.
+    against a temp roster seeded with that vendor; assert the temp roster file no longer lists it.
+    Repeat with the space spelling on a fresh temp roster. Repeat both for add-vendor, asserting
+    the vendor is now in the file. Fake only the Slack client.
     """
     client = MagicMock()
     say = MagicMock()
@@ -123,39 +125,32 @@ def test_remove_vendor_hyphen_and_space_drives_dispatch_command(temp_roster, tmp
     assert "removed from `roster.json`" in say.call_args[1]["text"]
     assert "Temporary Vendor Inc" not in roster.get_vendors()
 
-
-def test_add_vendor_hyphen_and_space_drives_dispatch_command(temp_roster, tmp_path, monkeypatch):
-    """Drive real app.dispatch_command as admin with '@Purchasing add-vendor New Vendor Corp'
-    and '@Purchasing add vendor Another Vendor Ltd' against temp rosters, asserting addition.
-    """
-    client = MagicMock()
-    say = MagicMock()
-
-    # 1. Hyphen spelling: add-vendor
+    # 3. Hyphen spelling: add-vendor
+    say.reset_mock()
     assert "New Vendor Corp" not in roster.get_vendors()
     app.dispatch_command(
         client=client,
         say=say,
         channel="C_ADMIN",
-        thread_ts="100.1",
+        thread_ts="100.3",
         user="U_ADMIN",
-        event_ts="100.1",
+        event_ts="100.3",
         text="@Purchasing add-vendor New Vendor Corp",
     )
     say.assert_called_once()
     assert "added to the Workday catalog" in say.call_args[1]["text"]
     assert "New Vendor Corp" in roster.get_vendors()
 
-    # 2. Space spelling: add vendor
+    # 4. Space spelling: add vendor
     say.reset_mock()
     assert "Another Vendor Ltd" not in roster.get_vendors()
     app.dispatch_command(
         client=client,
         say=say,
         channel="C_ADMIN",
-        thread_ts="100.2",
+        thread_ts="100.4",
         user="U_ADMIN",
-        event_ts="100.2",
+        event_ts="100.4",
         text="@Purchasing add vendor Another Vendor Ltd",
     )
     say.assert_called_once()
