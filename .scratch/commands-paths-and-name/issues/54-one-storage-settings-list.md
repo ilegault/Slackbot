@@ -1,6 +1,6 @@
 # 54: One list of storage settings, no default paths, and /blank-template fixed
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
