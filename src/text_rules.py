@@ -13,12 +13,16 @@ May NOT import:
     - storage modules (log_writer, queue_worker, roster, etc.)
     - handlers or listeners
 """
+import difflib
 import re
+import string
+from collections.abc import Sequence
 
 try:
     from . import config
 except ImportError:
     import config
+
 
 
 def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list[str], list[str]]:
@@ -174,18 +178,90 @@ def keyword_argument(stripped_text: str, keyword: str) -> str:
     return ""
 
 
-def format_unknown_keyword_message(word: str | None = None) -> str:
-    """Format the helpful unknown-keyword error reply."""
+def closest_keyword(word: str, vocabulary: Sequence[str]) -> str | None:
+    """Return the closest keyword from vocabulary, or None if no match meets cutoff.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0009 Decision 3 / Ticket 53:
+    When a user typos a command in a mention or DM, the bot teaches the correct keyword
+    in-thread instead of crashing or giving a generic help message.
+    Normalisation matches parse_keyword: hyphen = space, trying the first two tokens
+    as a candidate phrase before trying the first token alone.
+    """
+    if not word or not vocabulary:
+        return None
+
+    tokens = word.strip().split()
+    if not tokens:
+        return None
+
+    punct = string.punctuation + "“”‘’…"
+    w1 = tokens[0].strip(punct).lower()
+    if not w1:
+        return None
+
+    # Determine two-word candidates:
+    # 1. Hyphen form inside the first token: 'remve-vendor' -> parts: 'remve', 'vendor'
+    hyphen_two_words = None
+    if "-" in w1:
+        parts = [p.strip(punct).lower() for p in w1.split("-", 1)]
+        if len(parts) == 2 and parts[0] and parts[1]:
+            hyphen_two_words = (f"{parts[0]} {parts[1]}", f"{parts[0]}-{parts[1]}")
+
+    # 2. Space form across first two tokens: 'remve' 'vendor'
+    space_two_words = None
+    if len(tokens) > 1:
+        w2 = tokens[1].strip(punct).lower()
+        if w2:
+            space_two_words = (f"{w1} {w2}", f"{w1}-{w2}")
+
+    # Try two-word candidates first (space and hyphen forms against vocabulary)
+    two_word_candidates = []
+    if hyphen_two_words:
+        for c in hyphen_two_words:
+            if c not in two_word_candidates:
+                two_word_candidates.append(c)
+    if space_two_words:
+        for c in space_two_words:
+            if c not in two_word_candidates:
+                two_word_candidates.append(c)
+
+    for cand in two_word_candidates:
+        matches = difflib.get_close_matches(cand, vocabulary, n=1, cutoff=config.KEYWORD_SUGGESTION_CUTOFF)
+        if matches:
+            return matches[0]
+
+    # Single-word match on the first token
+    matches = difflib.get_close_matches(w1, vocabulary, n=1, cutoff=config.KEYWORD_SUGGESTION_CUTOFF)
+    if matches:
+        return matches[0]
+
+    return None
+
+
+def format_unknown_keyword_message(word: str | None = None, suggestion: str | None = None) -> str:
+    """Format the helpful unknown-keyword error reply with optional suggestion.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0009 Decision 3 / Ticket 53:
+    With a close match suggestion, teach the user the right command:
+    🤔 I don't know "<word>". Did you mean `@Purchasing <suggestion>`?
+    marking admin keywords with ' _(admin only)_'.
+    Without a suggestion:
+    🤔 I don't know "<word>". Send `@Purchasing help` for the list of commands.
+    """
+    if suggestion:
+        admin_suffix = " _(admin only)_" if suggestion in getattr(config, "ADMIN_ONLY_KEYWORDS", ()) else ""
+        if word:
+            return f'🤔 I don\'t know "{word}". Did you mean `@Purchasing {suggestion}`?{admin_suffix}'
+        return f'🤔 I didn\'t see a command. Did you mean `@Purchasing {suggestion}`?{admin_suffix}'
+
     if word:
-        header = f'🤔 I don\'t know the word "{word}".'
-    else:
-        header = "🤔 I didn't see a command."
-    return (
-        f"{header}\n\n"
-        "In a request thread I understand:\n"
-        "   approved · assign · processed · confirmed · delivered · quote · decline\n\n"
-        "Or use the buttons on the request message above."
-    )
+        return f'🤔 I don\'t know "{word}". Send `@Purchasing help` for the list of commands.'
+    return "🤔 I didn't see a command. Send `@Purchasing help` for the list of commands."
+
 
 
 def extract_request_info(body: dict) -> tuple[str, str, str | None, str | None, bool]:

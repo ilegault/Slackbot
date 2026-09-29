@@ -126,10 +126,12 @@ def test_can_you_check_this_writes_nothing_calls_no_lifecycle_and_replies_unknow
         say.assert_called_once()
         reply = say.call_args[1]["text"]
         assert say.call_args[1]["thread_ts"] == "100.1"
-        assert '🤔 I don\'t know the word "can".' in reply
-        assert "In a request thread I understand:" in reply
-        assert "   approved · assign · processed · confirmed · delivered · quote · decline" in reply
-        assert "Or use the buttons on the request message above." in reply
+        assert '🤔 I don\'t know "can".' in reply
+        assert "@Purchasing help" in reply
+        assert "Did you mean" not in reply
+        assert "for the list of commands" in reply
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +161,8 @@ def test_unknown_words_please_and_waiting():
         mock_epif.assert_not_called()
         mock_assign.assert_not_called()
         say.assert_called_once()
-        assert '🤔 I don\'t know the word "please".' in say.call_args[1]["text"]
+        assert '🤔 I don\'t know "please".' in say.call_args[1]["text"]
+        assert "@Purchasing help" in say.call_args[1]["text"]
 
         # 2. "waiting on confirmation"
         say.reset_mock()
@@ -175,7 +178,9 @@ def test_unknown_words_please_and_waiting():
         )
         mock_conf.assert_not_called()
         say.assert_called_once()
-        assert '🤔 I don\'t know the word "waiting".' in say.call_args[1]["text"]
+        assert '🤔 I don\'t know "waiting".' in say.call_args[1]["text"]
+        assert "@Purchasing help" in say.call_args[1]["text"]
+
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +327,8 @@ def test_two_word_keyword_and_remove_alone():
         )
         mock_remove_buyer.assert_not_called()
         say.assert_called_once()
-        assert '🤔 I don\'t know the word "remove".' in say.call_args[1]["text"]
+        assert '🤔 I don\'t know "remove".' in say.call_args[1]["text"]
+
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +415,7 @@ def test_unknown_word_reply_routing_deny_vs_in_thread():
         mock_deny.assert_not_called()
         say.assert_called_once()
         assert say.call_args[1]["thread_ts"] == "100.1"
-        assert '🤔 I don\'t know the word "foobar".' in say.call_args[1]["text"]
+        assert '🤔 I don\'t know "foobar".' in say.call_args[1]["text"]
 
     # Without respond (standard app_mention in thread) -> say in thread
     say.reset_mock()
@@ -426,7 +432,8 @@ def test_unknown_word_reply_routing_deny_vs_in_thread():
     )
     say.assert_called_once()
     assert say.call_args[1]["thread_ts"] == "100.1"
-    assert '🤔 I don\'t know the word "foobar".' in say.call_args[1]["text"]
+    assert '🤔 I don\'t know "foobar".' in say.call_args[1]["text"]
+
 
 
 # ---------------------------------------------------------------------------
