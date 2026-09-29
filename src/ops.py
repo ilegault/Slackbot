@@ -540,32 +540,33 @@ def handle_remove_member(
 
 
 def handle_template_command(client, say, channel: str, thread_ts: str | None, user_id: str):
-    """Provide the blank EPIF form and guide for users who prefer manual submission (Phase 3)."""
-    template_dir = config.TEMPLATE_DIR
-    pdf_path = os.path.join(template_dir, "EPIF_TEMPLATE_HIRST.pdf")
-    readme_path = os.path.join(template_dir, "README.md")
-    if not os.path.exists(readme_path):
-        readme_path = os.path.join(template_dir, "README.txt")
+    """Provide the blank EPIF form and guide for users who prefer manual submission (Phase 3).
 
-    missing = []
-    if not os.path.exists(template_dir):
-        missing.append(f"Directory `{template_dir}`")
-    else:
-        if not os.path.exists(pdf_path):
-            missing.append("`EPIF_TEMPLATE_HIRST.pdf`")
-        if not os.path.exists(readme_path):
-            missing.append("`README.md`")
+    T54 (ADR 0009): On 2026-09-28, /blank-template crashed on production because it read
+    a separate template directory setting which fell back to a dev-machine default and
+    required README.md, while the startup alert checked EPIF_TEMPLATE_PATH and passed. The
+    two-constant drift is fixed: this handler now directly reads config.EPIF_TEMPLATE_PATH,
+    uploads only the template PDF without requiring README, and if unset or missing, replies
+    naming EPIF_TEMPLATE_PATH, the value (or 'not set'), and that an admin needs to fix
+    the server's .env.
+    """
+    pdf_path = getattr(config, "EPIF_TEMPLATE_PATH", "")
+    val_str = "" if pdf_path is None else str(pdf_path).strip()
 
-    if missing:
-        msg_missing = (
-            f"⚠️ *Template files missing:*\n"
-            f"Could not find {', '.join(missing)} in `{template_dir}`.\n"
-            f"Please ensure `EPIF_TEMPLATE_HIRST.pdf` and `README.md` are placed in the `_TEMPLATE` directory."
-        )
+    if not val_str:
+        msg = "⚠️ Storage setting `EPIF_TEMPLATE_PATH` is not set. An admin needs to fix the server's .env."
         if thread_ts:
-            say(text=msg_missing, thread_ts=thread_ts)
+            say(text=msg, thread_ts=thread_ts)
         else:
-            say(text=msg_missing)
+            say(text=msg)
+        return
+
+    if not os.path.isfile(val_str):
+        msg = f"⚠️ Storage setting `EPIF_TEMPLATE_PATH` (`{val_str}`) does not exist. An admin needs to fix the server's .env."
+        if thread_ts:
+            say(text=msg, thread_ts=thread_ts)
+        else:
+            say(text=msg)
         return
 
     guide_text = (
@@ -585,41 +586,22 @@ def handle_template_command(client, say, channel: str, thread_ts: str | None, us
         if hasattr(client, "files_upload_v2"):
             kwargs1 = {
                 "channel": channel,
-                "file": pdf_path,
+                "file": val_str,
                 "title": "EPIF_TEMPLATE_HIRST.pdf",
                 "filename": "EPIF_TEMPLATE_HIRST.pdf",
             }
             if thread_ts:
                 kwargs1["thread_ts"] = thread_ts
             client.files_upload_v2(**kwargs1)
-
-            kwargs2 = {
-                "channel": channel,
-                "file": readme_path,
-                "title": "README.md",
-                "filename": "README.md",
-            }
-            if thread_ts:
-                kwargs2["thread_ts"] = thread_ts
-            client.files_upload_v2(**kwargs2)
         else:
             kwargs1 = {
                 "channels": channel,
-                "file": pdf_path,
+                "file": val_str,
                 "title": "EPIF_TEMPLATE_HIRST.pdf",
             }
             if thread_ts:
                 kwargs1["thread_ts"] = thread_ts
             client.files_upload(**kwargs1)
-
-            kwargs2 = {
-                "channels": channel,
-                "file": readme_path,
-                "title": "README.md",
-            }
-            if thread_ts:
-                kwargs2["thread_ts"] = thread_ts
-            client.files_upload(**kwargs2)
     except Exception as e:
         log.warning("Could not upload template files via Slack API: %s", e)
         err_msg = f"*(Could not attach files directly: {e})*"

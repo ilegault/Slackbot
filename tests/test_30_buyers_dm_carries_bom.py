@@ -89,6 +89,10 @@ def temp_boms_dir(tmp_path, monkeypatch):
     os.makedirs(boms_path, exist_ok=True)
     monkeypatch.setattr(config, "BOMS_DIR", boms_path)
 
+    epifs_path = str(tmp_path / "EPIFs")
+    os.makedirs(epifs_path, exist_ok=True)
+    monkeypatch.setattr(config, "EPIFS_DIR", epifs_path)
+
     # Also provide a dummy template so EPIF generation doesn't crash on default paths
     epif_template = tmp_path / "EPIF_TEMPLATE.pdf"
     import shutil

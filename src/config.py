@@ -44,6 +44,8 @@ for _cand in _env_candidates:
                     if _k and _k not in os.environ:
                         os.environ[_k] = _v
         break
+if "_cand" in locals():
+    del _cand
 
 def _get_git_hash() -> str:
     """Read the short git commit hash, or return 'unknown' if not in a repo."""
@@ -104,44 +106,31 @@ REJECTIONS_LOG_FILE = os.path.join(BASE_DIR, "rejections.log")
 
 # --- Where things are on disk -------------------------------------------------
 # Point this at the OneDrive-synced copy of the workbook.
-WORKBOOK_PATH = os.environ.get(
-    "PURCHASING_LOG_PATH",
-    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\Purchasing-Log.xlsx"),
-)
+WORKBOOK_PATH = os.environ.get("PURCHASING_LOG_PATH", "")
 
 # Point this at the OneDrive-synced EPIFs directory.
-EPIFS_DIR = os.environ.get(
-    "EPIFS_DIR",
-    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\EPIFs"),
-)
+EPIFS_DIR = os.environ.get("EPIFS_DIR", "")
 
 # Point this at the OneDrive-synced Order-Confirmations directory.
-CONFIRMATIONS_DIR = os.environ.get(
-    "CONFIRMATIONS_DIR",
-    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\Order-Confirmations"),
-)
+CONFIRMATIONS_DIR = os.environ.get("CONFIRMATIONS_DIR", "")
 
 # Point this at the OneDrive-synced Quotes directory.
-QUOTES_DIR = os.environ.get(
-    "QUOTES_DIR",
-    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\Quotes"),
-)
+QUOTES_DIR = os.environ.get("QUOTES_DIR", "")
 
 # Point this at the OneDrive-synced BOMs directory (Ticket 26).
-BOMS_DIR = os.environ.get(
-    "BOMS_DIR",
-    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\BOMs"),
-)
+BOMS_DIR = os.environ.get("BOMS_DIR", "")
 
-# Point this at the OneDrive-synced _TEMPLATE directory for blank EPIFs and instructions.
-TEMPLATE_DIR = os.environ.get(
-    "TEMPLATE_DIR",
-    os.path.expanduser(r"C:\Users\IGLeg\OneDrive - UW-Madison\Shortcuts\Charles Hirst's files - Hirst-Lab\Purchasing\_TEMPLATE"),
-)
+EPIF_TEMPLATE_PATH = os.environ.get("EPIF_TEMPLATE_PATH", "")
 
-EPIF_TEMPLATE_PATH = os.environ.get(
-    "EPIF_TEMPLATE_PATH",
-    os.path.join(TEMPLATE_DIR, "EPIF_TEMPLATE_HIRST.pdf"),
+# One registry of storage settings: (env setting name, config attribute name, "file" | "folder")
+# Order: PURCHASING_LOG_PATH, EPIFS_DIR, CONFIRMATIONS_DIR, QUOTES_DIR, BOMS_DIR, EPIF_TEMPLATE_PATH
+STORAGE_SETTINGS: tuple[tuple[str, str, str], ...] = (
+    ("PURCHASING_LOG_PATH", "WORKBOOK_PATH", "file"),
+    ("EPIFS_DIR", "EPIFS_DIR", "folder"),
+    ("CONFIRMATIONS_DIR", "CONFIRMATIONS_DIR", "folder"),
+    ("QUOTES_DIR", "QUOTES_DIR", "folder"),
+    ("BOMS_DIR", "BOMS_DIR", "folder"),
+    ("EPIF_TEMPLATE_PATH", "EPIF_TEMPLATE_PATH", "file"),
 )
 
 SHEET_XML = "xl/worksheets/sheet1.xml"  # 'Order Log' is the first sheet

@@ -83,7 +83,7 @@ def temp_epifs_dir(tmp_path, monkeypatch):
     d = str(tmp_path / "EPIFs")
     os.makedirs(d)
     monkeypatch.setattr(config, "EPIFS_DIR", d)
-    monkeypatch.setattr(config, "TEMPLATE_DIR", FIXTURES)
+    monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", os.path.join(FIXTURES, "EPIF_TEMPLATE_HIRST.pdf"))
     return d
 
 @pytest.fixture
