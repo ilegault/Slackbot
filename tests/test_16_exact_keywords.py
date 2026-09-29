@@ -387,7 +387,7 @@ def test_ordinary_channel_message_with_no_mention_produces_no_reply():
 # ---------------------------------------------------------------------------
 # 9. Unknown-word reply routing: always in-thread via say (ADR 0009 / Ticket 51)
 # ---------------------------------------------------------------------------
-def test_unknown_word_reply_routing_always_in_thread():
+def test_unknown_word_reply_routing_deny_vs_in_thread():
     """Unknown word reply always goes in-thread via say per ADR 0009 / Ticket 51."""
     client = MagicMock()
     say = MagicMock()
