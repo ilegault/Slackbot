@@ -82,7 +82,8 @@ _ADMIN_COMMANDS = (
     "• `@Purchasing remove-buyer @user` — _(Admin Only)_ Remove a user from the buyers list.\n"
     "• `@Purchasing remove-member @user` — _(Admin Only)_ Remove a user from the lab roster and all roles.\n"
     "• `@Purchasing add-vendor <name>` — _(Admin Only)_ Add a vendor to the Workday catalog list.\n"
-    "• `@Purchasing remove vendor <name>` — _(Admin Only)_ Remove a vendor from the Workday catalog list."
+    "• `@Purchasing remove-vendor <name>` — _(Admin Only)_ Remove a vendor from the Workday catalog list.\n\n"
+    "Two-word commands work with a hyphen or a space: `remove-vendor` = `remove vendor`."
 )
 
 _SLASH_COMMANDS = (

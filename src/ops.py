@@ -291,18 +291,22 @@ def handle_promote_admin(client, say, channel: str, thread_ts: str, user_id: str
 
 
 def handle_add_vendor(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Admin command to add a vendor to the Workday punchout catalog list."""
+    """Admin command to add a vendor to the Workday punchout catalog list.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0009 decision 1 / Ticket 52:
+    Takes the vendor name from text_rules.keyword_argument rather than a bespoke regex,
+    so both hyphen ('add-vendor') and space ('add vendor') spellings work identically.
+    """
     if not admin.is_admin_user(user_id):
         log.warning("Unauthorized user %s attempted to run '@p-bot add-vendor'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
-    match = re.search(r"(?:add vendor|add-vendor)\s+(.+)", text, re.I)
-    if not match:
-        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot add-vendor Thorlabs`.", thread_ts=thread_ts)
-        return
-
-    vendor_name = match.group(1).strip()
+    stripped, _, _ = text_rules.parse_mentions(text)
+    cmd = text_rules.parse_keyword(stripped)
+    vendor_name = text_rules.keyword_argument(stripped, cmd) if cmd else ""
     if not vendor_name:
         say(text="⚠️ Please specify the vendor name, e.g. `@p-bot add-vendor Thorlabs`.", thread_ts=thread_ts)
         return
@@ -316,19 +320,29 @@ def handle_add_vendor(client, say, channel: str, thread_ts: str, user_id: str, t
     roster.add_vendor(vendor_name)
     say(text=f"✅ Vendor *{vendor_name}* added to the Workday catalog in `roster.json`.", thread_ts=thread_ts)
 
+
 def handle_remove_vendor(client, say, channel: str, thread_ts: str, user_id: str, text: str):
-    """Admin command to remove a vendor from the Workday punchout catalog list."""
+    """Admin command to remove a vendor from the Workday punchout catalog list.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0009 decision 1 / Ticket 52:
+    Takes the vendor name from text_rules.keyword_argument rather than a bespoke regex,
+    so both hyphen ('remove-vendor', 'delete-vendor') and space ('remove vendor',
+    'delete vendor') spellings work identically.
+    """
     if not admin.is_admin_user(user_id):
         log.warning("Unauthorized user %s attempted to run '@p-bot remove vendor'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
-    match = re.search(r"(?:remove vendor|delete vendor)\s+(.+)", text, re.I)
-    if not match:
-        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot remove vendor Fisher Scientific`.", thread_ts=thread_ts)
+    stripped, _, _ = text_rules.parse_mentions(text)
+    cmd = text_rules.parse_keyword(stripped)
+    vendor_name = text_rules.keyword_argument(stripped, cmd) if cmd else ""
+    if not vendor_name:
+        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot remove-vendor Fisher Scientific`.", thread_ts=thread_ts)
         return
 
-    vendor_name = match.group(1).strip()
     removed = roster.remove_vendor(vendor_name)
     if removed:
         say(

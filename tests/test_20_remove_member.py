@@ -326,7 +326,7 @@ def test_remove_member_keywords_lives_in_config_and_no_literals_in_src():
     """REMOVE_MEMBER_KEYWORDS lives in config.py and does not appear as string literals elsewhere in src/."""
     assert hasattr(config, "REMOVE_MEMBER_KEYWORDS")
     assert "remove-member" in config.REMOVE_MEMBER_KEYWORDS
-    assert "remove member" in config.REMOVE_MEMBER_KEYWORDS
+    assert "remove member" not in config.REMOVE_MEMBER_KEYWORDS
     assert config.REMOVE_MEMBER_KEYWORDS in config.ALL_KEYWORD_TUPLES
 
     target_literals = {"remove-member", "remove member"}

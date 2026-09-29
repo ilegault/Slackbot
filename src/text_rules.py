@@ -54,17 +54,21 @@ def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list
 
 
 def parse_keyword(stripped_text: str) -> str | None:
-    """The first word of a mention-stripped message, matched exactly against the
-    canonical vocabulary. None when it matches nothing.
+    """The first word or two-word keyword of a mention-stripped message,
+    matched against the canonical vocabulary. None when it matches nothing.
 
     WHY THIS EXISTS:
     ----------------
     Ticket 16 / Hardening spec §5:
     Keyword routing was previously a chain of substring matches ('any(kw in text_lower)').
-    Any message containing 'check' attempted an Excel write and approval, 'waiting on
-    confirmation' marked the order confirmed, and unrecognised words did nothing silently.
-    This pure function extracts the first word (or first two words for two-word admin
-    phrases), strips surrounding punctuation, and matches exactly against config tuples.
+    Ticket 52 / ADR 0009 decision 1:
+    A hyphen and a space are normalised to the same thing when matching two-word phrases,
+    so 'remove-vendor', 'remove vendor', 'add-vendor', 'add vendor', 'blank-epif',
+    'blank epif', etc. each resolve to one canonical keyword. For admin ops the
+    canonical form in config is the hyphen form ('remove-vendor'); for lifecycle phrases
+    it is the space form ('package confirmed').
+    A first token that itself contains a hyphen ('remove-vendor') is split on the hyphen
+    for matching.
     """
     if not stripped_text:
         return None
@@ -79,14 +83,37 @@ def parse_keyword(stripped_text: str) -> str | None:
     if not w1:
         return None
 
-    w2 = tokens[1].strip(punct).lower() if len(tokens) > 1 else ""
-    two_words = f"{w1} {w2}".strip() if w2 else ""
+    # Determine two-word candidates:
+    # 1. Hyphen form inside the first token: 'remove-vendor' -> 'remove vendor'
+    hyphen_two_words = None
+    if "-" in w1:
+        parts = [p.strip(punct).lower() for p in w1.split("-", 1)]
+        if len(parts) == 2 and parts[0] and parts[1]:
+            hyphen_two_words = f"{parts[0]} {parts[1]}"
 
-    # Two-word admin phrases match on the first two words
-    if two_words:
-        for kw_tuple in config.ALL_KEYWORD_TUPLES:
-            if two_words in kw_tuple:
-                return two_words
+    # 2. Space form across first two tokens: 'remove' 'vendor' -> 'remove vendor'
+    space_two_words = None
+    if len(tokens) > 1:
+        w2 = tokens[1].strip(punct).lower()
+        if w2:
+            space_two_words = f"{w1} {w2}"
+
+    # Try two-word matches against all keyword tuples
+    # Canonical tuples may have hyphen form ("remove-vendor") or space form ("package confirmed")
+    candidates = []
+    if hyphen_two_words:
+        candidates.append(hyphen_two_words)
+    if space_two_words and space_two_words not in candidates:
+        candidates.append(space_two_words)
+
+    if candidates:
+        for candidate in candidates:
+            for kw_tuple in config.ALL_KEYWORD_TUPLES:
+                for kw in kw_tuple:
+                    if "-" in kw or " " in kw:
+                        kw_norm = kw.replace("-", " ")
+                        if candidate == kw_norm:
+                            return kw
 
     # Single-word match
     for kw_tuple in config.ALL_KEYWORD_TUPLES:
@@ -94,6 +121,57 @@ def parse_keyword(stripped_text: str) -> str | None:
             return w1
 
     return None
+
+
+def keyword_argument(stripped_text: str, keyword: str) -> str:
+    """Return the text following the matched keyword, whichever spelling was typed.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0009 decision 1 / Ticket 52:
+    Two-word commands accept hyphen or space spellings ('remove-vendor' or 'remove vendor').
+    Handlers (like ops.handle_add_vendor / ops.handle_remove_vendor) must not re-parse
+    the raw text with their own bespoke regexes that only match one spelling.
+    This pure domain function extracts whatever argument follows the matched keyword.
+    """
+    if not stripped_text or not keyword:
+        return ""
+
+    s = stripped_text.strip()
+    if not s:
+        return ""
+
+    import string
+    punct = string.punctuation + "“”‘’…"
+
+    kw_tokens = [w.lower() for w in keyword.replace("-", " ").split()]
+    if not kw_tokens:
+        return ""
+
+    tokens = s.split()
+    if not tokens:
+        return ""
+
+    first_token = tokens[0]
+    clean_first = first_token.strip(punct).lower()
+
+    # Case 1: The entire keyword is in the first token (e.g. 'remove-vendor' or 'approved')
+    if clean_first == keyword.lower() or ("-" in clean_first and clean_first.split("-") == kw_tokens):
+        idx = s.find(first_token) + len(first_token)
+        return s[idx:].strip()
+
+    # Case 2: Multi-word keyword spanning multiple tokens (e.g. 'remove vendor')
+    n = len(kw_tokens)
+    if len(tokens) >= n:
+        candidate_words = [tokens[i].strip(punct).lower() for i in range(n)]
+        if candidate_words == kw_tokens:
+            idx = s.find(tokens[0])
+            for i in range(1, n):
+                idx = s.find(tokens[i], idx + len(tokens[i - 1]))
+            idx += len(tokens[n - 1])
+            return s[idx:].strip()
+
+    return ""
 
 
 def format_unknown_keyword_message(word: str | None = None) -> str:
