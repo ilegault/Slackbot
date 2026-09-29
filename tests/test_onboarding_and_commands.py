@@ -123,24 +123,32 @@ def test_template_command(tmp_path, monkeypatch):
     client = MagicMock()
     say = MagicMock()
 
-    # Missing directory/files
-    fake_temp_dir = str(tmp_path / "templates")
-    monkeypatch.setattr(config, "TEMPLATE_DIR", fake_temp_dir)
+    # Unset EPIF_TEMPLATE_PATH
+    monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", "")
 
     ops.handle_template_command(client, say, "C123", "ts", "U123")
-    assert "Template files missing" in say.call_args[1]["text"]
+    assert say.call_count == 1
+    assert "EPIF_TEMPLATE_PATH" in say.call_args[1]["text"]
+    assert "not set" in say.call_args[1]["text"]
+    assert not hasattr(client, "files_upload_v2") or client.files_upload_v2.call_count == 0
 
-    # With files present
-    os.makedirs(fake_temp_dir, exist_ok=True)
-    with open(os.path.join(fake_temp_dir, "EPIF_TEMPLATE_HIRST.pdf"), "w") as f:
-        f.write("dummy pdf")
-    with open(os.path.join(fake_temp_dir, "README.md"), "w") as f:
-        f.write("dummy readme")
+    # With temp PDF present and no README anywhere
+    pdf_bytes = b"%PDF-1.4 dummy pdf content for blank template"
+    temp_pdf = tmp_path / "custom_template.pdf"
+    temp_pdf.write_bytes(pdf_bytes)
+
+    monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", str(temp_pdf))
 
     say.reset_mock()
+    client.reset_mock()
     ops.handle_template_command(client, say, "C123", "ts", "U123")
     assert "Manual EPIF Submission Kit" in say.call_args[1]["text"]
-    assert client.files_upload_v2.call_count == 2
+    assert client.files_upload_v2.call_count == 1
+    call_kwargs = client.files_upload_v2.call_args[1]
+    assert call_kwargs["filename"] == "EPIF_TEMPLATE_HIRST.pdf"
+    uploaded_path = call_kwargs["file"]
+    with open(uploaded_path, "rb") as f:
+        assert f.read() == pdf_bytes
 
 
 def test_command_registration():
@@ -897,20 +905,18 @@ def test_remove_vendor_close_matches():
 # ==============================================================================
 
 def test_template_command_single_file_missing(tmp_path, monkeypatch):
-    """Clear error message if only one template file is missing."""
+    """Clear error message if template file is missing."""
     client = MagicMock()
     say = MagicMock()
-    fake_temp_dir = str(tmp_path / "templates_partial")
-    os.makedirs(fake_temp_dir, exist_ok=True)
-    monkeypatch.setattr(config, "TEMPLATE_DIR", fake_temp_dir)
-
-    # Only PDF exists, README missing
-    with open(os.path.join(fake_temp_dir, "EPIF_TEMPLATE_HIRST.pdf"), "w") as f:
-        f.write("pdf")
+    missing_pdf = str(tmp_path / "missing" / "EPIF_TEMPLATE_HIRST.pdf")
+    monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", missing_pdf)
 
     ops.handle_template_command(client, say, "C123", "ts", "U123")
-    assert "Template files missing" in say.call_args[1]["text"]
-    assert "README.md" in say.call_args[1]["text"]
+    assert say.call_count == 1
+    text = say.call_args[1]["text"]
+    assert "EPIF_TEMPLATE_PATH" in text
+    assert missing_pdf in text
+    assert "An admin needs to fix the server's .env." in text
 
 
 # ==============================================================================

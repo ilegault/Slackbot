@@ -1,6 +1,6 @@
 # 54: One list of storage settings, no default paths, and /blank-template fixed
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -48,23 +48,23 @@ the same kind of dev-machine default.
 
 ## Acceptance criteria
 
-- [ ] **No default path.** In `tests/test_54_storage_settings.py`: with none of the six
+- [x] **No default path.** In `tests/test_54_storage_settings.py`: with none of the six
   settings in the environment, reload `config` (`importlib.reload`, restoring it after
   via a fixture) and assert all six attributes are `""` and `TEMPLATE_DIR` does not exist
   on the module. Assert no string attribute of `config` contains `IGLeg`.
-- [ ] **One list drives the startup check.** Set `config.STORAGE_SETTINGS` (monkeypatch)
+- [x] **One list drives the startup check.** Set `config.STORAGE_SETTINGS` (monkeypatch)
   to a list with one extra entry pointing at a missing temp path; assert
   `check_storage_paths` reports that entry. This fails if the function keeps its own list.
-- [ ] **Rewrite in place:** `tests/test_onboarding_and_commands.py::test_template_command`
+- [x] **Rewrite in place:** `tests/test_onboarding_and_commands.py::test_template_command`
   asserts, with `EPIF_TEMPLATE_PATH` unset, one reply containing `EPIF_TEMPLATE_PATH` and
   `not set` and **no** `files_upload_v2` call; and with it pointing at a temp PDF and **no
   README anywhere**, exactly one uploaded file named `EPIF_TEMPLATE_HIRST.pdf` whose bytes
   are the temp PDF's bytes. Same test name; it no longer touches `TEMPLATE_DIR`.
-- [ ] **Startup and `/blank-template` agree.** With `EPIF_TEMPLATE_PATH` pointing at a
+- [x] **Startup and `/blank-template` agree.** With `EPIF_TEMPLATE_PATH` pointing at a
   missing file, both `check_storage_paths()` and `handle_template_command` name
   `EPIF_TEMPLATE_PATH`; with it pointing at a real file, the first reports nothing for it
   and the second uploads it.
-- [ ] Nothing in `src/` references `TEMPLATE_DIR` (a test greps the `src/` tree).
+- [x] Nothing in `src/` references `TEMPLATE_DIR` (a test greps the `src/` tree).
 
 ## Gate
 
@@ -77,4 +77,13 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-29
+- `src/config.py`: Deleted `TEMPLATE_DIR`. Removed hardcoded dev machine path defaults for `WORKBOOK_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR`, `QUOTES_DIR`, `BOMS_DIR`, and `EPIF_TEMPLATE_PATH`. Defined `STORAGE_SETTINGS` tuple mapping env setting names to config attribute names and file/folder types.
+- `src/path_validator.py`: Updated `check_storage_paths` to dynamically iterate `config.STORAGE_SETTINGS` with `getattr(config, attr, "")`. Updated module docstring with the 2026-09-28 two-constant drift rationale.
+- `src/ops.py`: Updated `handle_template_command` to upload `config.EPIF_TEMPLATE_PATH` directly without requiring `README.md`. When unset or missing, responds naming `EPIF_TEMPLATE_PATH`, the path or `not set`, and `An admin needs to fix the server's .env.`
+- `tests/test_54_storage_settings.py`: Added tests covering default paths absence, `STORAGE_SETTINGS` driving startup check, agreement between startup check and `/blank-template`, and absence of `TEMPLATE_DIR` in `src/`.
+- `tests/test_onboarding_and_commands.py`: Rewrote `test_template_command` in place and updated `test_template_command_single_file_missing`.
+- `tests/test_46_epif_path_dm_attaches_epif.py` & `tests/test_30_buyers_dm_carries_bom.py`: Updated test fixtures to explicitly set temp paths for `EPIF_TEMPLATE_PATH` and `EPIFS_DIR`.
+- All gates passed cleanly.
 

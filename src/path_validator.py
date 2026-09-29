@@ -13,6 +13,13 @@ check_storage_paths performs a pure startup check for unset, placeholder,
 wrong-kind, or non-existent paths so the startup alert can flag them in orange
 before workbook writes or EPIF saves fail.
 
+T54 (ADR 0009): The startup check previously kept its own inline list of storage
+paths, while ops.handle_template_command read a separate template directory setting
+with hardcoded dev-machine defaults. On 2026-09-28, this two-constant drift meant
+/blank-template crashed on the production server while the startup alert reported all
+green. Now one list (config.STORAGE_SETTINGS) drives both the startup check and the
+health screen, and checks are read via getattr(config, attr) without hardcoded fallback paths.
+
 If storage paths don't exist, prompts the user to either:
   1. Locate them manually (search OneDrive)
   2. Use alternative paths on different drives
@@ -40,8 +47,8 @@ class PathProblem(NamedTuple):
 def check_storage_paths() -> list[PathProblem]:
     """Pure check of required storage paths.
 
-    Inspects PURCHASING_LOG_PATH, EPIFS_DIR, CONFIRMATIONS_DIR, QUOTES_DIR,
-    and BOMS_DIR in order. Returns a list of PathProblem instances, empty if all are valid.
+    Iterates config.STORAGE_SETTINGS in order. Returns a list of PathProblem instances,
+    empty if all are valid.
 
     Reasons are checked in priority order:
       1. not set
@@ -49,18 +56,10 @@ def check_storage_paths() -> list[PathProblem]:
       3. exists but is not a file / exists but is not a folder
       4. does not exist
     """
-    checks = [
-        ("PURCHASING_LOG_PATH", getattr(config, "WORKBOOK_PATH", ""), "file"),
-        ("EPIFS_DIR", getattr(config, "EPIFS_DIR", ""), "folder"),
-        ("CONFIRMATIONS_DIR", getattr(config, "CONFIRMATIONS_DIR", ""), "folder"),
-        ("QUOTES_DIR", getattr(config, "QUOTES_DIR", ""), "folder"),
-        ("BOMS_DIR", getattr(config, "BOMS_DIR", ""), "folder"),
-        ("EPIF_TEMPLATE_PATH", getattr(config, "EPIF_TEMPLATE_PATH", ""), "file"),
-    ]
-
     problems: list[PathProblem] = []
 
-    for setting, raw_val, kind in checks:
+    for setting, attr, kind in config.STORAGE_SETTINGS:
+        raw_val = getattr(config, attr, "")
         val_str = "" if raw_val is None else str(raw_val)
 
         # 1. empty or unset
