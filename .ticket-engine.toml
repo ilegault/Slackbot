@@ -11,3 +11,4 @@ jules_reserve = 10
 PYTHONUTF8 = "1"
 SLACK_BOT_TOKEN = "xoxb-test-not-a-real-token"
 SLACK_APP_TOKEN = "xapp-test-not-a-real-token"
+box_enabled = true
