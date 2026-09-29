@@ -1,6 +1,6 @@
 # 52: A hyphen and a space are the same in two-word commands
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
