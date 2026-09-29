@@ -1,6 +1,6 @@
 # 56: A missing storage location is reported, never recreated — quotes, confirmations, template
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
