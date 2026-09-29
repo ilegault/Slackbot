@@ -515,76 +515,52 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-09-22 17:53. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-09-28 23:50. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: the BOM spreadsheet, line items, and editable posted cards
+# Active work: keyword spelling, the unknown-word crash, storage settings, and the bot's name
 
 This is a **pointer**, not the work. The work is a ticket set.
 
-- Spec: `.scratch/bom-and-card-editing/spec.md` (`ready-for-agent`)
-- **Read before any ticket in this set: `docs/adr/0006-bom-line-items-and-editable-posted-cards.md`**
-- Glossary: `CONTEXT.md` — **Line item**, **BOM**, **Edit**, **Superseded** are new
+- Spec: `.scratch/commands-paths-and-name/spec.md` (`ready-for-agent`)
+- **Read before any ticket in this set: `docs/adr/0009-keywords-storage-settings-and-the-bot-name.md`**
+- Glossary: `CONTEXT.md` — **Keyword** (updated), **The Purchasing bot** and **Storage setting** (new)
 - Binding on all test work: `docs/adr/0001-tests-first-and-no-muted-failures.md`
-- Cancel semantics, extended by ticket 31: `docs/adr/0003-decline-and-cancel.md`
-- The assignee email-draft DM, extended by ticket 30: `docs/adr/0004`, `docs/adr/0005`
-- Tickets: `.scratch/bom-and-card-editing/issues/26…34`
+- Tickets: `.scratch/commands-paths-and-name/issues/51…61`
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-Tickets 12–24 are `done`. Ticket 25 (fix production `.env` paths) is a
-`human-task` and is not part of this set.
-
-## Why this set exists
-
-Dylan, 2026-09-21: five different Ruland parts is still one EPIF and one vendor,
-but sending Tina five bare links is a mess. The bot should produce a spreadsheet
-listing every item with its quantity, unit cost and line total, sent alongside the
-EPIF. Smeet has been making these by hand.
-
-Alongside it: a posted card cannot be corrected today, and a re-uploaded EPIF
-leaves two approvable cards for one purchase.
+**Next:** 51, 52, 54 are unblocked. Start with **51** — any unrecognised word in an
+`@Purchasing` mention or DM crashes the bot in production today.
 
 ## Dependency order
 
 ```
-26 ── 27 ─┬─ 28 ── 32
-          ├─ 29 ─┬─ 30
-          │      └─ 31
-          └─ 33
-   └─ 34 (human-task: create the folder on the server, after 26 deploys)
+51 ─┐
+52 ─┼─ 53 ─┐
+    └─ 59  │
+54 ─┬─ 55 ─┼─ 58 ─┬─ 60 (ready-for-developer)
+    └─ 56 ─┴─ 57 ─┘   └─ 61 (held: CI change, after 51–59)
 ```
 
-Ticket **34 is a `human-task`** — Isaac at the production server. An agent must
-not claim it.
+Ticket **60 is `ready-for-developer`** — the developer at the dev machine and the
+production server. An agent must not claim it.
 
-## Six requirements that will be quietly violated if read as preferences
+## Four requirements that will be quietly violated if read as preferences
 
-1. **Line items live in the card message's Slack metadata, never in a button
-   `value`.** Slack caps a button value at ~2 000 characters and the parsed
-   request already fills much of it. Five items with links overflow it and break
-   the card. ADR 0006 decision 5.
-2. **The approval write is all-or-nothing.** Row append, spreadsheet save and
-   Notes write happen in the one queued task, and a failure blanks the row it just
-   wrote. A log row with no sheet behind it is the failure ticket 29 exists to
-   prevent.
-3. **The items box on interview Screen 2 is capped at 1 500 characters.** The raw
-   text rides in the interview's carried state to Screen 3, which Slack caps at
-   3 000. An overflow breaks the Fabrication path, which is the one hardest to
-   notice in testing.
-4. **Parsing, formatting, the totals check and the change description are pure
-   functions in the domain layer** — no Slack, no file I/O. They are what the
-   tests drive directly.
-5. **One handler saves line items**, called by the EPIF path, the interview path
-   and Edit alike. Two implementations of "save the items" is invariant 1's
-   failure mode.
-6. **A denial or a refusal never replaces or deletes the card.** Ticket 12's rule
-   holds everywhere in this set.
+1. **A mention or DM never replies through `respond`.** On the event path Bolt supplies
+   a `respond` that raises when called. `slack_io.deny` is for slash commands and block
+   actions only.
+2. **One list of storage settings** (`config.STORAGE_SETTINGS`), read by both the startup
+   check and the health screen. Two lists drifting apart is the bug being fixed.
+3. **A missing storage folder is never recreated.** `log_writer.save_*` raise
+   `StorageLocationError`; a moved OneDrive folder must fail loudly, not be rebuilt empty
+   at the old path.
+4. **The approval write stays all-or-nothing.** A storage error during approval blanks
+   the row it wrote, exactly as today.
 
-## Two things this set deliberately does not do
+## Not in this set
 
-- **It does not match Smeet's spreadsheet layout.** The standard column set is
-  used. Isaac may supply the template later as its own change.
-- **It does not fix multi-EPIF threads under the keyword path.** `@Purchasing
-  approved` still finds the newest card. Known limitation, recorded in ADR 0006.
+- Renaming `p_bot.log`, `p_bot.spec`, the executable, the autostart task, or loggers.
+- Editing accepted ADRs or `AGENTS.md` outside this block (ticket 60 is the developer's).
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol

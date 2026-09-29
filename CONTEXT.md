@@ -1,4 +1,4 @@
-# CONTEXT.md — the vocabulary of P-Bot
+# CONTEXT.md — the vocabulary of the Purchasing bot
 
 The words this project uses, and the words it deliberately does not. If a term
 here and the code disagree, **flag it; do not silently pick a side.**
@@ -106,7 +106,7 @@ name as every other EPIF: `<vendor>_EPIF_$<price>_<project id>.pdf`.
 
 After approval, a purchase moves through four stages. **Each has exactly one
 word**, used in the button label, the action id, the history line, the help text,
-the App Home definitions, and the silent `@p-bot` keyword aliases.
+the App Home definitions, and the silent `@Purchasing` keyword aliases.
 
 | Word | Means | Excel |
 |---|---|---|
@@ -216,7 +216,7 @@ approval text. Both resolve to one assignment function; if both are given, the
 mention wins. ADR 0005 corrects ADR 0004's claim that a button cannot carry a
 person — it can, and the earlier reasoning was never checked.
 
-**Keyword** — `@p-bot <word>`. Two kinds: **admin ops** (`restart`, `logs`,
+**Keyword** — `@Purchasing <word>`. Two kinds: **admin ops** (`restart`, `logs`,
 `update`, `health`, `queue`, `promote-admin`, `add-approver`, `remove-approver`,
 `add-buyer`, `remove-buyer`, `remove-member`, `remove-vendor`) which are documented and admin-only;
 and **lifecycle aliases** (`approved`, `assign`, `processed`, `confirmed`,
@@ -224,8 +224,11 @@ and **lifecycle aliases** (`approved`, `assign`, `processed`, `confirmed`,
 taught nowhere. User mentions are stripped from the text *before* a keyword is
 matched, so a Slack ID can never be read as a keyword (ADR 0004 decision 8). The
 first word after the mention is matched exactly against the canonical vocabulary
-(no substring matching); two-word admin phrases match on the first two words. An
-unknown word produces a reply naming the words the bot understands.
+(no substring matching); two-word admin phrases match on the first two words, and
+a hyphen and a space are the same in them (`remove-vendor` = `remove vendor`; the
+hyphen form is the one taught). An unknown word gets a public in-thread reply: "did
+you mean …?" when it is close to a keyword, otherwise a pointer to `@Purchasing help`
+(ADR 0009).
 
 **The request message / the card** — the bot's post in the channel carrying the
 summary, the history block, and one next-step button. It is also the store: state,
@@ -243,6 +246,16 @@ and purchase details.
 ---
 
 ## Storage
+
+**The Purchasing bot** — the bot's name. Its Slack handle is `@Purchasing`. "P-Bot"
+is the old name; it survives only in developer-only file names (`p_bot.log`,
+`p_bot.spec`) and in accepted ADRs.
+
+**Storage setting** — one of exactly six `.env` settings naming where the bot reads
+or writes a file: `PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR`,
+`QUOTES_DIR`, `BOMS_DIR`, `EPIF_TEMPLATE_PATH`. None has a default. The startup check
+and the health screen read the same list, and an operation that needs a missing one
+says which setting and path in the thread (ADR 0009).
 
 **The Purchasing Log** — `Purchasing-Log.xlsx` on OneDrive. **The final reference
 for the current status of a purchase.** Slack is where the conversation happens;
@@ -275,4 +288,5 @@ message. Do not use "the store" to mean that module without saying so.
 | decline (after approval) | **cancel** |
 | ticket done / complete / completed | **done** (exactly this) |
 | delete a member, deregister, kick | **remove-member** |
+| P-Bot, p-bot | **the Purchasing bot**, `@Purchasing` |
 | remove a requester (meaning the role) | there is no requester *role* — see **Lab member** |
