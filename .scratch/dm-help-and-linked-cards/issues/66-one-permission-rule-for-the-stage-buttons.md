@@ -1,6 +1,6 @@
 # 66: One permission rule for Mark Processed, Confirmed and Delivered — assignee, admin or approver
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
