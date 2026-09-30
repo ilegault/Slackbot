@@ -810,16 +810,17 @@ def handle_approve_new_vendor_action(ack, body, respond, client):
 
 @app.action("req_assign_select")
 def handle_req_assign_select_action(ack, body, respond, client):
-    """Handle selecting a buyer from the users_select picker on the posted card (ADR 0005).
+    """Handle selecting a buyer from the users_select picker on the posted or approved card.
 
     WHY THIS EXISTS:
     ----------------
-    ADR 0005: A dropdown beside Approve on the posted card allows approvers to pick a buyer
-    directly. Selecting a buyer does not approve anything; it re-renders the card with
-    assignee_id set, updating the sibling Approve button's value so that when Approve is
-    subsequently clicked, the assignment is carried into the row write and notification.
-    The handler recovers the request payload from the sibling Approve button's value in
-    body["message"]["blocks"], requiring no new state file.
+    ADR 0005: A picker beside Approve on the posted card lets approvers name a buyer without
+    typing.  ADR 0011 decision 2 extends the picker to the approved card so any buyer,
+    approver or admin can reassign from the card.
+    The payload is recovered from any button in the card whose JSON value contains a "request"
+    key.  The posted card carries it in the Approve button; the approved card carries it in the
+    req_processed and req_cancel buttons (no Approve button present once approved).
+    Refusals are private (via respond) so the channel is not cluttered.
     """
     ack()
     user_id = body.get("user", {}).get("id")
@@ -830,14 +831,21 @@ def handle_req_assign_select_action(ack, body, respond, client):
     action = body.get("actions", [{}])[0]
     selected_user = action.get("selected_user")
 
-    # Recover the request payload from the sibling Approve button's value in body["message"]["blocks"]
+    # Recover the request payload from any button in the card whose value carries a "request"
+    # key.  The posted card carries it in the sibling Approve button; the approved card has no
+    # Approve button — the payload lives in the req_processed / req_cancel buttons instead.
     req_data = {}
     history = []
     current_state = "posted"
     for block in body.get("message", {}).get("blocks", []):
         for el in block.get("elements", []):
-            if el.get("action_id") == "req_approve":
+            if el.get("type") != "button":
+                continue
+            try:
                 val_data = json.loads(el.get("value") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if "request" in val_data:
                 req_data = val_data.get("request", {})
                 history = list(val_data.get("history", []))
                 current_state = val_data.get("state", "posted")
@@ -860,6 +868,7 @@ def handle_req_assign_select_action(ack, body, respond, client):
         msg_ts=msg_ts,
         history=history,
         current_state=current_state,
+        deny=lambda t: slack_io.deny(respond, t),
     )
 
 

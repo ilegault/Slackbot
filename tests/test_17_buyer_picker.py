@@ -127,8 +127,8 @@ def _make_picker_body(selected_user: str, req_data: dict, user_id: str = "U_CHAR
 # 1. build_request_blocks renders users_select on posted and NOT on approved
 def test_build_request_blocks_posted_renders_users_select_and_approved_does_not():
     """AC: build_request_blocks('posted') renders users_select with action_id req_assign_select
-
-    in the same actions block as Approve, and build_request_blocks('approved') does not.
+    in the same actions block as Approve.  build_request_blocks('approved') also carries the
+    picker (ADR 0011 decision 2 — any buyer can reassign from the approved card).
     """
     sample_req = _sample_request()
 
@@ -145,13 +145,13 @@ def test_build_request_blocks_posted_renders_users_select_and_approved_does_not(
     assert picker_elems[0].get("type") == "users_select"
     assert picker_elems[0].get("placeholder", {}).get("text") == "Assign a buyer (optional)"
 
-    # Approved state does NOT carry the picker
+    # Approved state DOES carry the picker (ADR 0011 decision 2)
     approved_blks = blocks.build_request_blocks("approved", sample_req)
     approved_action_blocks = [b for b in approved_blks if b.get("type") == "actions"]
     assert len(approved_action_blocks) == 1
     approved_elems = approved_action_blocks[0].get("elements", [])
     approved_pickers = [e for e in approved_elems if e.get("action_id") == "req_assign_select"]
-    assert len(approved_pickers) == 0, "Approved state must NOT carry the buyer picker"
+    assert len(approved_pickers) == 1, "Approved state must carry the buyer picker (ADR 0011 decision 2)"
 
 
 def test_users_select_initial_user_when_assignee_present():
