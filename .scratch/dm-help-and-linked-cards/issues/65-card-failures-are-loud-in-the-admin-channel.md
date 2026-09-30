@@ -1,6 +1,6 @@
 # 65: A missing or failed card is reported loudly to the admin channel
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -41,25 +41,25 @@ enough to act on.
 
 ## Acceptance criteria
 
-- [ ] **`alert_admins` never raises.** In `tests/test_65_loud_card_failures.py`: with the
+- [x] **`alert_admins` never raises.** In `tests/test_65_loud_card_failures.py`: with the
   channel set and a working client it posts once to that channel and returns `True`; with
   the channel set to `""` it returns `False` and posts nothing; with `chat_postMessage`
   raising it returns `False` and no exception escapes (`monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", …)`).
-- [ ] **The message carries what an admin needs.** `format_card_failure_alert("post the approval card", "C1", "111.222", "EPIF_x.pdf", "boom")`
+- [x] **The message carries what an admin needs.** `format_card_failure_alert("post the approval card", "C1", "111.222", "EPIF_x.pdf", "boom")`
   contains each of `post the approval card`, `C1`, `111.222`, `EPIF_x.pdf`, `boom`; with
   `file_name=None` it contains no `File:` line.
-- [ ] **A dropped EPIF whose card cannot be posted alerts.** Real `lifecycle.handle_epif_drop`
+- [x] **A dropped EPIF whose card cannot be posted alerts.** Real `lifecycle.handle_epif_drop`
   with `slack_io.download` and `epif_parser.parse_epif` returning a valid parsed EPIF (copy the
   parsed dict from `tests/test_46_epif_path_dm_attaches_epif.py`'s `_valid_request`) and
   `chat_postMessage` raising for the card: exactly one `chat_postMessage` to the alert channel
   whose text contains the file name and the exception text, and `caplog` has an INFO record
   ending `drop exit: card post failed`. A successful drop logs `drop exit: card posted` and
   posts **nothing** to the alert channel (absence asserted).
-- [ ] **A non-EPIF PDF that will not parse stays silent.** `notes.pdf` whose parse raises
+- [x] **A non-EPIF PDF that will not parse stays silent.** `notes.pdf` whose parse raises
   `RuntimeError`: no message to the alert channel, and an INFO record ending
   `drop exit: parse failed (not an EPIF name, ignored)`. `EPIF_notes.pdf` with the same
   error: one alert message and an INFO record ending `drop exit: parse failed`.
-- [ ] **A failed card update at approval alerts and does not undo the approval.** Real
+- [x] **A failed card update at approval alerts and does not undo the approval.** Real
   `finalize_purchase_request` (fixtures as ticket 64's test) with an existing card and
   `chat_update` raising: one alert message containing `update the approval card`, the row
   recorder still called once, the buyer's DM still sent.
@@ -82,4 +82,11 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+Summary (2026-09-30):
+- Added `slack_io.alert_admins` to post to `config.ADMIN_ALERT_CHANNEL` safely without raising.
+- Added pure `text_rules.format_card_failure_alert` formatting step, channel, thread, optional file name, and error.
+- Updated `lifecycle.handle_epif_drop` to alert admins on parse failure and unexpected errors for EPIF-named PDFs, and on card post failure for any parsed EPIF, and log `drop exit: <reason>` for every exit.
+- Updated `lifecycle.finalize_purchase_request` to alert admins when card update or fallback card post raises.
+- Added 6 comprehensive unit tests in `tests/test_65_loud_card_failures.py` covering all acceptance criteria. All 516 tests pass.
 
