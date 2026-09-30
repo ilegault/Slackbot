@@ -1,6 +1,6 @@
 # 59: README and docs describe the current bot
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
