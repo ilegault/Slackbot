@@ -1,6 +1,6 @@
 # 69: Both cards move together — every stage, cancel, reassignment and a stale click
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
