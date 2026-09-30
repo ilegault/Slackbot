@@ -1421,6 +1421,138 @@ def handle_req_delivered_action(ack, body, respond, client):
     )
 
 
+@app.action(config.ACTION_DM_REQ_PROCESSED)
+@app.action(config.ACTION_DM_REQ_CONFIRMED)
+@app.action(config.ACTION_DM_REQ_DELIVERED)
+def handle_dm_stage_action(ack, body, respond, client):
+    """Handle clicking next-stage buttons on the buyer's DM card (Ticket 68).
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0010 decisions 2–4 & Ticket 68:
+    The buyer clicks the button on the DM card and the request advances exactly as if
+    they had clicked the thread card's button. The thread card is the store; the DM card
+    holds only a pointer (thread_channel, thread_ts, card_ts).
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    action_id = action.get("action_id")
+    val_data = action.get("value") or "{}"
+    if isinstance(val_data, str):
+        try:
+            val_data = json.loads(val_data)
+        except Exception:
+            val_data = {}
+
+    thread_channel = val_data.get("thread_channel")
+    thread_ts = val_data.get("thread_ts")
+    card_ts = val_data.get("card_ts")
+
+    # Fetch thread card state and history from its actions-block button value
+    card_info = slack_io.get_card_by_ts(client, channel=thread_channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        log.warning("Card %s not found in thread %s for DM stage action %s", card_ts, thread_ts, action_id)
+        slack_io.deny(
+            respond,
+            "⚠️ I can't find the request card in the thread any more, so nothing was changed. An admin has been told.",
+        )
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                "find the card for a DM click", thread_channel, thread_ts, None, "card not found"
+            ),
+        )
+        return
+
+    req_data, history, current_state = card_info
+    assignee_id = req_data.get("assignee_id")
+
+    if not assignee_id:
+        log.warning("User %s clicked %s on unassigned request in DM", user_id, action_id)
+        slack_io.deny(respond, text_rules.format_stage_unassigned())
+        return
+
+    if not admin.can_update_request(user_id, assignee_id):
+        log.warning(
+            "Unauthorized user %s (not assignee %s, admin or approver) clicked %s in DM",
+            user_id,
+            assignee_id,
+            action_id,
+        )
+        slack_io.deny(respond, text_rules.format_stage_denial(assignee_id))
+        return
+
+    requester_name = slack_io.resolve_requester(client, user_id)
+    if not requester_name:
+        log.warning("Unregistered user %s clicked %s in DM", user_id, action_id)
+        slack_io.deny(
+            respond,
+            "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.",
+        )
+        return
+
+    expected_state = {
+        config.ACTION_DM_REQ_PROCESSED: "approved",
+        config.ACTION_DM_REQ_CONFIRMED: "processed",
+        config.ACTION_DM_REQ_DELIVERED: "confirmed",
+    }.get(action_id)
+
+    if current_state != expected_state:
+        log.warning(
+            "Stale DM click %s: thread card state is %s (expected %s)",
+            action_id,
+            current_state,
+            expected_state,
+        )
+        slack_io.deny(respond, f"ℹ️ This request is already *{current_state}*, so nothing was changed.")
+        return
+
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=thread_channel, text=text, thread_ts=thread_ts, **kw)
+
+    if action_id == config.ACTION_DM_REQ_PROCESSED:
+        lifecycle.handle_processed(
+            client=client,
+            say=say,
+            channel=thread_channel,
+            thread_ts=thread_ts,
+            user_id=user_id,
+            event_ts=card_ts,
+            text="",
+            card_ts=card_ts,
+            req_data=req_data,
+            history=history,
+        )
+    elif action_id == config.ACTION_DM_REQ_CONFIRMED:
+        lifecycle.handle_confirmation(
+            client=client,
+            say=say,
+            channel=thread_channel,
+            thread_ts=thread_ts,
+            user_id=user_id,
+            event_ts=card_ts,
+            text="",
+            files=None,
+            card_ts=card_ts,
+            req_data=req_data,
+            history=history,
+        )
+    elif action_id == config.ACTION_DM_REQ_DELIVERED:
+        lifecycle.handle_delivery(
+            client=client,
+            say=say,
+            channel=thread_channel,
+            thread_ts=thread_ts,
+            user_id=user_id,
+            event_ts=card_ts,
+            text="",
+            card_ts=card_ts,
+            req_data=req_data,
+            history=history,
+        )
+
+
 @app.action("start_purchase_interview")
 def handle_start_purchase_interview(ack, body, client):
     """Open Screen 1 when user clicks 'New Purchase Request' in App Home."""

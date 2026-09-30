@@ -39,6 +39,11 @@ Ticket 67:
 Adds `post_dm_card(client, user_id, text, blocks)`: posts a DM card to a user ID
 and returns `(dm_channel, dm_ts)` or `None` on failure.
 
+Ticket 68:
+Adds `get_card_by_ts(client, channel, thread_ts, card_ts)`: fetches a card message in a
+thread by its timestamp and reads (request, history, state) from the actions button value,
+never from message metadata. Used by DM card stage actions to read thread state.
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -308,6 +313,30 @@ def tell(client, user_id: str, text: str):
     client.chat_postMessage(channel=user_id, text=text)
 
 
+def _parse_card_button_value(msg: dict) -> tuple[dict, list, str] | None:
+    """Extract (request, history, state) from the actions-block button value of a message.
+
+    Returns None if the message has no actions button or the value lacks state.
+    Never reads message metadata — the button value is the store.
+    """
+    for b in msg.get("blocks", []):
+        if b.get("type") == "actions":
+            for elem in b.get("elements", []):
+                val_str = elem.get("value")
+                if val_str:
+                    try:
+                        val_data = json.loads(val_str)
+                        if isinstance(val_data, dict) and "state" in val_data:
+                            return (
+                                val_data.get("request", {}),
+                                val_data.get("history", []),
+                                val_data.get("state"),
+                            )
+                    except Exception:
+                        pass
+    return None
+
+
 def find_card_in_thread(client, channel: str, thread_ts: str) -> tuple[dict | None, str | None, list, str | None]:
     """Find request card message in thread.
 
@@ -316,23 +345,10 @@ def find_card_in_thread(client, channel: str, thread_ts: str) -> tuple[dict | No
     try:
         replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100, include_all_metadata=True)
         for msg in reversed(replies.get("messages", [])):
-            blocks_list = msg.get("blocks", [])
-            for b in blocks_list:
-                if b.get("type") == "actions":
-                    for elem in b.get("elements", []):
-                        val_str = elem.get("value")
-                        if val_str:
-                            try:
-                                val_data = json.loads(val_str)
-                                if isinstance(val_data, dict) and "state" in val_data:
-                                    return (
-                                        val_data.get("request", {}),
-                                        msg.get("ts"),
-                                        val_data.get("history", []),
-                                        val_data.get("state"),
-                                    )
-                            except Exception:
-                                pass
+            parsed = _parse_card_button_value(msg)
+            if parsed is not None:
+                req_data, history, state = parsed
+                return req_data, msg.get("ts"), history, state
             meta = msg.get("metadata", {})
             if meta and meta.get("event_type") == "purchase_request":
                 payload = meta.get("event_payload", {})
@@ -340,6 +356,27 @@ def find_card_in_thread(client, channel: str, thread_ts: str) -> tuple[dict | No
     except Exception as e:
         log.warning("Could not search thread for card message: %s", e)
     return None, None, [], None
+
+
+def get_card_by_ts(client, channel: str, thread_ts: str, card_ts: str) -> tuple[dict, list, str] | None:
+    """Find a card message in thread by card_ts and read (request, history, state) from button value.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0010 decision 2 & Ticket 68:
+    The DM card is only a view with a pointer to the thread card. Every click on the DM card
+    must read the thread card to learn the true state. Never read message metadata for state —
+    the button value is the store. Returns None when the message is not found or has no actions button.
+    """
+    target_ts = str(card_ts)
+    try:
+        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100)
+        for msg in replies.get("messages", []):
+            if str(msg.get("ts")) == target_ts:
+                return _parse_card_button_value(msg)
+    except Exception as e:
+        log.warning("Could not fetch card by ts %s in thread %s: %s", card_ts, thread_ts, e)
+    return None
 
 
 def get_card_payload(client, channel: str, thread_ts: str | None, card_ts: str) -> dict | None:
