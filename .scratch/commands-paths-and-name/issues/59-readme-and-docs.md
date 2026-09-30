@@ -1,6 +1,6 @@
 # 59: README and docs describe the current bot
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -35,15 +35,15 @@ This is docs-only; declare `[no-test-needed: docs only]` if the tests-first chec
 
 ## Acceptance criteria
 
-- [ ] `README.md` contains none of `@p-bot`, `P-Bot`, `claim`, `submitted`
+- [x] `README.md` contains none of `@p-bot`, `P-Bot`, `claim`, `submitted`
   (case-insensitive, whole words).
-- [ ] Every slash command registered with `@app.command(...)` in `src/app.py` appears in
+- [x] Every slash command registered with `@app.command(...)` in `src/app.py` appears in
   `README.md` (check by reading the decorators, not a hand list).
-- [ ] Every canonical admin keyword in `config.ALL_KEYWORD_TUPLES` that the help text
+- [x] Every canonical admin keyword in `config.ALL_KEYWORD_TUPLES` that the help text
   marks *(Admin Only)* appears in `README.md` in its hyphen form.
-- [ ] No file under `docs/` outside `docs/adr/` contains `@p-bot` or `P-Bot`; nothing under
+- [x] No file under `docs/` outside `docs/adr/` contains `@p-bot` or `P-Bot`; nothing under
   `docs/adr/` is modified (`git diff --stat master -- docs/adr` is empty).
-- [ ] `p_bot.log` and `p_bot.spec` are still named where the docs describe the build and logs.
+- [x] `p_bot.log` and `p_bot.spec` are still named where the docs describe the build and logs.
 
 ## Gate
 
@@ -56,4 +56,11 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-30
+- Rewrote `README.md` for the current Purchasing bot and canonical command vocabulary: `@Purchasing`, `approved`, `assign`, `processed`, `confirmed`, `delivered`, `quote`, `decline`, `help`, `health`/`status`, `queue`, `logs [n|all|rejections]`, `update`, `restart`, `promote-admin`, `add-approver`, `remove-approver`, `add-buyer`, `remove-buyer`, `remove-member`, `add-vendor`, `remove-vendor`.
+- Included all slash commands (`/new-purchase`, `/purchasing-help`, `/blank-template`, `/roster-list`, `/roster-set-name`) and the six `.env` storage settings from `config.STORAGE_SETTINGS`.
+- Renamed "P-Bot" to "the Purchasing bot" and `@p-bot` to `@Purchasing` throughout top-level `docs/` and `docs/agents/` while keeping `p_bot.log` and `p_bot.spec` and leaving `docs/adr/` completely unmodified.
+- Added comprehensive unit tests in `tests/test_59_readme_and_docs.py` covering all criteria.
+- Full gate green (ruff, check_tests_first, pytest 493 passed).
 

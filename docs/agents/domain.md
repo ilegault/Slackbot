@@ -4,7 +4,7 @@ How engineering skills should consume this repo's domain documentation.
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root — the vocabulary of P-Bot: the three roles, the
+- **`CONTEXT.md`** at the repo root — the vocabulary of the Purchasing bot: the three roles, the
   four stages, decline vs cancel, the surfaces. If a term here and the code
   disagree, flag it; do not silently pick a side. The code currently disagrees with
   the glossary in two known places (`submitted` vs `processed`, and `store.py`), and

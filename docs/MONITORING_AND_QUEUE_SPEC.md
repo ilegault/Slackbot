@@ -1,11 +1,11 @@
-# P-Bot: Monitoring, Remote Management & Excel Lock Queue Specification
+# Purchasing Bot: Monitoring, Remote Management & Excel Lock Queue Specification
 
 This document provides the complete architecture and step-by-step implementation guide for:
 1. **The Automatic Excel Lock Queue** (deferred retries when `Purchasing-Log.xlsx` is open in Excel).
-2. **In-Slack Health & Diagnostic Suite** (`@p-bot status`, `@p-bot health`, `@p-bot queue`).
-3. **Remote Log Viewer** (`@p-bot logs [n]`).
+2. **In-Slack Health & Diagnostic Suite** (`@Purchasing status`, `@Purchasing health`, `@Purchasing queue`).
+3. **Remote Log Viewer** (`@Purchasing logs [n]`).
 4. **Proactive Alerts & Heartbeats** (boot notification, crash dispatcher, and dead-man's switch).
-5. **Remote Lifecycle & Update Management** (`@p-bot update`, `@p-bot restart`).
+5. **Remote Lifecycle & Update Management** (`@Purchasing update`, `@Purchasing restart`).
 
 ---
 
@@ -108,7 +108,7 @@ class WriteTask:
 
 ### 3.2. Diagnostic & Health Commands (`src/app.py` or `src/admin.py`)
 
-#### Command: `@p-bot health` / `@p-bot status`
+#### Command: `@Purchasing health` / `@Purchasing status`
 Accessible to all lab members. Returns a Slack Block Kit card:
 
 * **Host Machine:** Hostname and Platform (e.g., `LAB-PC-01 (Windows 11)`).
@@ -123,12 +123,12 @@ Accessible to all lab members. Returns a Slack Block Kit card:
   * `Quotes/`: Exists and writable?
 * **Write Queue:** Current pending tasks count (e.g., `0 pending`).
 
-#### Command: `@p-bot queue`
+#### Command: `@Purchasing queue`
 Shows a list of currently queued write tasks, when they were submitted, and who submitted them.
 
 ---
 
-### 3.3. Remote Log Viewer (`@p-bot logs [n]`)
+### 3.3. Remote Log Viewer (`@Purchasing logs [n]`)
 
 #### Security & Access Control:
 - Restricted to users in `ADMIN_SLACK_USER_IDS` or private DMs with authorized users.
@@ -147,7 +147,7 @@ Shows a list of currently queued write tasks, when they were submitted, and who 
 On startup in `app.py`:
 - Checks environment and network connectivity.
 - Dispatches a message to `ADMIN_ALERT_CHANNEL`:
-  > 🟢 **P-Bot Online**
+  > 🟢 **Purchasing Bot Online**
   > • **Host:** `{platform.node()}`
   > • **Version:** `1.2.0`
   > • **Log Path:** `{config.WORKBOOK_PATH}`
@@ -166,13 +166,13 @@ On startup in `app.py`:
 
 ### 3.5. Remote Lifecycle Management (`src/admin.py`)
 
-#### Command: `@p-bot update` (Admin Only)
+#### Command: `@Purchasing update` (Admin Only)
 1. Runs `git pull origin main` via `subprocess.run()`.
 2. Checks output for `"Already up to date."` vs changed files.
 3. If dependencies changed (`requirements.txt`), runs `pip install -r requirements.txt`.
 4. If update succeeded, triggers a clean restart.
 
-#### Command: `@p-bot restart` (Admin Only)
+#### Command: `@Purchasing restart` (Admin Only)
 1. Flushes log handlers and ensures the write queue is idle.
 2. Uses `sys.executable` and `os.execv` (or a launcher script trigger on Windows) to re-spawn the process cleanly.
 3. On Windows when running under Task Scheduler or Python wrapper:
@@ -200,12 +200,12 @@ On startup in `app.py`:
    - Route approval logging, claim updates, submission tracking, confirmations, and deliveries through `submit_write_task()`.
 
 4. **Step 4: Implement Health & Remote Diagnostics (`src/admin.py` / `src/app.py`)**
-   - Add `@p-bot health` and `@p-bot status` handlers.
-   - Add `@p-bot logs [n]` and `@p-bot queue` handlers.
+   - Add `@Purchasing health` and `@Purchasing status` handlers.
+   - Add `@Purchasing logs [n]` and `@Purchasing queue` handlers.
    - Implement admin permission validator decorator/helper (`@admin_only`).
 
 5. **Step 5: Implement Remote Update and Restart**
-   - Add `@p-bot update` and `@p-bot restart` handlers.
+   - Add `@Purchasing update` and `@Purchasing restart` handlers.
 
 6. **Step 6: Implement Heartbeat & Startup Dispatcher**
    - Launch heartbeat background thread during bot initialization.
@@ -220,7 +220,7 @@ On startup in `app.py`:
 ## 5. Verification Checklist
 
 - [ ] Simulating lock file `~$Purchasing-Log.xlsx` queues the order, sends Slack thread notice, and finishes immediately once the lock file is removed.
-- [ ] `@p-bot health` correctly detects if files exist, disk space, and process uptime.
-- [ ] `@p-bot logs 20` outputs the last 20 log lines in Slack when run by an admin, and rejects unauthorized users.
-- [ ] `@p-bot update` pulls latest code from git and notifies in Slack.
+- [ ] `@Purchasing health` correctly detects if files exist, disk space, and process uptime.
+- [ ] `@Purchasing logs 20` outputs the last 20 log lines in Slack when run by an admin, and rejects unauthorized users.
+- [ ] `@Purchasing update` pulls latest code from git and notifies in Slack.
 - [ ] On startup, an alert is posted to `ADMIN_ALERT_CHANNEL`.

@@ -1,4 +1,4 @@
-# P-Bot (Hirst Lab Purchasing Bot) — Build Guide
+# Purchasing bot (Hirst Lab) — Build Guide
 
 Your four-phase plan is sound in shape. Three things in it don't survive contact
 with the actual files, and one of them would quietly damage the workbook. Those
@@ -46,24 +46,24 @@ Their source lists are on the `Roles & Lists` sheet and are mirrored into
 ## The Lab Purchasing Lifecycle
 
 ```
-1. Approval: Charlie replies "@p-bot approved"
+1. Approval: Charlie replies "@Purchasing approved"
    -> Bot logs row to Purchasing-Log.xlsx & saves EPIF to EPIFs/
-   -> If Undergrad: Pings grad student buyers to claim
+   -> If Undergrad: Pings grad student buyers to handle
    -> If Grad Student: Pings requester with ready-to-use email draft
 
-2. Claiming: Grad student replies "@p-bot claim"
+2. Assignment: Grad student replies "@Purchasing assign"
    -> Bot tags grad student and requester to collaborate on punchout/cart
 
-3. Processing: Grad student replies "@p-bot submitted $152.49"
+3. Processing: Grad student replies "@Purchasing processed $152.49"
    -> Bot fills Date Processed (Col U) and updates Total Price (Col H)
 
-4. Confirmation: User replies "@p-bot confirmed" (with optional attachment)
+4. Confirmation: User replies "@Purchasing confirmed" (with optional attachment)
    -> Bot fills Date Confirmed (Col V) and saves confirmation file to Order-Confirmations/
 
-5. Delivery: User replies "@p-bot delivered"
+5. Delivery: User replies "@Purchasing delivered"
    -> Bot fills Date of Delivery (Col W) and Received By (Col X)
 
-6. Quotes: User replies "@p-bot quote" with attached quote file
+6. Quotes: User replies "@Purchasing quote" with attached quote file
    -> Bot saves file to Quotes/
 ```
 
@@ -73,13 +73,13 @@ Their source lists are on the `Roles & Lists` sheet and are mirrored into
 
 | Command | Action |
 |---|---|
-| `@p-bot approved` | Parse, validate, and log EPIF PDF to workbook and save PDF to `EPIFs/` |
-| `@p-bot claim` | Grad student claims an approved undergrad purchase |
-| `@p-bot submitted [$price]` | Mark order as submitted in Workday (`Date Processed`, Col U) and update cart total |
-| `@p-bot confirmed` | Mark order as confirmed (`Date Confirmed`, Col V) and save confirmation to `Order-Confirmations/` |
-| `@p-bot delivered` | Mark order as delivered (`Date of Delivery`, Col W, `Received By`, Col X) |
-| `@p-bot quote` | Save attached quote PDF/document to `Quotes/` |
-| `@p-bot help` | Display command guide |
+| `@Purchasing approved` | Parse, validate, and log EPIF PDF to workbook and save PDF to `EPIFs/` |
+| `@Purchasing assign` | Grad student is assigned an approved undergrad purchase |
+| `@Purchasing processed [$price]` | Mark order as processed in Workday (`Date Processed`, Col U) and update cart total |
+| `@Purchasing confirmed` | Mark order as confirmed (`Date Confirmed`, Col V) and save confirmation to `Order-Confirmations/` |
+| `@Purchasing delivered` | Mark order as delivered (`Date of Delivery`, Col W, `Received By`, Col X) |
+| `@Purchasing quote` | Save attached quote PDF/document to `Quotes/` |
+| `@Purchasing help` | Display command guide |
 
 ---
 

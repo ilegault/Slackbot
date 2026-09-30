@@ -1,4 +1,4 @@
-# P-Bot (Purchasing Bot) - Setup & Deployment Guide
+# Purchasing Bot - Setup & Deployment Guide
 
 ## Quick Start
 
@@ -63,7 +63,7 @@ Enter the path to Order-Confirmations directory
 💾 Saving configuration to .env...
 ✅ Configuration saved to .env
 
-🤖 Starting P-Bot in Socket Mode...
+🤖 Starting the Purchasing bot in Socket Mode...
 ```
 
 ---
@@ -84,18 +84,18 @@ This will:
 
 ### What Gets Created
 - **run_bot.bat** — Batch file that launches the bot
-- **Windows Task Scheduler Task** — "P-Bot" task runs at system startup
+- **Windows Task Scheduler Task** — "Purchasing-Bot" task runs at system startup
 - **Startup Shortcut** — Fallback launcher in Windows Startup folder
 
 ### Verify Setup
 Check that the task was created:
 ```powershell
-Get-ScheduledTask -TaskName "P-Bot" | Select-Object *
+Get-ScheduledTask -TaskName "Purchasing-Bot" | Select-Object *
 ```
 
 ### Disable Auto-Start (if needed)
 ```powershell
-Unregister-ScheduledTask -TaskName "P-Bot" -Confirm:$false
+Unregister-ScheduledTask -TaskName "Purchasing-Bot" -Confirm:$false
 ```
 
 ---
@@ -170,7 +170,7 @@ The bot needs access to five OneDrive-synced locations:
 
 ### Task Scheduler task not running
 1. Open Task Scheduler (press `Win+R`, type `taskschd.msc`)
-2. Find "P-Bot" task in the list
+2. Find "Purchasing-Bot" task in the list
 3. Right-click → Properties
 4. Verify the "Program/script" path is correct
 5. Check under "History" tab for error logs

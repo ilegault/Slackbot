@@ -2,7 +2,7 @@
 
 ## The problem
 
-P-Bot is planned in one tool and implemented in another. Planning happens in
+The Purchasing bot is planned in one tool and implemented in another. Planning happens in
 Cowork / Claude Code with a strong model; implementation is handed to a cheaper,
 faster agent — Claude Code remote, or Antigravity.
 
