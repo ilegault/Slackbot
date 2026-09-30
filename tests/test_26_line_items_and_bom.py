@@ -472,6 +472,6 @@ def test_startup_alert_names_missing_boms_dir(monkeypatch, tmp_path):
 
     call_kwargs = mock_client.chat_postMessage.call_args[1]
     blocks = call_kwargs["blocks"]
-    assert blocks[0]["text"]["text"] == "🟠 P-Bot Online — storage paths need attention"
+    assert blocks[0]["text"]["text"] == "🟠 Purchasing bot online — storage paths need attention"
     problems_block = blocks[2]
     assert f"• `BOMS_DIR` = `{missing_boms}` — does not exist" in problems_block["text"]["text"]

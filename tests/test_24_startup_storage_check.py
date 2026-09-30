@@ -152,9 +152,9 @@ def test_startup_alert_all_clean(monkeypatch, valid_storage):
 
     assert call_kwargs["channel"] == "C_ADMIN_ALERT"
     blocks = call_kwargs["blocks"]
-    assert blocks[0]["text"]["text"] == "🟢 P-Bot Online & Ready"
+    assert blocks[0]["text"]["text"] == "🟢 Purchasing bot online & ready"
     assert not any("Storage path problems" in str(b) for b in blocks)
-    assert "🟢 *P-Bot Online*" in call_kwargs["text"]
+    assert "🟢 *Purchasing bot online*" in call_kwargs["text"]
     assert "Storage path problems" not in call_kwargs["text"]
 
 
@@ -174,7 +174,7 @@ def test_startup_alert_with_placeholder(monkeypatch, valid_storage):
     blocks = call_kwargs["blocks"]
 
     # Header is orange
-    assert blocks[0]["text"]["text"] == "🟠 P-Bot Online — storage paths need attention"
+    assert blocks[0]["text"]["text"] == "🟠 Purchasing bot online — storage paths need attention"
 
     # Problems section is directly after header-and-fields section (index 2)
     problems_block = blocks[2]
@@ -185,7 +185,7 @@ def test_startup_alert_with_placeholder(monkeypatch, valid_storage):
 
     # Fallback text has orange header and the problems lines
     fallback_text = call_kwargs["text"]
-    assert "🟠 *P-Bot Online — storage paths need attention*" in fallback_text
+    assert "🟠 *Purchasing bot online — storage paths need attention*" in fallback_text
     assert "*Storage path problems:*" in fallback_text
     assert f"• `PURCHASING_LOG_PATH` = `{bad_path}` — still contains a template placeholder" in fallback_text
     assert "_Workbook writes and EPIF saves will fail until these are fixed in the server's .env and the bot is restarted._" in fallback_text
@@ -204,7 +204,7 @@ def test_startup_alert_missing_folder(monkeypatch, tmp_path, valid_storage):
 
     call_kwargs = mock_client.chat_postMessage.call_args[1]
     blocks = call_kwargs["blocks"]
-    assert blocks[0]["text"]["text"] == "🟠 P-Bot Online — storage paths need attention"
+    assert blocks[0]["text"]["text"] == "🟠 Purchasing bot online — storage paths need attention"
     problems_block = blocks[2]
     assert f"• `EPIFS_DIR` = `{missing}` — does not exist" in problems_block["text"]["text"]
     assert "PURCHASING_LOG_PATH" not in problems_block["text"]["text"]

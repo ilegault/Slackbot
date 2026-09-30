@@ -1,6 +1,6 @@
 # 58: Slack text says "the Purchasing bot" and `@Purchasing`
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -35,27 +35,27 @@ Module docstrings may be updated but need not be.
 
 ## Acceptance criteria
 
-- [ ] **Scan what is sent.** In `tests/test_58_bot_name.py`, build with their real
+- [x] **Scan what is sent.** In `tests/test_58_bot_name.py`, build with their real
   builders: the help message, the App Home view, the health blocks, the startup alert
   (clean and with a problem, via a fake client capturing `chat_postMessage` kwargs), the
   crash alert text, the unknown-word reply, and `/blank-template`'s guide text. Serialise
   each to a string and assert none contains `p-bot` or `P-Bot` (case-insensitive), and
   the health header and startup alert contain `Purchasing bot`.
-- [ ] **Every `@…` example in `src/` says `@Purchasing`.** A test reads every `.py` in
+- [x] **Every `@…` example in `src/` says `@Purchasing`.** A test reads every `.py` in
   `src/` and asserts no string literal contains `@p-bot` (use `ast` to walk string
   constants so comments and logger names are not caught). Logger names
   `getLogger("p-bot…")` are allowed because they are not `@p-bot`.
-- [ ] **FAQ.** `interview.match_faq("what does @purchasing do?")` and
+- [x] **FAQ.** `interview.match_faq("what does @purchasing do?")` and
   `match_faq("what does @p-bot do?")` both return the answer, and that answer contains
   `@Purchasing` and not `@p-bot`.
-- [ ] **Rewrite in place, same names, header strings only:**
+- [x] **Rewrite in place, same names, header strings only:**
   `tests/test_24_startup_storage_check.py::test_startup_alert_all_clean`,
   `::test_startup_alert_with_placeholder`, `::test_startup_alert_missing_folder`,
   `tests/test_26_line_items_and_bom.py::test_startup_alert_names_missing_boms_dir`,
   `tests/test_monitoring_and_queue.py::test_get_system_health_and_build_blocks`,
   `::test_send_startup_alert` — each asserts the new header text. No other assertion in
   them changes.
-- [ ] `p_bot.log` is still the log file name (`config.LOG_FILE` ends with `p_bot.log`).
+- [x] `p_bot.log` is still the log file name (`config.LOG_FILE` ends with `p_bot.log`).
 
 ## Gate
 
@@ -68,4 +68,12 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### 2026-09-29
+Implemented ticket 58:
+- Replaced P-Bot with "the Purchasing bot" / "Purchasing bot" and `@p-bot` with `@Purchasing` across Slack user-facing text, alert headers, and usage examples in `src/ops.py`, `src/app.py`, `src/heartbeat.py`, and `src/admin.py`.
+- Added `"@purchasing"` FAQ topic in `src/interview.py`, updated FAQ answer text to `@Purchasing`, and preserved `"@p-bot"` alias.
+- Added `tests/test_58_bot_name.py` covering AST scan of string literals in `src/`, real builder surfaces check for absence of `p-bot` and presence of `Purchasing bot`, FAQ matching, and `config.LOG_FILE`.
+- Rewrote header assertions in `tests/test_24_startup_storage_check.py`, `tests/test_26_line_items_and_bom.py`, `tests/test_monitoring_and_queue.py`, and `tests/test_onboarding_and_commands.py`.
+- All tests pass (487 passed, 31 skipped). Gate checks clean.
 

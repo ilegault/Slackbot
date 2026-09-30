@@ -33,7 +33,7 @@ def handle_health_status(client, say, channel: str, thread_ts: str):
     """Publish comprehensive health and diagnostics report."""
     health_blocks = admin.build_health_blocks()
     say(
-        text="🩺 *P-Bot System Health & Status*",
+        text="🩺 *Purchasing bot System Health & Status*",
         blocks=health_blocks,
         thread_ts=thread_ts,
     )
@@ -88,7 +88,7 @@ def handle_logs(client, say, channel: str, thread_ts: str, user_id: str, text: s
     """
     # 1. Admin permission check
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot logs'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing logs'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
@@ -208,7 +208,7 @@ def handle_logs(client, say, channel: str, thread_ts: str, user_id: str, text: s
 def handle_update(client, say, channel: str, thread_ts: str, user_id: str):
     """Pull latest changes from git, update dependencies, and trigger restart."""
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot update'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing update'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
@@ -217,14 +217,14 @@ def handle_update(client, say, channel: str, thread_ts: str, user_id: str):
     say(text=msg, thread_ts=thread_ts)
 
     if success and "already up to date" not in msg.lower():
-        say(text="🚀 Code updated! Restarting P-Bot process in 2 seconds...", thread_ts=thread_ts)
+        say(text="🚀 Code updated! Restarting Purchasing bot process in 2 seconds...", thread_ts=thread_ts)
         admin.execute_restart(delay=2.0)
 
 
 def handle_restart(client, say, channel: str, thread_ts: str, user_id: str):
     """Restart the bot process cleanly if queue is idle."""
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot restart'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing restart'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
@@ -236,20 +236,20 @@ def handle_restart(client, say, channel: str, thread_ts: str, user_id: str):
         )
         return
 
-    say(text="🔄 Restarting P-Bot process cleanly...", thread_ts=thread_ts)
+    say(text="🔄 Restarting Purchasing bot process cleanly...", thread_ts=thread_ts)
     admin.execute_restart(delay=1.5)
 
 
 def handle_promote_admin(client, say, channel: str, thread_ts: str, user_id: str, text: str):
     """Admin command to propose promoting another user to admin."""
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot promote-admin'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing promote-admin'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
     match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
-        say(text="⚠️ Please mention the user to promote, e.g. `@p-bot promote-admin @user`.", thread_ts=thread_ts)
+        say(text="⚠️ Please mention the user to promote, e.g. `@Purchasing promote-admin @user`.", thread_ts=thread_ts)
         return
 
     target_user_id = match.group(1)
@@ -300,7 +300,7 @@ def handle_add_vendor(client, say, channel: str, thread_ts: str, user_id: str, t
     so both hyphen ('add-vendor') and space ('add vendor') spellings work identically.
     """
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot add-vendor'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing add-vendor'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
@@ -308,7 +308,7 @@ def handle_add_vendor(client, say, channel: str, thread_ts: str, user_id: str, t
     cmd = text_rules.parse_keyword(stripped)
     vendor_name = text_rules.keyword_argument(stripped, cmd) if cmd else ""
     if not vendor_name:
-        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot add-vendor Thorlabs`.", thread_ts=thread_ts)
+        say(text="⚠️ Please specify the vendor name, e.g. `@Purchasing add-vendor Thorlabs`.", thread_ts=thread_ts)
         return
 
     all_vendors = roster.get_vendors()
@@ -332,7 +332,7 @@ def handle_remove_vendor(client, say, channel: str, thread_ts: str, user_id: str
     'delete vendor') spellings work identically.
     """
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot remove vendor'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing remove vendor'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
@@ -340,13 +340,13 @@ def handle_remove_vendor(client, say, channel: str, thread_ts: str, user_id: str
     cmd = text_rules.parse_keyword(stripped)
     vendor_name = text_rules.keyword_argument(stripped, cmd) if cmd else ""
     if not vendor_name:
-        say(text="⚠️ Please specify the vendor name, e.g. `@p-bot remove-vendor Fisher Scientific`.", thread_ts=thread_ts)
+        say(text="⚠️ Please specify the vendor name, e.g. `@Purchasing remove-vendor Fisher Scientific`.", thread_ts=thread_ts)
         return
 
     removed = roster.remove_vendor(vendor_name)
     if removed:
         say(
-            text=f"✅ Vendor *{vendor_name}* was removed from `roster.json`. (Run `@p-bot restart` to update dropdowns).",
+            text=f"✅ Vendor *{vendor_name}* was removed from `roster.json`. (Run `@Purchasing restart` to update dropdowns).",
             thread_ts=thread_ts,
         )
     else:
@@ -362,19 +362,19 @@ def handle_remove_vendor(client, say, channel: str, thread_ts: str, user_id: str
 def handle_add_approver(client, say, channel: str, thread_ts: str, user_id: str, text: str):
     """Admin command to add a user to the approver list."""
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot add-approver'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing add-approver'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
     match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
-        say(text="⚠️ Please mention the user to add as approver, e.g. `@p-bot add-approver @user`.", thread_ts=thread_ts)
+        say(text="⚠️ Please mention the user to add as approver, e.g. `@Purchasing add-approver @user`.", thread_ts=thread_ts)
         return
 
     target_id = match.group(1)
     roster.add_approver(target_id)
     say(
-        text=f"✅ <@{target_id}> added to purchase approvers in `roster.json`. (Run `@p-bot restart` to reload).",
+        text=f"✅ <@{target_id}> added to purchase approvers in `roster.json`. (Run `@Purchasing restart` to reload).",
         thread_ts=thread_ts,
     )
 
@@ -382,19 +382,19 @@ def handle_add_approver(client, say, channel: str, thread_ts: str, user_id: str,
 def handle_remove_approver(client, say, channel: str, thread_ts: str, user_id: str, text: str):
     """Admin command to remove a user from the approver list."""
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot remove-approver'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing remove-approver'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
     match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
-        say(text="⚠️ Please mention the user to remove from approvers, e.g. `@p-bot remove-approver @user`.", thread_ts=thread_ts)
+        say(text="⚠️ Please mention the user to remove from approvers, e.g. `@Purchasing remove-approver @user`.", thread_ts=thread_ts)
         return
 
     target_id = match.group(1)
     if roster.remove_approver(target_id):
         say(
-            text=f"✅ <@{target_id}> removed from purchase approvers in `roster.json`. (Run `@p-bot restart` to reload).",
+            text=f"✅ <@{target_id}> removed from purchase approvers in `roster.json`. (Run `@Purchasing restart` to reload).",
             thread_ts=thread_ts,
         )
     else:
@@ -404,13 +404,13 @@ def handle_remove_approver(client, say, channel: str, thread_ts: str, user_id: s
 def handle_add_buyer(client, say, channel: str, thread_ts: str, user_id: str, text: str):
     """Admin command to add a user to the purchase buyer list."""
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot add-buyer'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing add-buyer'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
     match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
-        say(text="⚠️ Please mention the user to add as buyer, e.g. `@p-bot add-buyer @user`.", thread_ts=thread_ts)
+        say(text="⚠️ Please mention the user to add as buyer, e.g. `@Purchasing add-buyer @user`.", thread_ts=thread_ts)
         return
 
     target_id = match.group(1)
@@ -433,13 +433,13 @@ def handle_add_buyer(client, say, channel: str, thread_ts: str, user_id: str, te
 def handle_remove_buyer(client, say, channel: str, thread_ts: str, user_id: str, text: str):
     """Admin command to remove a user from the purchase buyer list."""
     if not admin.is_admin_user(user_id):
-        log.warning("Unauthorized user %s attempted to run '@p-bot remove-buyer'", user_id)
+        log.warning("Unauthorized user %s attempted to run '@Purchasing remove-buyer'", user_id)
         say(text="🔒 This command is restricted to bot administrators.", thread_ts=thread_ts)
         return
 
     match = re.search(r"<@([A-Z0-9_]+)>", text)
     if not match:
-        say(text="⚠️ Please mention the user to remove from buyers, e.g. `@p-bot remove-buyer @user`.", thread_ts=thread_ts)
+        say(text="⚠️ Please mention the user to remove from buyers, e.g. `@Purchasing remove-buyer @user`.", thread_ts=thread_ts)
         return
 
     target_id = match.group(1)
@@ -574,7 +574,7 @@ def handle_template_command(client, say, channel: str, thread_ts: str | None, us
         "1. Open the attached `EPIF_TEMPLATE_HIRST.pdf` in Adobe Acrobat or your PDF editor.\n"
         "2. Fill in the required fields: *What*, *Why / URL*, *Amount*, *Vendor*, *Vendor Email*, *Date*, *Room*, *Project ID*, and tick *1 Category* + *Payment Method*.\n"
         "3. Upload your completed PDF to the purchasing channel and tag Charlie for approval.\n"
-        "4. Once approved, P-Bot will validate and log your request automatically!"
+        "4. Once approved, the Purchasing bot will validate and log your request automatically!"
     )
 
     if thread_ts:
@@ -668,12 +668,12 @@ def handle_approve_new_admin(client, approver_id: str, channel_id: str, msg_ts: 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> promoted to bot administrator in `roster.json`.\n_Note: Requires `@p-bot restart` to reload._",
+                    "text": f"✅ *Approved by <@{approver_id}>:* <@{slack_id}> promoted to bot administrator in `roster.json`.\n_Note: Requires `@Purchasing restart` to reload._",
                 },
             }
         ],
     )
-    slack_io.tell(client, slack_id, "🎉 You have been added as a P-Bot administrator! The next `@p-bot restart` will pick this up.")
+    slack_io.tell(client, slack_id, "🎉 You have been added as a Purchasing bot administrator! The next `@Purchasing restart` will pick this up.")
     log.info("Admin %s approved admin promotion for %s", approver_id, slack_id)
 
 
@@ -689,7 +689,7 @@ def handle_approve_new_vendor(client, approver_id: str, channel_id: str, msg_ts:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"✅ *Approved by <@{approver_id}>:* Vendor *{vendor_name}* added to Workday catalog in `roster.json`.\n_Note: Requires `@p-bot restart` to reload in dropdowns._",
+                    "text": f"✅ *Approved by <@{approver_id}>:* Vendor *{vendor_name}* added to Workday catalog in `roster.json`.\n_Note: Requires `@Purchasing restart` to reload in dropdowns._",
                 },
             }
         ],
