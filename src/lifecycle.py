@@ -104,6 +104,14 @@ Per Ticket 67 (ADR 0010 decisions 2 & 3):
 - handle_assign posts the DM card upon later assignment and records dm_channel and dm_ts in the thread card.
 - A failed DM card alerts admins and never reverses the approval.
 
+Per Ticket 69 (ADR 0010 decision 3):
+- Both cards move together: sync_dm_card updates the buyer's DM card across all stages
+  (handle_processed, handle_confirmation, handle_delivery), cancel (handle_cancel),
+  and reassignment (handle_assign).
+- Retired states (cancelled, reassigned, delivered) remove buttons from the DM card.
+- Reassignment retires the old buyer's DM card before posting to the new buyer.
+- sync_dm_card is a no-op if no dm_channel/dm_ts, never raises, and alerts admins on failure.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -319,6 +327,80 @@ def _send_assignee_dm(
         return None
 
     return dm_res
+
+
+def sync_dm_card(
+    client,
+    request: dict | None,
+    state: str,
+    channel: str,
+    thread_ts: str,
+    card_ts: str,
+    history: list | None = None,
+    note: str | None = None,
+) -> bool:
+    """Rebuild and update the buyer's linked DM card.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0010 Decision 3 & Ticket 69:
+    Whichever card is clicked — or the @Purchasing processed keyword is used — the thread card
+    and the DM card end up at the same stage with the same next button. The DM card is a view
+    rebuilt from the thread card's request (carrying dm_channel and dm_ts).
+    Returns False when request has no dm_channel/dm_ts or on error; returns True on success.
+    Never raises: on any failure it logs a WARNING and alerts the admin channel.
+    """
+    if not request or not isinstance(request, dict):
+        return False
+    dm_channel = request.get("dm_channel")
+    dm_ts = request.get("dm_ts")
+    if not dm_channel or not dm_ts:
+        return False
+
+    try:
+        thread_link = None
+        if channel and card_ts:
+            try:
+                resp = client.chat_getPermalink(channel=channel, message_ts=card_ts)
+                if isinstance(resp, dict):
+                    thread_link = resp.get("permalink")
+                elif hasattr(resp, "data") and isinstance(resp.data, dict):
+                    thread_link = resp.data.get("permalink")
+                elif hasattr(resp, "get"):
+                    thread_link = resp.get("permalink")
+            except Exception as e:
+                log.warning("Could not get permalink for thread card (%s, %s): %s", channel, card_ts, e)
+                thread_link = None
+
+        dm_blocks = blocks.build_dm_card_blocks(
+            state=state,
+            request=request,
+            thread_channel=channel,
+            thread_ts=thread_ts,
+            card_ts=card_ts,
+            thread_link=thread_link,
+            note=note,
+        )
+        client.chat_update(
+            channel=dm_channel,
+            ts=dm_ts,
+            text=f"🛒 Purchase Request ({state.capitalize()})",
+            blocks=dm_blocks,
+        )
+        return True
+    except Exception as e:
+        log.warning("Could not sync DM card for %s at ts %s: %s", dm_channel, dm_ts, e)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                step="update the buyer's DM card",
+                channel=channel,
+                thread_ts=thread_ts,
+                file_name=None,
+                error=str(e),
+            ),
+        )
+        return False
 
 
 def finalize_purchase_request(
@@ -1172,6 +1254,20 @@ def handle_assign(
     item_desc = draft_data.get("item_description") or "supplies"
     epif_fname = req_data.get("epif_file")
     epif_path = os.path.join(config.EPIFS_DIR, epif_fname) if epif_fname else None
+
+    # Retire the old buyer's DM card before new DM card replaces it (Ticket 69)
+    if current_assignee and req_data.get("dm_channel") and req_data.get("dm_ts"):
+        sync_dm_card(
+            client=client,
+            request=req_data,
+            state="reassigned",
+            channel=channel,
+            thread_ts=thread_ts,
+            card_ts=msg_ts or "",
+            history=history,
+            note=f"Reassigned to {target_name}",
+        )
+
     dm_ref = _send_assignee_dm(
         client=client,
         assignee_id=target_user_id,
@@ -1220,6 +1316,11 @@ def handle_processed(
     """Mark an order as Processed in Workday (Col U) and optionally update Total Price (Col H)."""
     user_name = slack_io.resolve_requester(client, user_id) or "Buyer"
     row = text_rules.extract_row_from_text(text)
+    if not row and req_data and req_data.get("row"):
+        try:
+            row = int(req_data["row"])
+        except (ValueError, TypeError):
+            row = None
     if not row and thread_ts:
         row = slack_io.find_row_in_thread(client, channel, thread_ts)
     if not row and user_name:
@@ -1278,6 +1379,9 @@ def handle_processed(
                 if not target_hist and found_hist:
                     target_hist = list(found_hist)
 
+        if row and "row" not in target_req:
+            target_req["row"] = row
+
         now_str = datetime.now().strftime("%m/%d/%y %H:%M")
         actor_name = user_name or slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
         target_hist.append(f"Processed by {actor_name} on {now_str}")
@@ -1294,6 +1398,16 @@ def handle_processed(
                 log.info("Purchase request message updated to 'processed' by %s in channel %s (ts: %s)", user_id, channel, target_card_ts)
             except Exception as e:
                 log.error("Failed to update message on req_processed: %s", e)
+
+        sync_dm_card(
+            client=client,
+            request=target_req,
+            state="processed",
+            channel=channel,
+            thread_ts=thread_ts,
+            card_ts=target_card_ts or "",
+            history=target_hist,
+        )
 
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
@@ -1327,6 +1441,11 @@ def handle_confirmation(
     """Mark an order as Confirmed in Purchasing-Log.xlsx (Col V) and save confirmation files."""
     requester_name = slack_io.resolve_requester(client, user_id)
     row = text_rules.extract_row_from_text(text)
+    if not row and req_data and req_data.get("row"):
+        try:
+            row = int(req_data["row"])
+        except (ValueError, TypeError):
+            row = None
     if not row and thread_ts:
         row = slack_io.find_row_in_thread(client, channel, thread_ts)
     if not row and requester_name:
@@ -1391,6 +1510,9 @@ def handle_confirmation(
                 if not target_hist and found_hist:
                     target_hist = list(found_hist)
 
+        if row and "row" not in target_req:
+            target_req["row"] = row
+
         now_str = datetime.now().strftime("%m/%d/%y %H:%M")
         actor_name = requester_name or slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
         target_hist.append(f"Confirmed by {actor_name} on {now_str}")
@@ -1407,6 +1529,16 @@ def handle_confirmation(
                 log.info("Purchase request message updated to 'confirmed' by %s in channel %s (ts: %s)", user_id, channel, target_card_ts)
             except Exception as e:
                 log.error("Failed to update message on req_confirmed: %s", e)
+
+        sync_dm_card(
+            client=client,
+            request=target_req,
+            state="confirmed",
+            channel=channel,
+            thread_ts=thread_ts,
+            card_ts=target_card_ts or "",
+            history=target_hist,
+        )
 
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
@@ -1440,6 +1572,11 @@ def handle_delivery(
     """Mark an order as Delivered in Purchasing-Log.xlsx (Col W) and record Received By (Col X)."""
     requester_name = slack_io.resolve_requester(client, user_id) or "Lab Member"
     row = text_rules.extract_row_from_text(text)
+    if not row and req_data and req_data.get("row"):
+        try:
+            row = int(req_data["row"])
+        except (ValueError, TypeError):
+            row = None
     if not row and thread_ts:
         row = slack_io.find_row_in_thread(client, channel, thread_ts)
     if not row and requester_name:
@@ -1491,6 +1628,9 @@ def handle_delivery(
                 if not target_hist and found_hist:
                     target_hist = list(found_hist)
 
+        if row and "row" not in target_req:
+            target_req["row"] = row
+
         now_str = datetime.now().strftime("%m/%d/%y %H:%M")
         actor_name = requester_name or slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
         target_hist.append(f"Delivered to {actor_name} on {now_str}")
@@ -1507,6 +1647,16 @@ def handle_delivery(
                 log.info("Purchase request message updated to 'delivered' by %s in channel %s (ts: %s)", user_id, channel, target_card_ts)
             except Exception as e:
                 log.error("Failed to update message on req_delivered: %s", e)
+
+        sync_dm_card(
+            client=client,
+            request=target_req,
+            state="delivered",
+            channel=channel,
+            thread_ts=thread_ts,
+            card_ts=target_card_ts or "",
+            history=target_hist,
+        )
 
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
@@ -1994,6 +2144,16 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
         log.info("Purchase request cancelled by %s in channel %s (ts: %s)", user_id, channel, msg_ts)
     except Exception as e:
         log.error("Failed to update message on cancel: %s", e)
+
+    sync_dm_card(
+        client=client,
+        request=req_data,
+        state="cancelled",
+        channel=channel,
+        thread_ts=thread_ts,
+        card_ts=msg_ts,
+        history=history,
+    )
 
     return True
 

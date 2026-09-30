@@ -1506,6 +1506,15 @@ def handle_dm_stage_action(ack, body, respond, client):
             expected_state,
         )
         slack_io.deny(respond, f"ℹ️ This request is already *{current_state}*, so nothing was changed.")
+        lifecycle.sync_dm_card(
+            client=client,
+            request=req_data,
+            state=current_state,
+            channel=thread_channel,
+            thread_ts=thread_ts,
+            card_ts=card_ts,
+            history=history,
+        )
         return
 
     def say(text, thread_ts=thread_ts, **kw):

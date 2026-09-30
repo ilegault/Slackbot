@@ -1,6 +1,6 @@
 # 69: Both cards move together — every stage, cancel, reassignment and a stale click
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -39,26 +39,26 @@ rebuilt from the thread card's request (which carries `dm_channel` and `dm_ts`, 
 
 ## Acceptance criteria
 
-- [ ] **Retired states have no buttons.** In `tests/test_69_cards_move_together.py`,
+- [x] **Retired states have no buttons.** In `tests/test_69_cards_move_together.py`,
   `build_dm_card_blocks` for `cancelled`, `reassigned` (with a `note`) and `delivered` returns no
   `actions` block and its section/context text contains `Cancelled`, the note, and `Delivered`
   respectively.
-- [ ] **A thread click moves the DM card, and the keyword does too.** Fixtures as ticket 46 with
+- [x] **A thread click moves the DM card, and the keyword does too.** Fixtures as ticket 46 with
   `sync_queue`. A request whose payload has `dm_channel="D_BUYER"`, `dm_ts="9.9"`: the assignee's
   Mark Processed click on the thread card produces a `chat_update(channel="D_BUYER", ts="9.9")`
   whose blocks hold `Mark Confirmed`; the same via real `app.dispatch_command` with text `processed`
   (fake replies contain the card and a `Logged to row 17` message). A request **without** the two
   keys produces exactly one `chat_update` (the thread card's) and none with `ts == "9.9"` (absence).
-- [ ] **A run from the DM keeps both cards level.** Click `dm_req_processed`, then `dm_req_confirmed`,
+- [x] **A run from the DM keeps both cards level.** Click `dm_req_processed`, then `dm_req_confirmed`,
   then `dm_req_delivered` through `app.handle_dm_stage_action`, feeding each `chat_update` back into
   the fake thread so the next click sees it: after each click both cards' blocks show the same next
   button; after delivered neither has an `actions` block.
-- [ ] **Cancel and reassignment retire cards.** `handle_cancel` on an approved request with DM
+- [x] **Cancel and reassignment retire cards.** `handle_cancel` on an approved request with DM
   references: the DM card is updated with no `actions` block and text containing `Cancelled`; with no
   references, no DM update. `handle_assign` moving an assigned request to a second buyer: the first
   DM card is updated to `reassigned` (contains `Reassigned to`, no `actions`), a DM card is posted to
   the second buyer, and the thread card's last `chat_update` holds the second card's references.
-- [ ] **A stale click refreshes; a failed refresh never blocks.** A `dm_req_processed` click when the
+- [x] **A stale click refreshes; a failed refresh never blocks.** A `dm_req_processed` click when the
   thread is already `processed`: refused with `already`, and the DM card is updated to the `processed`
   state's blocks. With `chat_update` raising only for the DM card, a normal Mark Processed click still
   calls `update_row` once and updates the thread card, and exactly one message goes to the alert
@@ -81,3 +81,13 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-30
+- Extended `blocks.build_dm_card_blocks` with optional `note` argument and support for retired states (`cancelled`, `reassigned`, `delivered`), ensuring no actions blocks are rendered and respective status lines are included.
+- Implemented `lifecycle.sync_dm_card` to rebuild and update the linked DM card via `chat_update`, safely catching exceptions and alerting admin channel without blocking lifecycle operations.
+- Wired `sync_dm_card` into `on_success` of `handle_processed`, `handle_confirmation`, and `handle_delivery`.
+- Wired `sync_dm_card` into `handle_cancel` to retire the DM card.
+- Wired `sync_dm_card` into `handle_assign` to retire the previous buyer's DM card prior to dispatching the new buyer's card.
+- Updated `app.handle_dm_stage_action` to invoke `sync_dm_card` when refusing stale clicks so the DM card is refreshed to the thread card's current stage.
+- Added comprehensive test suite in `tests/test_69_cards_move_together.py` covering all acceptance criteria.
+- Full gate passed cleanly (ruff, check_tests_first, full pytest suite 548 passed, 31 skipped).
