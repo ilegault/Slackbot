@@ -554,7 +554,7 @@ def handle_template_command(client, say, channel: str, thread_ts: str | None, us
     val_str = "" if pdf_path is None else str(pdf_path).strip()
 
     if not val_str:
-        msg = "⚠️ Storage setting `EPIF_TEMPLATE_PATH` is not set. An admin needs to fix the server's .env."
+        msg = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", "", "not set")
         if thread_ts:
             say(text=msg, thread_ts=thread_ts)
         else:
@@ -562,7 +562,7 @@ def handle_template_command(client, say, channel: str, thread_ts: str | None, us
         return
 
     if not os.path.isfile(val_str):
-        msg = f"⚠️ Storage setting `EPIF_TEMPLATE_PATH` (`{val_str}`) does not exist. An admin needs to fix the server's .env."
+        msg = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", val_str, "does not exist")
         if thread_ts:
             say(text=msg, thread_ts=thread_ts)
         else:

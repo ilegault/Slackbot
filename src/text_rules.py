@@ -415,3 +415,18 @@ def normalize_requester_name(name: str) -> str:
     s = re.sub(r"[^\w\s]", "", s)
     return " ".join(s.split())
 
+
+def storage_problem_message(setting: str, path: str, reason: str) -> str:
+    """Format an in-thread warning when a storage location is unusable.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0009 decision 6: Every operation that reads or writes a storage setting
+    (saving an EPIF, confirmation, quote, or BOM; writing the workbook; sending
+    the blank template) uses this shared message when that setting is unusable,
+    replying in the thread to notify the user and ask an admin to fix the server's .env.
+    """
+    path_display = path if path else "not set"
+    return f"⚠️ I can't reach a storage location. *{setting}* {reason}: `{path_display}`. An admin needs to fix the server's .env."
+
+
