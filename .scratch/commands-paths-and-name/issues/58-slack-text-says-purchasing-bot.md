@@ -1,6 +1,6 @@
 # 58: Slack text says "the Purchasing bot" and `@Purchasing`
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
