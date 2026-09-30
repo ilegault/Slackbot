@@ -299,6 +299,9 @@ ADMIN_ONLY_KEYWORDS = (
 
 CANONICAL_KEYWORDS = tuple(kw[0] for kw in ALL_KEYWORD_TUPLES)
 
+# Message subtypes allowed through to command/drop handling (ADR 0010 Decision 6)
+HUMAN_MESSAGE_SUBTYPES = (None, "file_share", "thread_broadcast")
+
 
 # --- Phase 4 Staged Purchasing Interview Constants ----------------------------
 # The categories for which Asset ID and Name of System are required (Screen 3)
