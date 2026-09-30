@@ -79,7 +79,9 @@ Per Ticket 31:
 - Cancel moves the archived BOM to BOMS_DIR/Cancelled/, keeping its row-numbered filename (ADR 0006 decision 7).
 - The move happens inside the same queued write task as the row blanking.
 - A missing BOM file is logged as a warning; the cancellation still completes — a file that was never
-  saved must not leave a cancelled purchase sitting in the log (ticket 31 note).
+Per Ticket 57 (ADR 0009 decision 6):
+- finalize_purchase_request, handle_processed, and handle_delivery catch StorageLocationError
+  in their on_failure callbacks and reply in-thread with text_rules.storage_problem_message.
 
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
@@ -479,6 +481,14 @@ def finalize_purchase_request(
                 log.error("Failed to update card on approval: %s", e)
 
     def on_failure(error):
+        if isinstance(error, log_writer.StorageLocationError):
+            say(
+                text=text_rules.storage_problem_message(
+                    error.setting, error.path, error.reason
+                ),
+                thread_ts=thread_ts,
+            )
+            return
         log.error("Failed to write to workbook: %s", error)
         say(text=f"Error saving/logging purchase request: {error}", thread_ts=thread_ts)
 
@@ -1044,6 +1054,14 @@ def handle_processed(
                 log.error("Failed to update message on req_processed: %s", e)
 
     def on_failure(error):
+        if isinstance(error, log_writer.StorageLocationError):
+            say(
+                text=text_rules.storage_problem_message(
+                    error.setting, error.path, error.reason
+                ),
+                thread_ts=thread_ts,
+            )
+            return
         log.error("Error updating Order Log for row %d: %s", row, error)
         say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
 
@@ -1249,6 +1267,14 @@ def handle_delivery(
                 log.error("Failed to update message on req_delivered: %s", e)
 
     def on_failure(error):
+        if isinstance(error, log_writer.StorageLocationError):
+            say(
+                text=text_rules.storage_problem_message(
+                    error.setting, error.path, error.reason
+                ),
+                thread_ts=thread_ts,
+            )
+            return
         log.error("Error updating Order Log for row %d: %s", row, error)
         say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
 
