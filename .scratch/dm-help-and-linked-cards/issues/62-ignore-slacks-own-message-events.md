@@ -1,6 +1,6 @@
 # 62: The bot ignores Slack's own message events
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -30,20 +30,20 @@ still goes to `lifecycle.handle_epif_drop`.
 
 ## Acceptance criteria
 
-- [ ] **The listener is the registered one.** In `tests/test_62_ignore_slack_events.py`,
+- [x] **The listener is the registered one.** In `tests/test_62_ignore_slack_events.py`,
   assert `app.on_direct_message` is the `ack_function` of a listener in
   `app.app._listeners` (walk the registry as `tests/test_regression_guards.py` does; do not
   build a stand-in), then call it directly in the tests below.
-- [ ] **An edit event with no user does nothing.** Event
+- [x] **An edit event with no user does nothing.** Event
   `{"type": "message", "subtype": "message_changed", "channel": "D1", "channel_type": "im", "message": {"text": "x"}}`
   with a fake `client` and a recording `say`: no exception, `say` not called,
   `client.mock_calls == []`, and `caplog` holds no record containing `Received DM`. This
   test must fail on the code as it is once 51 has landed.
-- [ ] **A deletion by a real user does nothing.** Event with `"user": "U1"`,
+- [x] **A deletion by a real user does nothing.** Event with `"user": "U1"`,
   `"subtype": "message_deleted"`, `channel_type` `im`: same assertions.
-- [ ] **A person's DM still works.** Event `{"user": "U1", "channel": "D1", "channel_type": "im", "ts": "1.1", "text": "help"}`
+- [x] **A person's DM still works.** Event `{"user": "U1", "channel": "D1", "channel_type": "im", "ts": "1.1", "text": "help"}`
   produces exactly one `say` call whose text contains the help text (`blocks.get_help_message()`).
-- [ ] **A dropped PDF still reaches the drop handler.** Event with `"subtype": "file_share"`,
+- [x] **A dropped PDF still reaches the drop handler.** Event with `"subtype": "file_share"`,
   `"channel_type": "channel"`, `"user": "U1"`, `"files": [{"name": "EPIF_x.pdf"}]`, and
   `lifecycle.handle_epif_drop` replaced by a recorder (monkeypatch — that function is not
   the code under test here, the routing is): the recorder is called once with
@@ -66,4 +66,11 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+Completed 2026-09-30:
+- Added `config.HUMAN_MESSAGE_SUBTYPES = (None, "file_share", "thread_broadcast")`.
+- Updated `app.on_direct_message` to return early when `event.get("user")` is empty or `event.get("subtype") not in config.HUMAN_MESSAGE_SUBTYPES`.
+- Added `tests/test_62_ignore_slack_events.py` verifying real listener registry registration, link unfurl edit events with empty user, user deletion events, human DM routing, and channel PDF drop handling.
+- Local gate passes completely (ruff, check_tests_first, full pytest suite 498 passed, 31 skipped).
+
 

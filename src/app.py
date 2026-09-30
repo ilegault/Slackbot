@@ -1667,6 +1667,17 @@ def on_mention(event, client, say, context=None):
 
 @app.event("message")
 def on_direct_message(event, client, say, context=None):
+    """Handle message events in DMs and channel PDF drops.
+
+    WHY THIS EXISTS (ADR 0010 Decision 6):
+    Slack message events include bot messages, link unfurl edits, and deletions.
+    Returning early when event.get('user') is empty or subtype is not in
+    config.HUMAN_MESSAGE_SUBTYPES prevents Slack's synthetic events from reaching
+    the command dispatcher or generating phantom replies.
+    """
+    if not event.get("user") or event.get("subtype") not in config.HUMAN_MESSAGE_SUBTYPES:
+        return
+
     # Ignore bot's own messages and messages with bot subtype
     if event.get("subtype") == "bot_message" or event.get("bot_id"):
         return
