@@ -13,6 +13,7 @@ displaying the user's registered name, held roles (admin, approver, buyer), and 
 direct button opening the /roster-set-name modal. Unregistered users lead with registration instructions.
 Ticket 27: Adds build_items_view for line items modal and renders Add items / Edit items button on posted source=='epif' cards.
 Ticket 28: Screen 2 (build_stage2_view) renders an optional multiline Line items input with format/shipping hint and 1500-char limit.
+Ticket 63: Adds chunk_mrkdwn and build_dm_help_blocks for DM help responses when a free-form message cannot be parsed (ADR 0010 Decision 5).
 
 Imports:
     - bom, config, interview, roster, text_rules
@@ -293,6 +294,103 @@ def get_help_message() -> str:
         "*⚙️ Admins (`@Purchasing <command>`):*\n"
         + _ADMIN_COMMANDS
     )
+
+
+def chunk_mrkdwn(text: str, limit: int = 2900) -> list[str]:
+    """Split markdown text into chunks of at most limit characters.
+
+    WHY THIS EXISTS (Ticket 63 / ADR 0010 Decision 5):
+    Slack section blocks have a 3,000-character limit. Long markdown text
+    such as get_help_message() must be packed into section blocks of at most
+    limit characters without splitting across paragraphs or lines unless a
+    single paragraph or line exceeds limit.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return []
+
+    paragraphs = stripped.split("\n\n")
+    chunks: list[str] = []
+    curr_chunk = ""
+
+    for p in paragraphs:
+        if len(p) <= limit:
+            if not curr_chunk:
+                curr_chunk = p
+            elif len(curr_chunk) + 2 + len(p) <= limit:
+                curr_chunk += "\n\n" + p
+            else:
+                chunks.append(curr_chunk)
+                curr_chunk = p
+        else:
+            if curr_chunk:
+                chunks.append(curr_chunk)
+                curr_chunk = ""
+
+            lines = p.split("\n")
+            curr_line_chunk = ""
+            for line in lines:
+                if len(line) > limit:
+                    if curr_line_chunk:
+                        chunks.append(curr_line_chunk)
+                        curr_line_chunk = ""
+                    for i in range(0, len(line), limit):
+                        slice_chunk = line[i : i + limit]
+                        if slice_chunk:
+                            chunks.append(slice_chunk)
+                else:
+                    if not curr_line_chunk:
+                        curr_line_chunk = line
+                    elif len(curr_line_chunk) + 1 + len(line) <= limit:
+                        curr_line_chunk += "\n" + line
+                    else:
+                        chunks.append(curr_line_chunk)
+                        curr_line_chunk = line
+            if curr_line_chunk:
+                chunks.append(curr_line_chunk)
+
+    if curr_chunk:
+        chunks.append(curr_chunk)
+
+    return chunks
+
+
+def build_dm_help_blocks() -> list[dict]:
+    """Build Block Kit blocks for DM help when free-form text cannot be read.
+
+    WHY THIS EXISTS (Ticket 63 / ADR 0010 Decision 5):
+    A lab member's first DM is often a natural sentence with a link.
+    When the first word has no close match, reply with a Start button
+    above the full command guide split across section blocks within
+    Slack's 3,000-character section limit.
+    """
+    blks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "🤔 I can't read free-form requests, but here is what I can do. To start a purchase, press the button below.",
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Start a purchase request", "emoji": True},
+                    "style": "primary",
+                    "action_id": "start_purchase_interview",
+                }
+            ],
+        },
+        {"type": "divider"},
+    ]
+    for chunk in chunk_mrkdwn(get_help_message()):
+        blks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": chunk},
+        })
+    return blks
 
 
 def build_request_blocks(

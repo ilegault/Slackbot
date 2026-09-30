@@ -1468,8 +1468,15 @@ def get_bot_user_id(client, context=None) -> str | None:
 def dispatch_command(
     client, say, channel: str, thread_ts: str, user: str, event_ts: str, text: str,
     files=None, direct_file=None, bot_user_id: str | None = None, respond=None,
+    is_dm: bool = False,
 ):
-    """Single dispatch point for all app_mention and direct message commands."""
+    """Single dispatch point for all app_mention and direct message commands.
+
+    WHY THIS EXISTS:
+    Ticket 63 / ADR 0010 Decision 5: Accepts is_dm flag. When an unrecognised message
+    arrives in a DM and has no close keyword match, reply with full help text and a
+    Start button rather than pointing to @Purchasing help.
+    """
     if not bot_user_id:
         bot_user_id = get_bot_user_id(client)
     stripped_text, user_mentions, group_mentions = text_rules.parse_mentions(text, bot_user_id=bot_user_id)
@@ -1643,8 +1650,12 @@ def dispatch_command(
             word_to_show = f"{first_token} {w2}"
         else:
             word_to_show = first_token
-        reply_text = text_rules.format_unknown_keyword_message(word_to_show, suggestion)
-        say(text=reply_text, thread_ts=thread_ts)
+
+        if is_dm and not suggestion:
+            say(text=blocks.get_help_message(), blocks=blocks.build_dm_help_blocks(), thread_ts=thread_ts)
+        else:
+            reply_text = text_rules.format_unknown_keyword_message(word_to_show, suggestion)
+            say(text=reply_text, thread_ts=thread_ts)
 
 
 
@@ -1709,6 +1720,7 @@ def on_direct_message(event, client, say, context=None):
         dispatch_command(
             client, say, channel, thread_ts, user, event_ts, text,
             files=files, direct_file=direct_file, bot_user_id=bot_user_id,
+            is_dm=True,
         )
         return
 
