@@ -1,6 +1,6 @@
 # 67: The assigned buyer's DM carries a card with the next-step button
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
