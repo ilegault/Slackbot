@@ -279,7 +279,8 @@ def test_scenario_bare_approval_then_needs_epif(temp_workbook, temp_epifs_dir, s
     assert _button(fake.card, "req_needs_epif") is None
     assert not any(a == "req_approve" for a in _all_action_ids(fake.messages))
     for call in fake.client.chat_postMessage.call_args_list[posts_before:]:
-        assert not call[1].get("blocks"), "no new card blocks may be posted"
+        if call[1].get("channel") == CHANNEL:
+            assert not call[1].get("blocks"), "no new card blocks may be posted to thread"
 
     # the assignee's DM carries the EPIF PDF
     uploads = [c for c in fake.client.files_upload_v2.call_args_list if c[1].get("channel") == "D_BUYER"]

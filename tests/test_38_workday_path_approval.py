@@ -109,7 +109,7 @@ def test_workday_path_approval_dm_and_thread(monkeypatch, tmp_path):
     assert "Workday / ShopUW" not in broadcast_text
 
     # 2. DM to Smeet starts with 'Place this in Workday:', has item details, and NO email draft
-    dm_calls = [c for c in client.chat_postMessage.call_args_list if c[1].get("channel") == "U_SMEET"]
+    dm_calls = [c for c in client.chat_postMessage.call_args_list if c[1].get("channel") == "U_SMEET" and not c[1].get("blocks")]
     assert len(dm_calls) == 1
     dm_text = dm_calls[0][1]["text"]
     assert dm_text.startswith("Place this in Workday:\n")

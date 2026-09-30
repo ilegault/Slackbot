@@ -306,7 +306,7 @@ def test_scenario_end_to_end(temp_workbook, sync_queue, monkeypatch):
     app.handle_workday_details_submit(ack, body, client, view)
 
     ack.assert_called_once_with()
-    client.chat_update.assert_called_once()
+    assert client.chat_update.call_count == 2
 
     wb3 = openpyxl.load_workbook(temp_workbook)
     ws3 = wb3.active
