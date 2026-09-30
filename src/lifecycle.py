@@ -1148,16 +1148,21 @@ def handle_assign(
     msg_ts: str | None = None,
     history: list | None = None,
     current_state: str | None = None,
+    deny=None,
 ):
     """Assign or reassign a purchase request to a buyer.
 
     WHY THIS EXISTS:
     ----------------
-    ADR 0004 & ADR 0005: Assignment replaces claim. Charlie names the responsible buyer when approving
-    (via @-mention or the buyer picker on the posted card), or a buyer can assign an unassigned order.
-    Permission per ADR 0004 decision 3:
-    - Unassigned: any buyer, approver, or admin may assign (including buyer naming themselves).
-    - Assigned: approver, admin, or the current assignee only.
+    ADR 0004 & ADR 0005: Assignment replaces claim. Charlie names the responsible buyer when
+    approving (via @-mention or the buyer picker on the posted card), or any buyer can move an
+    approved order.
+    Permission per ADR 0011 decision 1 (amends ADR 0004 decision 3):
+    - Any buyer, approver, or admin may assign or change the assignee, regardless of whether
+      the request is already assigned.  From Processed onward assignment is refused (handled
+      by the caller).
+    - `deny`: optional callable(text) for private refusals (picker path uses
+      `lambda t: slack_io.deny(respond, t)`); keyword path falls back to say().
     Selecting a buyer on the posted card (ADR 0005) re-renders the card with the assignee set,
     performing no Excel write, no premature Workday processing announcement, and no email draft DM.
     Once approved, the pre-filled email draft is generated once and DM'd to the assignee.
@@ -1182,19 +1187,17 @@ def handle_assign(
             say(text="⚠️ Please specify a buyer to assign this order to, e.g. `@Purchasing assign @buyer`.", thread_ts=thread_ts)
             return False
 
-    # Permission check (ADR 0004 decision 3)
-    if current_assignee:
-        # Assigned: approver, admin, or current assignee only
-        if not (admin.is_approved_reviewer(user_id) or admin.is_admin_user(user_id) or user_id == current_assignee):
-            log.warning("Unauthorized user %s attempted to reassign request assigned to %s", user_id, current_assignee)
-            say(text=f"🔒 This request is already assigned to <@{current_assignee}>. Only the assignee, an approver, or an admin can reassign it.", thread_ts=thread_ts)
-            return False
-    else:
-        # Unassigned: any buyer, approver, or admin may assign
-        if not (roster.is_buyer(user_id) or admin.is_approved_reviewer(user_id) or admin.is_admin_user(user_id)):
-            log.warning("Unauthorized user %s attempted to assign unassigned request", user_id)
-            say(text="🔒 Only buyers, approvers, or admins can assign purchase requests.", thread_ts=thread_ts)
-            return False
+    # Permission check (ADR 0011 decision 1): any buyer, approver or admin, whether the
+    # request is assigned or not.
+    if not (roster.is_buyer(user_id) or admin.is_approved_reviewer(user_id) or admin.is_admin_user(user_id)):
+        log.warning("Unauthorized user %s attempted to assign/reassign request", user_id)
+        _deny = deny if deny is not None else (lambda t: say(text=t, thread_ts=thread_ts))
+        _deny("🔒 Only buyers, approvers or admins can assign purchase requests.")
+        return False
+
+    # Same-buyer no-op (ADR 0011 step 4): selecting the current assignee changes nothing
+    if target_user_id == current_assignee:
+        return True
 
     # Target eligibility check (ADR 0004 decision 4)
     if not roster.is_buyer(target_user_id):

@@ -361,35 +361,6 @@ def test_buyer_self_assigns_unassigned_request():
         assert "Subject:" not in dm_text_call[1]["text"]
 
 
-# 11. Non-assignee buyer attempting to reassign already assigned request is refused
-def test_buyer_reassign_already_assigned_request_denied():
-    """A buyer who is not the assignee cannot reassign an assigned order."""
-    client = MagicMock()
-    say = MagicMock()
-
-    card_req = {
-        "row": 20,
-        "assignee_id": "U_DYLAN",
-        "assignee": "Dylan",
-    }
-    history = ["Assigned to Dylan"]
-
-    with patch.object(lifecycle.slack_io, "find_card_in_thread", return_value=(card_req, "100.1", history, "approved")):
-        ok = lifecycle.handle_assign(
-            client=client,
-            say=say,
-            channel="C1",
-            thread_ts="100.0",
-            user_id="U_SMEET",  # Smeet is a buyer, but Dylan is current assignee
-            event_ts="100.2",
-            target_user_id="U_SMEET",
-        )
-        assert ok is False
-        client.chat_update.assert_not_called()
-        say.assert_called_once()
-        assert "Only the assignee, an approver, or an admin can reassign it" in say.call_args[1]["text"]
-
-
 # 12. Approver reassigning assigned request succeeds and leaves both in history
 def test_approver_reassigning_assigned_request():
     """Approver can reassign an assigned request; history preserves both assignments."""
@@ -544,11 +515,15 @@ def test_req_processed_unassigned_request_denied():
 
 # 17. build_request_blocks approved state & no req_claim in src/
 def test_build_request_blocks_approved_state_and_no_req_claim_in_src():
-    """Approved state offers Mark Processed and Cancel; req_claim appears nowhere in src/."""
+    """Approved state offers Mark Processed, Cancel and the buyer picker (ADR 0011 decision 2);
+    req_claim appears nowhere in src/.
+    """
     card_blocks = blocks.build_request_blocks("approved", {"item_description": "Mirror", "total_price": 10.0})
     actions = next(b for b in card_blocks if b.get("type") == "actions")
     action_ids = [el["action_id"] for el in actions["elements"]]
-    assert action_ids == ["req_processed", "req_cancel"]
+    assert "req_processed" in action_ids
+    assert "req_cancel" in action_ids
+    assert "req_assign_select" in action_ids
 
     src_dir = Path("src")
     for py_file in src_dir.rglob("*.py"):

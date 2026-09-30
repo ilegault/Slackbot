@@ -622,6 +622,18 @@ def build_request_blocks(
             if assignee_id:
                 picker_elem["initial_user"] = assignee_id
             elements.append(picker_elem)
+        elif state == "approved":
+            # ADR 0011 decision 2: buyer picker on the approved card lets any buyer move the
+            # request without a typed keyword.  Disappears at Processed so nobody can move a
+            # request that has already gone to purchasing.
+            picker_elem = {
+                "type": "users_select",
+                "action_id": config.ACTION_REQ_ASSIGN_SELECT,
+                "placeholder": {"type": "plain_text", "text": "Assign a buyer"},
+            }
+            if assignee_id:
+                picker_elem["initial_user"] = assignee_id
+            elements.append(picker_elem)
         blocks.append({
             "type": "actions",
             "elements": elements,
