@@ -24,13 +24,14 @@ for p in (PROJECT_ROOT, SRC_DIR):
         sys.path.insert(0, p)
 
 try:
-    from src import app, blocks, config, epif_parser, log_writer, slack_io, text_rules, validators
+    from src import app, blocks, config, epif_parser, log_writer, roster, slack_io, text_rules, validators
 except ImportError:
     import app
     import blocks
     import config
     import epif_parser
     import log_writer
+    import roster
     import slack_io
     import text_rules
     import validators
@@ -136,7 +137,10 @@ def test_a_complete_form_passes(filled):
 
 # --- requester resolution and logging -----------------------------------------
 
-def test_resolve_requester_via_explicit_mapping():
+def test_resolve_requester_via_explicit_mapping(tmp_path, monkeypatch):
+    # Patch ROSTER_PATH so that seeding from config.SLACK_USER_TO_REQUESTER does not
+    # write U12345 into the shared roster.json and leak state to later tests.
+    monkeypatch.setattr(roster, "ROSTER_PATH", str(tmp_path / "roster.json"))
     mock_client = MagicMock()
     config.SLACK_USER_TO_REQUESTER["U12345"] = "Isaac"
     try:
@@ -387,7 +391,10 @@ def test_help_message_returns_command_list():
     assert "@Purchasing restart" in help_text
 
 
-def test_app_home_opened_publishes_view():
+def test_app_home_opened_publishes_view(tmp_path, monkeypatch):
+    # Isolate the roster so U12345 is never registered, ensuring the "not yet
+    # registered" panel is rendered for an unknown user regardless of other tests.
+    monkeypatch.setattr(roster, "ROSTER_PATH", str(tmp_path / "roster.json"))
     mock_client = MagicMock()
     app.handle_app_home_opened(mock_client, {"user": "U12345"})
     mock_client.views_publish.assert_called_once_with(
