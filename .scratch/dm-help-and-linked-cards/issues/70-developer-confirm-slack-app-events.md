@@ -1,6 +1,6 @@
 # 70: Developer — confirm the Slack app hears channel messages; drop a test EPIF
 
-**Status:** ready-for-developer
+**Status:** done
 
 **Runner:** developer
 
@@ -20,13 +20,13 @@ configuration, not code, and it should be known before ticket 65's alert reports
 
 ## Acceptance criteria
 
-- [ ] In the Slack app's **Event Subscriptions → Subscribe to bot events**: `app_mention`,
+- [x] In the Slack app's **Event Subscriptions → Subscribe to bot events**: `app_mention`,
   `message.channels` (and `message.groups` if the purchasing channel is private), `message.im` and
   `app_home_opened` are all listed. If any was missing, add it and reinstall the app to the workspace.
-- [ ] In **OAuth & Permissions → Bot Token Scopes**: `channels:history` (and `groups:history` if
+- [x] In **OAuth & Permissions → Bot Token Scopes**: `channels:history` (and `groups:history` if
   private), `im:history`, `files:read`, `files:write`, `chat:write`, `users:read`.
-- [ ] The Purchasing bot is a member of the purchasing channel (`/invite @Purchasing`).
-- [ ] As a lab member with no special role, drop a filled EPIF PDF in a **new thread** in the
+- [x] The Purchasing bot is a member of the purchasing channel (`/invite @Purchasing`).
+- [x] As a lab member with no special role, drop a filled EPIF PDF in a **new thread** in the
   purchasing channel: within about ten seconds the bot posts the *New Purchase Request* card with an
   Approve button. If it does not, run `@Purchasing logs 100` in the alert channel, find the lines around
   the drop, and record under Comments what they say (no `[message]` event at all points at the
