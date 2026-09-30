@@ -430,3 +430,26 @@ def storage_problem_message(setting: str, path: str, reason: str) -> str:
     return f"⚠️ I can't reach a storage location. *{setting}* {reason}: `{path_display}`. An admin needs to fix the server's .env."
 
 
+def format_stage_denial(assignee_id: str) -> str:
+    """Format the denial message when a non-assignee, non-admin, non-approver clicks a stage button.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 66 / ADR 0010 Decision 4:
+    Stage buttons (Mark Processed, Mark Confirmed, Mark Delivered) and future DM card buttons
+    share one consistent refusal text naming the assigned buyer.
+    """
+    return f"🔒 Only the assigned buyer (<@{assignee_id}>), an admin or an approver can update this request."
+
+
+def format_stage_unassigned() -> str:
+    """Format the denial message when a stage button is clicked on an unassigned request.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 66 / ADR 0010 Decision 4:
+    An unassigned request must be assigned to a buyer before any stage buttons can be used.
+    """
+    return "⚠️ This request must be assigned to a buyer before it can be updated. Use `@Purchasing assign @buyer`."
+
+

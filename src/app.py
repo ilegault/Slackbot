@@ -917,12 +917,12 @@ def handle_req_processed_action(ack, body, respond, client):
     assignee_id = req_data.get("assignee_id")
     if not assignee_id:
         log.warning("User %s clicked req_processed on unassigned request", user_id)
-        slack_io.deny(respond, "⚠️ This request must be assigned to a buyer before it can be marked processed. Use `@Purchasing assign @buyer`.")
+        slack_io.deny(respond, text_rules.format_stage_unassigned())
         return
 
-    if not (user_id == assignee_id or admin.is_admin_user(user_id)):
-        log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_processed", user_id, assignee_id)
-        slack_io.deny(respond, f"🔒 Only the assigned buyer (<@{assignee_id}>) or an admin can mark this request processed.")
+    if not admin.can_update_request(user_id, assignee_id):
+        log.warning("Unauthorized user %s (not assignee %s, admin or approver) clicked req_processed", user_id, assignee_id)
+        slack_io.deny(respond, text_rules.format_stage_denial(assignee_id))
         return
 
     requester_name = slack_io.resolve_requester(client, user_id)
@@ -1339,9 +1339,14 @@ def handle_req_confirmed_action(ack, body, respond, client):
     history = list(val_data.get("history", []))
 
     assignee_id = req_data.get("assignee_id")
-    if not (user_id == assignee_id or admin.is_admin_user(user_id)):
-        log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_confirmed", user_id, assignee_id)
-        slack_io.deny(respond, "🔒 Only the assigned buyer or an admin can update this request.")
+    if not assignee_id:
+        log.warning("User %s clicked req_confirmed on unassigned request", user_id)
+        slack_io.deny(respond, text_rules.format_stage_unassigned())
+        return
+
+    if not admin.can_update_request(user_id, assignee_id):
+        log.warning("Unauthorized user %s (not assignee %s, admin or approver) clicked req_confirmed", user_id, assignee_id)
+        slack_io.deny(respond, text_rules.format_stage_denial(assignee_id))
         return
 
     requester_name = slack_io.resolve_requester(client, user_id)
@@ -1383,9 +1388,14 @@ def handle_req_delivered_action(ack, body, respond, client):
     history = list(val_data.get("history", []))
 
     assignee_id = req_data.get("assignee_id")
-    if not (user_id == assignee_id or admin.is_admin_user(user_id)):
-        log.warning("Unauthorized user %s (not assignee %s or admin) clicked req_delivered", user_id, assignee_id)
-        slack_io.deny(respond, "🔒 Only the assigned buyer or an admin can update this request.")
+    if not assignee_id:
+        log.warning("User %s clicked req_delivered on unassigned request", user_id)
+        slack_io.deny(respond, text_rules.format_stage_unassigned())
+        return
+
+    if not admin.can_update_request(user_id, assignee_id):
+        log.warning("Unauthorized user %s (not assignee %s, admin or approver) clicked req_delivered", user_id, assignee_id)
+        slack_io.deny(respond, text_rules.format_stage_denial(assignee_id))
         return
 
     requester_name = slack_io.resolve_requester(client, user_id)

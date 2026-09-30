@@ -538,7 +538,7 @@ def test_req_processed_unassigned_request_denied():
         mock_processed.assert_not_called()
         client.chat_update.assert_not_called()
         respond.assert_called_once()
-        assert "must be assigned to a buyer before it can be marked processed" in respond.call_args[1]["text"]
+        assert "must be assigned to a buyer before it can be updated" in respond.call_args[1]["text"]
 
 
 # 17. build_request_blocks approved state & no req_claim in src/

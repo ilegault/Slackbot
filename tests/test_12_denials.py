@@ -246,7 +246,7 @@ BUTTON_DENIAL_SCENARIOS = [
         app.handle_req_confirmed_action,
         lambda: _make_button_body("req_confirmed", user_id="U_OTHER", state="processed", assignee_id="U_ASSIGNED"),
         [(admin, "is_admin_user", False)],
-        "assigned buyer or an admin",
+        "assigned buyer",
         (lifecycle, "handle_confirmation"),
     ),
     (
@@ -262,7 +262,7 @@ BUTTON_DENIAL_SCENARIOS = [
         app.handle_req_delivered_action,
         lambda: _make_button_body("req_delivered", user_id="U_OTHER", state="confirmed", assignee_id="U_ASSIGNED"),
         [(admin, "is_admin_user", False)],
-        "assigned buyer or an admin",
+        "assigned buyer",
         (lifecycle, "handle_delivery"),
     ),
     (
