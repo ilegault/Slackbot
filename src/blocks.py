@@ -15,6 +15,7 @@ Ticket 27: Adds build_items_view for line items modal and renders Add items / Ed
 Ticket 28: Screen 2 (build_stage2_view) renders an optional multiline Line items input with format/shipping hint and 1500-char limit.
 Ticket 63: Adds chunk_mrkdwn and build_dm_help_blocks for DM help responses when a free-form message cannot be parsed (ADR 0010 Decision 5).
 Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step button (ADR 0010 Decision 2).
+Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned with note, delivered) with no buttons (ADR 0010 Decision 3).
 
 Imports:
     - bom, config, interview, roster, text_rules
@@ -636,16 +637,19 @@ def build_dm_card_blocks(
     thread_ts: str,
     card_ts: str,
     thread_link: str | None = None,
+    note: str | None = None,
 ) -> list:
     """Build the Block Kit payload for a buyer's linked DM card.
 
     WHY THIS EXISTS:
     ----------------
-    ADR 0010 Decisions 2 & 3 & Ticket 67:
+    ADR 0010 Decisions 2 & 3 & Tickets 67 & 69:
     When a buyer is assigned, their DM receives a DM card summarizing the purchase,
     linking to the thread card, and offering the one next-step button for the current stage.
     The DM card holds only a pointer to the thread card (thread_channel, thread_ts, card_ts)
     and no request state of its own; the thread card remains the store.
+    Retired states (cancelled, reassigned, delivered) render the section plus a status line
+    and no buttons (Ticket 69).
     """
     parsed = request.get("parsed") if isinstance(request.get("parsed"), dict) else {}
     item = parsed.get("item_description") or request.get("item_description") or "Item"
@@ -670,6 +674,13 @@ def build_dm_card_blocks(
     ]
     if thread_link:
         lines.append(f"<{thread_link}|Open the request thread>")
+
+    if state == "cancelled":
+        lines.append("🚫 Cancelled")
+    elif state == "reassigned":
+        lines.append(f"↪️ {note}" if note else "↪️ Reassigned")
+    elif state == "delivered":
+        lines.append("✅ Delivered")
 
     blocks = [
         {
