@@ -24,11 +24,11 @@ does not grant approval.
 
 **Buyer** (also *purchase buyer*, *grad buyer*) — a grad student who processes an
 approved purchase in Workday or ShopUW. Isaac, Finn, Smeet, Dylan. A buyer is
-**assigned** a request — by the approver at approval time, or by any buyer while
-the request is still unassigned — and then does the ordering. Being a buyer does
+**assigned** a request — by the approver at approval time, or by any buyer at any
+point before it is Processed — and then does the ordering. Being a buyer does
 not grant approval. Stored as Slack IDs in the roster's `buyers`, checked with
-`roster.is_buyer(user_id)`. Membership is what makes a person *nameable*; it is
-not a licence to act on a request already assigned to someone else.
+`roster.is_buyer(user_id)`. Membership is what makes a person *nameable*; it lets
+you move a request between buyers, but not mark stages on one assigned to someone else.
 
 **Requester** — whoever asked for the purchase. Anyone in the lab. Mapped Slack ID
 → name in the roster's `requesters`. The name goes into the workbook, so it is
@@ -140,14 +140,22 @@ approved`, in either order — and the bot reads the one non-bot `<@U…>` menti
 it. A named person must already be on the buyers roster.
 
 **Unassigned** — approved, written to the workbook, nobody named yet. A real and
-legitimate state: a missing mention never costs an approval. Any buyer may assign
-an unassigned request, including to themselves; once it is assigned, only an
-approver, an admin or the current assignee may change it.
+legitimate state: a missing mention never costs an approval. Any buyer, approver
+or admin may assign a request, including a buyer naming themselves, and may move
+it from one buyer to another — so the work does not stall when the assignee is
+away. Assignment can change only until the request is **Processed**; after that
+the buyer is fixed. When it changes, the old buyer is told by DM who has it now.
 
 > **`claim` is dead.** It shipped in ticket 03 and was removed in ticket 08 before
 > it ever ran in production. The word, the button, the keyword and the `claimed`
 > state are all gone — see ADR 0004, which supersedes ADR 0002 decision 6. Do not
 > reintroduce it as a synonym for assigning yourself; that is `assign`.
+
+**Nudge** — the bot's reminder that an approved request has not been Processed.
+Counted in working days from approval (restarted by a reassignment): day 3 a private
+DM to the buyer, day 6 the DM plus one post the whole channel sees, then a DM every
+3 working days. An unassigned request gets a thread line to all buyers on day 3 and
+day 6, then nothing. Only requests in the request log are nudged.
 
 **Decline** — an approver's "no" on a request that has not been approved. No
 reason, no logging, one click. The point is to reduce friction.
@@ -283,10 +291,11 @@ try later" into "written" instead of "lost".
 after ticket 02, buyers). Admin-manageable from Slack; changes take effect
 immediately because every getter re-reads from disk.
 
-**The store** — `src/store.py`. **Currently a word with no referent: nothing in
-`src/` imports it.** It acquired tests in ticket 06, which does not make it used. It describes itself as the request index with multi-item batch
-mappings and card timestamps, but the request's state actually lives on the
-message. Do not use "the store" to mean that module without saying so.
+**The request log** — `requests.json`, next to the roster, kept by `src/store.py`.
+One entry per approved request: its thread, its card, its current buyer and a history
+line for every event. It never holds a stage (the workbook does) and cards are not
+drawn from it; it exists so the bot can find open requests on its own (ADR 0011).
+Finished requests stay in it. Say "the request log", not "the store".
 
 ---
 
