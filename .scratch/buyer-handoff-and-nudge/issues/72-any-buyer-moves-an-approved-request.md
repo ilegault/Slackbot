@@ -1,6 +1,6 @@
 # 72: Any buyer can move an approved request from the thread card
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
