@@ -1,6 +1,6 @@
 # 68: A click on the DM card advances the request
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
