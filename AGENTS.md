@@ -1,4 +1,4 @@
-# AGENTS.md — orientation for AI sessions working on P-Bot
+# AGENTS.md — orientation for AI sessions working on Purchasing
 
 ## Agent skills
 
@@ -10,7 +10,7 @@ Issues live as local markdown files under `.scratch/<effort>/`. See `docs/agents
 
 Single-context layout: one `CONTEXT.md` at the repo root, ADRs in `docs/adr/`. See `docs/agents/domain.md`.
 
-P-Bot is the purchasing bot for the **Hirst Lab** (UW–Madison NEEP). It runs in
+Purchasing is the purchasing bot for the **Hirst Lab** (UW–Madison NEEP). It runs in
 Slack, walks lab members through a purchase request, gates approval on one
 person, tracks the order through four stages, and writes each approved purchase
 as a row in `Purchasing-Log.xlsx` on OneDrive.
@@ -28,16 +28,16 @@ why a green test suite that was made green by editing a test is worse than a red
 
 ## 1. Quick facts
 
-| | |
-|---|---|
-| Language / runtime | Python 3.12+ (dev venv is Windows, `.venv\Scripts\`); CI runs 3.14 |
-| Framework | `slack_bolt` in **Socket Mode** — no public HTTP endpoint |
-| Entry point | `python app.py` → `src/app.py:main()` |
-| Package | `src/` — ~10 300 lines across 19 modules |
+| |                                                                                                                                                                                |
+|---|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Language / runtime | Python 3.12+ (dev venv is Windows, `.venv\Scripts\`); CI runs 3.14                                                                                                             |
+| Framework | `slack_bolt` in **Socket Mode** — no public HTTP endpoint                                                                                                                      |
+| Entry point | `python app.py` → `src/app.py:main()`                                                                                                                                          |
+| Package | `src/` — ~10 300 lines across 19 modules                                                                                                                                       |
 | Tests | `pytest` — ~460 test functions in `tests/`. Needs dummy `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` env vars, as `.github/workflows/tests.yml` sets, or `src/app.py` fails at import |
-| Build | `pyinstaller p_bot.spec` (see `docs/EXECUTABLE_BUILD.md`) |
-| Deploy target | **A separate production server, not the dev machine.** `@p-bot update` pulls git and restarts. |
-| Repo | `master`; remote `origin` = `github.com/ilegault/Slackbot`. CI on push and PR. |
+| Build | `pyinstaller p_bot.spec` (see `docs/EXECUTABLE_BUILD.md`)                                                                                                                      |
+| Deploy target | **A separate production server, not the dev machine.** `@Purchasing update` pulls git and restarts.                                                                            |
+| Repo | `master`; remote `origin` = `github.com/ilegault/Slackbot`. CI on push and PR.                                                                                                 |
 
 ```
 # setup
@@ -90,7 +90,7 @@ Nothing imports `app`.
 ### Five invariants the whole design rests on
 
 1. **One lifecycle operation, one implementation.** A button click and an
-   `@p-bot` keyword for the same action call the *same* function. `handle_claim`
+   `@Purchasing` keyword for the same action call the *same* function. `handle_claim`
    is the only thing that knows how a claim works; `handle_req_claim_action`
    extracts the payload and calls it. Two implementations of "mark delivered" is
    the failure mode this repo exists to avoid — the two drift, and then the
@@ -144,7 +144,7 @@ everything the next click needs.
 **Why approval is a keyword and not a pre-existing object.** A purchasing thread
 discusses freely — links, quotes, "do we want the 5 mm or the 10 mm" — before
 anyone agrees what to order. There is nothing to make a request object *out of*
-until Charlie says yes. So `@p-bot approved` (or an Approve button on a request
+until Charlie says yes. So `@Purchasing approved` (or an Approve button on a request
 that was already formalised through the modal) is the moment the object is
 created, and the button card appears only after that.
 
@@ -154,7 +154,7 @@ created, and the button card appears only after that.
 
 After approval a purchase moves through four stages. **Each has exactly one word,
 used everywhere** — in the button label, the action id, the history line, the
-help text, the App Home definitions, and the silent `@p-bot` keyword aliases.
+help text, the App Home definitions, and the silent `@Purchasing` keyword aliases.
 
 | Stage | Means | Excel column |
 |---|---|---|
@@ -164,7 +164,7 @@ help text, the App Home definitions, and the silent `@p-bot` keyword aliases.
 | **delivered** | the package is in the lab | W + X, Date of Delivery / Received By |
 
 **The word is `processed`.** Not "submitted", not "submit", not "ordered". The
-rename (ticket 05) has landed: `submitted` survives only as a silent `@p-bot`
+rename (ticket 05) has landed: `submitted` survives only as a silent `@Purchasing`
 keyword alias in `config.PROCESSED_KEYWORDS`. Do not reintroduce it in a button
 label, action id, history line or help text.
 
@@ -406,7 +406,7 @@ only the tool that has that command.
    under `.claude/` or `Claude outputs/` — both are gitignored.
 9. Update the module docstring's reasoning when you change behaviour.
 10. **Never touch the production server.** Deploying is a human step: Isaac merges,
-    then runs `@p-bot update`. Do not add anything to a ticket that assumes it.
+    then runs `@Purchasing update`. Do not add anything to a ticket that assumes it.
 11. **After pushing, watch CI and fix what it finds** — up to two fix-and-push
     cycles, then escalate. See the section directly below; it is binding.
 
