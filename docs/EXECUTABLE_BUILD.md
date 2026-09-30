@@ -1,6 +1,6 @@
-# P-Bot (Purchasing Bot) - PyInstaller Executable Build Guide
+# Purchasing Bot - PyInstaller Executable Build Guide
 
-This guide explains how to build P-Bot as a standalone `.exe` executable that can run on any Windows computer **without requiring Python to be installed**.
+This guide explains how to build the Purchasing bot as a standalone `.exe` executable that can run on any Windows computer **without requiring Python to be installed**.
 
 ---
 
@@ -118,7 +118,7 @@ python build_exe.py
 
 1. Copy the `p_bot_deployment` folder to the lab computer (any location)
    ```
-   Example: C:\P-Bot\
+   Example: C:\purchasing_bot\
    ```
 
 2. Create a `.env` file in that folder with your Slack tokens:
@@ -147,7 +147,7 @@ python build_exe.py
    ```
 
    This creates:
-   - Windows Task Scheduler task "P-Bot" (primary)
+   - Windows Task Scheduler task "Purchasing-Bot" (primary)
    - Startup folder shortcut (fallback)
 
 4. Reboot computer to verify auto-start works
@@ -223,7 +223,7 @@ python build_exe.py
 ### Create a Shortcut on Desktop
 On the lab computer, create a Windows shortcut to:
 ```
-C:\P-Bot\p_bot\p_bot.exe
+C:\purchasing_bot\p_bot\p_bot.exe
 ```
 
 Then save it to the Desktop for easy access.
@@ -324,7 +324,7 @@ This checks:
 
 - **Slack token issues?** → See [Slack App Setup](https://api.slack.com/apps)
 - **Storage paths?** → See SETUP.md
-- **Auto-start not working?** → Open Task Scheduler and check "P-Bot" task
+- **Auto-start not working?** → Open Task Scheduler and check "Purchasing-Bot" task
 - **Build errors?** → Check Python version (needs 3.10+)
 
 For detailed deployment guide, see `DEPLOYMENT.md` (created in the deployment package).
