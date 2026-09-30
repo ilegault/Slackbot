@@ -1,6 +1,6 @@
 # 61: Add the layered type gate and parallel test run to CI
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
