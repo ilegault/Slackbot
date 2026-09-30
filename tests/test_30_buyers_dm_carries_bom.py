@@ -203,7 +203,7 @@ def test_approval_with_buyer_attaches_bom_to_dm(temp_workbook, temp_boms_dir, sy
     # 4. DM text sent to Dylan and mentions the BOM file
     dm_text_calls = [
         c for c in client.chat_postMessage.call_args_list
-        if c[1].get("channel") == "U_DYLAN"
+        if c[1].get("channel") == "U_DYLAN" and not c[1].get("blocks")
     ]
     assert len(dm_text_calls) == 1
     dm_text = dm_text_calls[0][1]["text"]
@@ -294,7 +294,7 @@ def test_assign_after_unassigned_approval_attaches_bom(temp_boms_dir):
 
     # DM text contains BOM reference and email line
     dm_calls = [c for c in client.chat_postMessage.call_args_list
-                if c[1].get("channel") == "U_DYLAN"]
+                if c[1].get("channel") == "U_DYLAN" and not c[1].get("blocks")]
     assert len(dm_calls) == 1
     dm_text = dm_calls[0][1]["text"]
     assert bom_fname in dm_text
@@ -352,7 +352,7 @@ def test_reassign_new_buyer_gets_bom_dm(temp_boms_dir):
 
     # DM text sent to Smeet names the BOM
     dm_calls = [c for c in client.chat_postMessage.call_args_list
-                if c[1].get("channel") == "U_SMEET"]
+                if c[1].get("channel") == "U_SMEET" and not c[1].get("blocks")]
     assert len(dm_calls) == 1
     assert bom_fname in dm_calls[0][1]["text"]
 
@@ -390,7 +390,7 @@ def test_approval_no_items_dm_unchanged(temp_workbook, temp_boms_dir, sync_queue
 
     # DM was still sent with normal text
     dm_calls = [c for c in client.chat_postMessage.call_args_list
-                if c[1].get("channel") == "U_DYLAN"]
+                if c[1].get("channel") == "U_DYLAN" and not c[1].get("blocks")]
     assert len(dm_calls) == 1
     dm_text = dm_calls[0][1]["text"]
     assert "BOM" not in dm_text
@@ -430,7 +430,7 @@ def test_assign_no_bom_file_on_card_dm_unchanged(temp_boms_dir):
     client.files_upload_v2.assert_not_called()
 
     dm_calls = [c for c in client.chat_postMessage.call_args_list
-                if c[1].get("channel") == "U_DYLAN"]
+                if c[1].get("channel") == "U_DYLAN" and not c[1].get("blocks")]
     assert len(dm_calls) == 1
     assert "Itemised BOM attached" not in dm_calls[0][1]["text"]
 
@@ -479,8 +479,8 @@ def test_bom_dm_upload_failure_leaves_approval_intact(
         sheet_xml = zf.read(config.SHEET_XML).decode("utf-8")
     assert log_writer.find_first_empty_row(sheet_xml) == 18  # row 17 was filled
 
-    # Card advanced to approved
-    client.chat_update.assert_called_once()
+    # Card advanced to approved (updated twice: once for approval, once for DM card link)
+    assert client.chat_update.call_count == 2
     update_kwargs = client.chat_update.call_args[1]
     assert update_kwargs["text"] == "🛒 Purchase Request (Approved)"
 

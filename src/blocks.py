@@ -14,6 +14,7 @@ direct button opening the /roster-set-name modal. Unregistered users lead with r
 Ticket 27: Adds build_items_view for line items modal and renders Add items / Edit items button on posted source=='epif' cards.
 Ticket 28: Screen 2 (build_stage2_view) renders an optional multiline Line items input with format/shipping hint and 1500-char limit.
 Ticket 63: Adds chunk_mrkdwn and build_dm_help_blocks for DM help responses when a free-form message cannot be parsed (ADR 0010 Decision 5).
+Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step button (ADR 0010 Decision 2).
 
 Imports:
     - bom, config, interview, roster, text_rules
@@ -624,6 +625,91 @@ def build_request_blocks(
             "type": "actions",
             "elements": elements,
         })
+
+    return blocks
+
+
+def build_dm_card_blocks(
+    state: str,
+    request: dict,
+    thread_channel: str,
+    thread_ts: str,
+    card_ts: str,
+    thread_link: str | None = None,
+) -> list:
+    """Build the Block Kit payload for a buyer's linked DM card.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0010 Decisions 2 & 3 & Ticket 67:
+    When a buyer is assigned, their DM receives a DM card summarizing the purchase,
+    linking to the thread card, and offering the one next-step button for the current stage.
+    The DM card holds only a pointer to the thread card (thread_channel, thread_ts, card_ts)
+    and no request state of its own; the thread card remains the store.
+    """
+    parsed = request.get("parsed") if isinstance(request.get("parsed"), dict) else {}
+    item = parsed.get("item_description") or request.get("item_description") or "Item"
+    vendor = parsed.get("vendor") or request.get("vendor") or "Vendor"
+    price = parsed.get("total_price") if "total_price" in parsed else request.get("total_price")
+
+    if isinstance(price, (int, float)):
+        price_str = f"${price:,.2f}"
+    elif price:
+        price_str = str(price)
+        if not price_str.startswith("$"):
+            price_str = f"${price_str}"
+    else:
+        price_str = "$0.00"
+
+    row = request.get("row") or parsed.get("row") or request.get("row_number")
+    row_str = f" (Row {row})" if row else ""
+
+    lines = [
+        f"🛒 *{item}* — {vendor}, {price_str}{row_str}",
+        f"Stage: *{state}*",
+    ]
+    if thread_link:
+        lines.append(f"<{thread_link}|Open the request thread>")
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "\n".join(lines),
+            },
+        }
+    ]
+
+    primary_dm_buttons = {
+        "approved": ("Mark Processed", config.ACTION_DM_REQ_PROCESSED),
+        "processed": ("Mark Confirmed", config.ACTION_DM_REQ_CONFIRMED),
+        "confirmed": ("Mark Delivered", config.ACTION_DM_REQ_DELIVERED),
+    }
+
+    if state in primary_dm_buttons:
+        btn_label, btn_action_id = primary_dm_buttons[state]
+        btn_value = json.dumps(
+            {
+                "thread_channel": thread_channel,
+                "thread_ts": thread_ts,
+                "card_ts": card_ts,
+            }
+        )
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": btn_label, "emoji": True},
+                        "style": "primary",
+                        "action_id": btn_action_id,
+                        "value": btn_value,
+                    }
+                ],
+            }
+        )
 
     return blocks
 

@@ -1,6 +1,6 @@
 # 67: The assigned buyer's DM carries a card with the next-step button
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -55,13 +55,13 @@ DM card holds a pointer, never request state.
 
 ## Acceptance criteria
 
-- [ ] **The DM card's shape**, tested on `blocks.build_dm_card_blocks` directly in
+- [x] **The DM card's shape**, tested on `blocks.build_dm_card_blocks` directly in
   `tests/test_67_dm_card.py`: `approved` → one button `Mark Processed`, `action_id`
   `dm_req_processed`; `processed` → `Mark Confirmed` / `dm_req_confirmed`; `confirmed` → `Mark Delivered`
   / `dm_req_delivered`; `delivered` → no `actions` block; no state has a `Cancel` button; the button
   `value` parses to a dict whose keys are exactly `thread_channel`, `thread_ts`, `card_ts`; the
   section text holds the item, vendor, a `$` price and `Row 17`; with `thread_link=None` it holds no `<http`.
-- [ ] **Approval with a buyer posts the card, after the draft, and records where.** Copy the
+- [x] **Approval with a buyer posts the card, after the draft, and records where.** Copy the
   fixtures and fake-client style of `tests/test_46_epif_path_dm_attaches_epif.py`; make
   `chat_postMessage` return `{"channel": "C123", "ts": "5.5"}` for the thread-card post and
   `{"channel": "D_BUYER", "ts": "9.9"}` when `channel == "U_BUYER"`. Assert: the call to `U_BUYER`
@@ -69,13 +69,13 @@ DM card holds a pointer, never request state.
   (compare `client.mock_calls` order); its button `value` holds `card_ts` equal to the thread card's
   `ts`; and the last `chat_update` of the thread card has a button `value` whose `request` holds
   `dm_channel == "D_BUYER"` and `dm_ts == "9.9"`.
-- [ ] **Both routes.** The same on a Workday-path approval (no PDF): a DM card is posted and
+- [x] **Both routes.** The same on a Workday-path approval (no PDF): a DM card is posted and
   `files_upload_v2` is not called.
-- [ ] **A later assignment posts it too, and a card-less thread does not.** `handle_assign` with a
+- [x] **A later assignment posts it too, and a card-less thread does not.** `handle_assign` with a
   fake `conversations_replies` holding an approved card: a DM card is posted and the thread card's
   `request` gains the references. With no card found (so no `msg_ts`): no DM card is posted
   and `caplog` holds a WARNING.
-- [ ] **A failed DM card never undoes the approval.** `post_dm_card` returning `None` (make
+- [x] **A failed DM card never undoes the approval.** `post_dm_card` returning `None` (make
   `chat_postMessage` raise for `U_BUYER` only after the draft): the row-append recorder was called
   once, the thread card exists with no `dm_channel`, and one message went to the alert channel
   containing `post the buyer's DM card`.

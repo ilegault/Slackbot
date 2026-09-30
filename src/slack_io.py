@@ -35,6 +35,10 @@ Adds `alert_admins(client, text)`: posts card or processing failure alerts to
 config.ADMIN_ALERT_CHANNEL. Never raises: returns False and logs a WARNING when
 the channel is unset, client is None, or chat_postMessage raises.
 
+Ticket 67:
+Adds `post_dm_card(client, user_id, text, blocks)`: posts a DM card to a user ID
+and returns `(dm_channel, dm_ts)` or `None` on failure.
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -93,6 +97,25 @@ def alert_admins(client, text: str) -> bool:
     except Exception as e:
         log.warning("Failed to post admin alert to %s: %s", channel, e)
         return False
+
+
+def post_dm_card(client, user_id: str, text: str, blocks: list) -> tuple[str, str] | None:
+    """Post a DM card to a user and return (channel_id, ts) or None on failure.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0010 decision 2 & Ticket 67:
+    The assigned buyer's DM carries a card with next-step buttons. Slack's chat.postMessage
+    accepts a user ID as the channel parameter and returns the opened DM channel ID along
+    with the message timestamp.
+    """
+    try:
+        resp = client.chat_postMessage(channel=user_id, text=text, blocks=blocks)
+        return (resp["channel"], resp["ts"])
+    except Exception as e:
+        log.warning("Failed to post DM card to user %s: %s", user_id, e)
+        return None
+
 
 
 def resolve_requester(client, user_id: str | None) -> str | None:

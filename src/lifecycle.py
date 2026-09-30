@@ -96,6 +96,14 @@ Per Ticket 65 (ADR 0010 decision 7):
 - handle_epif_drop logs each exit with 'drop exit: <reason>' at INFO level.
 - In finalize_purchase_request, failed card updates and failed fallback card posts alert admins.
 
+Per Ticket 67 (ADR 0010 decisions 2 & 3):
+- The assigned buyer's DM carries a card with next-step button (DM card).
+- _send_assignee_dm posts the DM card after draft and file uploads and returns (dm_channel, dm_ts).
+- finalize_purchase_request updates or posts the thread card before sending the DM, then records
+  dm_channel and dm_ts in the thread card payload and updates it.
+- handle_assign posts the DM card upon later assignment and records dm_channel and dm_ts in the thread card.
+- A failed DM card alerts admins and never reverses the approval.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -152,8 +160,14 @@ def _send_assignee_dm(
     epif_fname: str | None = None,
     route: str = "workday",
     parsed: dict | None = None,
-) -> None:
-    """Send the email-draft DM to the assigned buyer, optionally attaching the archived BOM.
+    thread_channel: str | None = None,
+    thread_ts: str | None = None,
+    card_ts: str | None = None,
+    request: dict | None = None,
+    state: str | None = None,
+) -> tuple[str, str] | None:
+    """Send the email-draft DM to the assigned buyer, optionally attaching the archived BOM,
+    and post the linked DM card with the next-step button.
 
     WHY THIS EXISTS:
     ----------------
@@ -163,6 +177,9 @@ def _send_assignee_dm(
     so the buyer forwards one EPIF and one sheet instead of pasting links.
     A failed BOM upload is logged and alerted to admin but never reverses the approval
     (same spirit as ADR 0004 decision 2 — the money decision already happened).
+    Per ADR 0010 decisions 2 & 3 & Ticket 67:
+    After the email draft and file uploads, posts a linked DM card as its own message
+    and returns (dm_channel, dm_ts) so the thread card can record the location.
     """
     row_dm_str = f" in *Row {row}*" if row else ""
     if route == "workday":
@@ -202,7 +219,7 @@ def _send_assignee_dm(
         slack_io.tell(client, assignee_id, dm_text)
     except Exception as e:
         log.warning("Could not DM assignee %s: %s", assignee_id, e)
-        return
+        return None
 
     if route == "epif":
         files_to_upload = []
@@ -246,6 +263,62 @@ def _send_assignee_dm(
                                 log.warning("Could not alert admin about DM attachment failure: %s", alert_err)
             except Exception as e:
                 log.warning("Could not open DM channel for assignee %s: %s", assignee_id, e)
+
+    # Post the linked DM card (Ticket 67 / ADR 0010 decision 2)
+    if not card_ts:
+        log.warning("No card_ts provided to _send_assignee_dm; skipping DM card for %s", assignee_id)
+        return None
+
+    thread_link = None
+    if thread_channel and card_ts:
+        try:
+            resp = client.chat_getPermalink(channel=thread_channel, message_ts=card_ts)
+            if isinstance(resp, dict):
+                thread_link = resp.get("permalink")
+            elif hasattr(resp, "data") and isinstance(resp.data, dict):
+                thread_link = resp.data.get("permalink")
+            elif hasattr(resp, "get"):
+                thread_link = resp.get("permalink")
+        except Exception as e:
+            log.warning("Could not get permalink for thread card (%s, %s): %s", thread_channel, card_ts, e)
+            thread_link = None
+
+    req_dict = dict(request or {})
+    if row is not None and "row" not in req_dict:
+        req_dict["row"] = row
+    if parsed and "parsed" not in req_dict:
+        req_dict["parsed"] = parsed
+    dm_state = state or "approved"
+
+    dm_blocks = blocks.build_dm_card_blocks(
+        state=dm_state,
+        request=req_dict,
+        thread_channel=thread_channel or "",
+        thread_ts=thread_ts or "",
+        card_ts=card_ts,
+        thread_link=thread_link,
+    )
+
+    dm_res = slack_io.post_dm_card(
+        client=client,
+        user_id=assignee_id,
+        text=f"🛒 Purchase Request ({dm_state.capitalize()})",
+        blocks=dm_blocks,
+    )
+    if not dm_res:
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                step="post the buyer's DM card",
+                channel=thread_channel or "",
+                thread_ts=thread_ts or "",
+                file_name=None,
+                error="chat.postMessage failed",
+            ),
+        )
+        return None
+
+    return dm_res
 
 
 def finalize_purchase_request(
@@ -406,28 +479,6 @@ def finalize_purchase_request(
                 ),
                 thread_ts=thread_ts,
             )
-            # DM email draft (with optional BOM) to assignee — single implementation via _send_assignee_dm
-            row_info = log_writer.get_row_info(row) if row else {}
-            draft_data = dict(parsed)
-            for k, v in row_info.items():
-                if k not in draft_data or not draft_data[k]:
-                    draft_data[k] = v
-            email_draft = text_rules.generate_email_draft(draft_data, assignee_name, bom_filename=bom_fname)
-            item_desc = draft_data.get("item_description") or "supplies"
-            _send_assignee_dm(
-                client=client,
-                assignee_id=assignee_id,
-                assignee_name=assignee_name,
-                email_draft=email_draft,
-                item_desc=item_desc,
-                row=row,
-                bom_path=saved_bom_path,
-                bom_fname=bom_fname,
-                epif_path=saved_path,
-                epif_fname=saved_name,
-                route=route,
-                parsed=parsed,
-            )
         elif refusal_msg:
             say(
                 text=(
@@ -507,6 +558,7 @@ def finalize_purchase_request(
 
         next_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=items)
 
+        actual_card_ts = target_card_ts
         if target_card_ts:
             try:
                 client.chat_update(
@@ -533,7 +585,7 @@ def finalize_purchase_request(
                 )
         else:
             try:
-                client.chat_postMessage(
+                resp = client.chat_postMessage(
                     channel=channel,
                     thread_ts=thread_ts,
                     text="🛒 Purchase Request (Approved)",
@@ -543,6 +595,14 @@ def finalize_purchase_request(
                         "event_payload": req_payload,
                     },
                 )
+                if isinstance(resp, dict):
+                    actual_card_ts = resp.get("ts")
+                elif hasattr(resp, "data") and isinstance(resp.data, dict):
+                    actual_card_ts = resp.data.get("ts")
+                else:
+                    actual_card_ts = None
+                if not isinstance(actual_card_ts, str):
+                    actual_card_ts = None
             except Exception as e:
                 log.error("Failed to post purchase request card to channel %s: %s", channel, e)
                 slack_io.alert_admins(
@@ -555,6 +615,53 @@ def finalize_purchase_request(
                         error=str(e),
                     ),
                 )
+
+        if assignee_id and assignee_name:
+            route = interview.get_request_route(parsed, bool(pdf_bytes))
+            row_info = log_writer.get_row_info(row) if row else {}
+            draft_data = dict(parsed)
+            for k, v in row_info.items():
+                if k not in draft_data or not draft_data[k]:
+                    draft_data[k] = v
+            email_draft = text_rules.generate_email_draft(draft_data, assignee_name, bom_filename=bom_fname)
+            item_desc = draft_data.get("item_description") or "supplies"
+            dm_ref = _send_assignee_dm(
+                client=client,
+                assignee_id=assignee_id,
+                assignee_name=assignee_name,
+                email_draft=email_draft,
+                item_desc=item_desc,
+                row=row,
+                bom_path=saved_bom_path,
+                bom_fname=bom_fname,
+                epif_path=saved_path,
+                epif_fname=saved_name,
+                route=route,
+                parsed=parsed,
+                thread_channel=channel,
+                thread_ts=thread_ts,
+                card_ts=actual_card_ts,
+                request=req_payload,
+                state="approved",
+            )
+            if dm_ref and actual_card_ts:
+                dm_chan, dm_ts = dm_ref
+                req_payload["dm_channel"] = dm_chan
+                req_payload["dm_ts"] = dm_ts
+                updated_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=items)
+                try:
+                    client.chat_update(
+                        channel=channel,
+                        ts=actual_card_ts,
+                        text="🛒 Purchase Request (Approved)",
+                        blocks=updated_blks,
+                        metadata={
+                            "event_type": "purchase_request",
+                            "event_payload": req_payload,
+                        },
+                    )
+                except Exception as e:
+                    log.error("Failed to update thread card with DM reference: %s", e)
 
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
@@ -1065,7 +1172,7 @@ def handle_assign(
     item_desc = draft_data.get("item_description") or "supplies"
     epif_fname = req_data.get("epif_file")
     epif_path = os.path.join(config.EPIFS_DIR, epif_fname) if epif_fname else None
-    _send_assignee_dm(
+    dm_ref = _send_assignee_dm(
         client=client,
         assignee_id=target_user_id,
         assignee_name=target_name,
@@ -1078,7 +1185,30 @@ def handle_assign(
         epif_fname=epif_fname,
         route=route,
         parsed=draft_data,
+        thread_channel=channel,
+        thread_ts=thread_ts,
+        card_ts=msg_ts,
+        request=req_data,
+        state=current_state,
     )
+    if dm_ref and msg_ts:
+        dm_chan, dm_ts = dm_ref
+        req_data["dm_channel"] = dm_chan
+        req_data["dm_ts"] = dm_ts
+        card_blocks = blocks.build_request_blocks(current_state, req_data, history=history)
+        try:
+            client.chat_update(
+                channel=channel,
+                ts=msg_ts,
+                text=f"🛒 Purchase Request ({current_state.capitalize()})",
+                blocks=card_blocks,
+                metadata={
+                    "event_type": "purchase_request",
+                    "event_payload": req_data,
+                },
+            )
+        except Exception as e:
+            log.error("Failed to update message on assign with DM reference: %s", e)
 
     return True
 

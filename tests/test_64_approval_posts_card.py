@@ -297,7 +297,7 @@ def test_thread_with_existing_card_is_updated_not_duplicated(temp_epifs_dir, tem
         file_name="order.pdf",
     )
 
-    client.chat_update.assert_called_once()
+    assert client.chat_update.call_count == 2
     assert client.chat_update.call_args[1]["ts"] == "111.555"
 
     card_posts = [

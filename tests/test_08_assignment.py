@@ -344,20 +344,21 @@ def test_buyer_self_assigns_unassigned_request():
             target_user_id=None,  # Self-assign
         )
         assert ok is True
-        client.chat_update.assert_called_once()
+        assert client.chat_update.call_count == 2
         update_blocks = client.chat_update.call_args[1]["blocks"]
         # Summary block contains buyer
         section = update_blocks[0]["text"]["text"]
         assert "• *Buyer:* <@U_DYLAN> (Dylan)" in section
 
-        # DM sent to Dylan
+        # DM sent to Dylan: draft text and ticket 67 DM card
         dm_calls = [
             call for call in client.chat_postMessage.call_args_list
             if call[1].get("channel") == "U_DYLAN"
         ]
-        assert len(dm_calls) == 1
-        assert "Place this in Workday:" in dm_calls[0][1]["text"]
-        assert "Subject:" not in dm_calls[0][1]["text"]
+        assert len(dm_calls) == 2
+        dm_text_call = next(c for c in dm_calls if not c[1].get("blocks"))
+        assert "Place this in Workday:" in dm_text_call[1]["text"]
+        assert "Subject:" not in dm_text_call[1]["text"]
 
 
 # 11. Non-assignee buyer attempting to reassign already assigned request is refused
@@ -415,7 +416,7 @@ def test_approver_reassigning_assigned_request():
             target_user_id="U_SMEET",
         )
         assert ok is True
-        client.chat_update.assert_called_once()
+        assert client.chat_update.call_count == 2
         update_blocks = client.chat_update.call_args[1]["blocks"]
         # Summary block contains Smeet
         section = update_blocks[0]["text"]["text"]
@@ -429,12 +430,12 @@ def test_approver_reassigning_assigned_request():
         assert "Assigned to Dylan" in new_history[0]
         assert "Reassigned to Smeet by Charlie Hirst" in new_history[1]
 
-        # DM sent to Smeet
+        # DM sent to Smeet: draft text and ticket 67 DM card
         dm_calls = [
             call for call in client.chat_postMessage.call_args_list
             if call[1].get("channel") == "U_SMEET"
         ]
-        assert len(dm_calls) == 1
+        assert len(dm_calls) == 2
 
 
 # 13. Current assignee reassigns to another buyer succeeds
@@ -462,7 +463,7 @@ def test_current_assignee_reassigns_to_another_buyer():
             target_user_id="U_SMEET",
         )
         assert ok is True
-        client.chat_update.assert_called_once()
+        assert client.chat_update.call_count == 2
 
 
 # 14. Already approved thread: approval keyword reassigns without second Excel write
