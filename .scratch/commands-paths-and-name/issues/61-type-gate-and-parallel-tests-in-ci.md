@@ -100,7 +100,7 @@ pytest -q --tb=short --durations=25
 
 ## Comments
 
-### Landed 2026-09-30
+### Landed 2026-09-30 (CI fix 2026-09-30)
 - Initial mypy scan over `src` evaluated 6 hard candidates from AGENTS.md §2 (config and domain layers).
   All 6 candidate modules have pre-existing type errors (predominantly `[no-redef]` from the PyInstaller try/except import shim):
   - `config`: 1 error (`src/config.py:219: Need type annotation for "SLACK_USER_TO_REQUESTER"`)
@@ -116,8 +116,10 @@ pytest -q --tb=short --durations=25
 - Configured `[tool.mypy]` and `[tool.pbot.type_gate]` in `pyproject.toml`.
 - Added `mypy>=1.10.0` and `pytest-xdist>=3.6` to `requirements-dev.txt`.
 - Added type check step (`id: typecheck`, `continue-on-error: true`, `tools/type_gate.py`, enforce step) and updated pytest command in `.github/workflows/tests.yml`.
-- Parallel test run verified locally with `pytest --tb=short -q -n auto --dist loadfile` 3 runs in a row:
-  - Run 1: `554 passed, 31 skipped in 6.80s`
-  - Run 2: `554 passed, 31 skipped in 6.73s`
-  - Run 3: `554 passed, 31 skipped in 6.66s`
-- Full 4-command gate passes cleanly locally with 0 errors.
+- CI fix: `test_resolve_requester_via_explicit_mapping` temporarily set `config.SLACK_USER_TO_REQUESTER["U12345"]`; in a fresh CI env (no roster.json), this caused `_get_initial_seed()` to write U12345 into roster.json, leaking state to `test_app_home_opened_publishes_view`. Fixed both tests to patch `roster.ROSTER_PATH` to `tmp_path`. Classification: harness defect.
+- Parallel test run verified without roster.json (CI-like) with `pytest --tb=short -q -n auto --dist loadfile` 3 runs:
+  - Run 1: `554 passed, 31 skipped in 6.66s`
+  - Run 2: `554 passed, 31 skipped in 6.36s`
+  - Run 3: `554 passed, 31 skipped in 6.08s`
+- CI on PR #89: all four gates green (lint pass, typecheck pass, integrity pass, test pass).
+- AGENTS.md §1 gate block and §11 step 5 still list three gates — developer should update after merge.
