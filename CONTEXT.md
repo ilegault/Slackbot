@@ -228,18 +228,32 @@ first word after the mention is matched exactly against the canonical vocabulary
 a hyphen and a space are the same in them (`remove-vendor` = `remove vendor`; the
 hyphen form is the one taught). An unknown word gets a public in-thread reply: "did
 you mean …?" when it is close to a keyword, otherwise a pointer to `@Purchasing help`
-(ADR 0009).
+(ADR 0009). In a **DM**, the no-close-match reply is the help text itself plus a *Start
+a purchase request* button (ADR 0010). The bot never reads ordinary chatter to guess
+what a reply means; only a keyword, a button or a mention addresses it.
 
 **The request message / the card** — the bot's post in the channel carrying the
 summary, the history block, and one next-step button. It is also the store: state,
 payload and history are serialized into the button's `value`, so a bot restart
-cannot lose a request's position.
+cannot lose a request's position. Every approved request has one: if approval finds
+none in the thread, the bot posts it (ADR 0010). Also called the **thread card**
+when it must be told apart from the DM card.
+
+**DM card** — the card in the assigned buyer's DM: a short summary, a link to the
+thread card, and the one next-step button for the current stage (no Cancel). It is a
+*view*, not a second store: the thread card is authoritative, and a click on either
+card moves both. A cancel retires it; a reassignment retires the old buyer's and gives
+the new buyer a fresh one (ADR 0010). Who may click a stage button on either card: the
+assigned buyer, an admin or an approver.
 
 **DM** — where the bot notifies people. Notifications stay DMs across the whole
-flow rather than moving to the alert channel, and they are consistent about it.
+flow rather than moving to the alert channel, and they are consistent about it. The
+assigned buyer's DM carries the **DM card**. A message a person sends the bot in a DM
+is answered as a keyword, or with help (see **Keyword**).
 
 **Alert channel** — where the bot raises things an admin has to decide (a new
-requester, a new vendor, a pending name confirmation). Not for notifications.
+requester, a new vendor, a pending name confirmation) and where it reports a failure
+to post or update a request card, in full (ADR 0010). Not for notifications.
 It is also the only place the `logs` keyword answers, because logs carry names
 and purchase details.
 

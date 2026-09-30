@@ -515,52 +515,91 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-09-28 23:50. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-09-29 21:18. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: keyword spelling, the unknown-word crash, storage settings, and the bot's name
+# Active work: two ticket sets — the keyword/storage/name set (51–61) and DM help + linked cards (62–71)
 
-This is a **pointer**, not the work. The work is a ticket set.
+This is a **pointer**, not the work. The work is two ticket sets. Work the frontier across
+both; a ticket never starts before every ticket in its `Blocked by:` line is `done`.
 
-- Spec: `.scratch/commands-paths-and-name/spec.md` (`ready-for-agent`)
+## Set A — keyword spelling, the unknown-word crash, storage settings, the bot's name
+
+- Spec: `.scratch/commands-paths-and-name/spec.md`
 - **Read before any ticket in this set: `docs/adr/0009-keywords-storage-settings-and-the-bot-name.md`**
-- Glossary: `CONTEXT.md` — **Keyword** (updated), **The Purchasing bot** and **Storage setting** (new)
-- Binding on all test work: `docs/adr/0001-tests-first-and-no-muted-failures.md`
 - Tickets: `.scratch/commands-paths-and-name/issues/51…61`
-- Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Next:** 51, 52, 54 are unblocked. Start with **51** — any unrecognised word in an
-`@Purchasing` mention or DM crashes the bot in production today.
+## Set B — DM help, approval cards that always exist, and a linked card in the buyer's DM
+
+- Spec: `.scratch/dm-help-and-linked-cards/spec.md` (`ready-for-agent`)
+- **Read before any ticket in this set: `docs/adr/0010-linked-cards-and-direct-message-help.md`**
+- Glossary: `CONTEXT.md` — **DM card** (new); **card**, **DM**, **Alert channel**, **Keyword** (updated)
+- Tickets: `.scratch/dm-help-and-linked-cards/issues/62…71`
+
+Binding on all test work: `docs/adr/0001-tests-first-and-no-muted-failures.md`.
+Tracker conventions: `docs/agents/issue-tracker.md`.
+
+**Next:** 51, 52 and 54 (Set A) are unblocked. Start with **51** — any unrecognised word in an
+`@Purchasing` mention or DM crashes the bot in production today. **Nothing in Set B is
+unblocked yet**: 62 waits for 51, 64 for 57, 66 for 58. **70 is `ready-for-developer`** and has
+no blockers — the developer should do it first (is the Slack app subscribed to channel
+messages?).
 
 ## Dependency order
 
 ```
-51 ─┐
-52 ─┼─ 53 ─┐
-    └─ 59  │
-54 ─┬─ 55 ─┼─ 58 ─┬─ 60 (ready-for-developer)
-    └─ 56 ─┴─ 57 ─┘   └─ 61 (held: CI change, after 51–59)
+Set A:  51 ─┐
+        52 ─┼─ 53 ─┐
+            └─ 59  │
+        54 ─┬─ 55 ─┼─ 58 ─┬─ 60 (ready-for-developer)
+            └─ 56 ─┴─ 57 ─┘   └─ 61 (held: CI change, after 51–59)
+
+Set B (each line: blockers → ticket):
+        51 → 62
+        53, 62 → 63
+        57 → 64 → 65
+        64, 65 → 67
+        58 → 66
+        66, 67 → 68 → 69
+        70 (no blockers; ready-for-developer)
+        62, 63, 64, 65, 66, 67, 68, 69, 70 → 71 (ready-for-developer)
 ```
 
-Ticket **60 is `ready-for-developer`** — the developer at the dev machine and the
-production server. An agent must not claim it.
+Tickets **60, 70 and 71 are `ready-for-developer`** — a person at the dev machine, the Slack
+app settings, or the production server. An agent must not claim them.
 
-## Four requirements that will be quietly violated if read as preferences
+## Requirements that will be quietly violated if read as preferences
 
-1. **A mention or DM never replies through `respond`.** On the event path Bolt supplies
-   a `respond` that raises when called. `slack_io.deny` is for slash commands and block
-   actions only.
-2. **One list of storage settings** (`config.STORAGE_SETTINGS`), read by both the startup
-   check and the health screen. Two lists drifting apart is the bug being fixed.
-3. **A missing storage folder is never recreated.** `log_writer.save_*` raise
-   `StorageLocationError`; a moved OneDrive folder must fail loudly, not be rebuilt empty
-   at the old path.
-4. **The approval write stays all-or-nothing.** A storage error during approval blanks
-   the row it wrote, exactly as today.
+Set A:
 
-## Not in this set
+1. **A mention or DM never replies through `respond`.** On the event path Bolt supplies a
+   `respond` that raises when called. `slack_io.deny` is for slash commands and block actions only.
+2. **One list of storage settings** (`config.STORAGE_SETTINGS`), read by both the startup check
+   and the health screen.
+3. **A missing storage folder is never recreated.** `log_writer.save_*` raise `StorageLocationError`.
+4. **The approval write stays all-or-nothing.** A storage error during approval blanks the row it wrote.
+
+Set B:
+
+5. **The thread card is the store; the DM card holds a pointer only.** State, history and the
+   assignee are read from the thread card's button `value` on every DM click — never from the DM
+   card, and never from message metadata (metadata may not survive a `chat_update`).
+6. **One implementation per stage.** The DM listener calls the same `lifecycle.handle_processed`,
+   `handle_confirmation` and `handle_delivery` the thread buttons and keywords call. It does not
+   re-derive rows, columns or dates.
+7. **Approval never depends on the DM card, the alert, or the second card update.** Each may fail;
+   the row, the card and the buyer's email-draft DM stand. `slack_io.alert_admins` never raises.
+8. **One permission rule** — `admin.can_update_request`: the assigned buyer, an admin or an approver —
+   on the thread buttons and the DM buttons alike, with the same refusal texts from `text_rules`.
+9. **The bot answers only when addressed.** No reading of thread chatter, and nothing from a DM's
+   text is carried into the interview form.
+10. **Existing tests are rewritten in place, never deleted or weakened** — ticket 66 changes the
+    expected wording in `tests/test_12_denials.py` scenarios and keeps every guarantee they assert.
+
+## Not in this work
 
 - Renaming `p_bot.log`, `p_bot.spec`, the executable, the autostart task, or loggers.
-- Editing accepted ADRs or `AGENTS.md` outside this block (ticket 60 is the developer's).
+- Editing accepted ADRs, `CONTEXT.md` or `AGENTS.md` outside this block (tickets 60 and 71 are the developer's).
+- Filling the interview from a DM's link or text; a Cancel button on the DM card; reading thread replies.
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol
