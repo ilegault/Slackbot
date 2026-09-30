@@ -1,6 +1,6 @@
 # 64: Approval always leaves a card in the thread
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -37,7 +37,7 @@ The update-in-place path is unchanged and must not also post.
 
 ## Acceptance criteria
 
-- [ ] **No card in the thread → one is posted.** In `tests/test_64_approval_posts_card.py`
+- [x] **No card in the thread → one is posted.** In `tests/test_64_approval_posts_card.py`
   (copy the `clean_roster`, `temp_epifs_dir`, `temp_boms_dir` and `sync_queue` fixtures and
   the fake-client style from `tests/test_46_epif_path_dm_attaches_epif.py`), run
   `lifecycle.finalize_purchase_request` with a client whose `conversations_replies` returns
@@ -46,16 +46,16 @@ The update-in-place path is unchanged and must not also post.
   `metadata["event_payload"]["state"] == "approved"`; its blocks hold exactly one primary
   button with text `Mark Processed` and `action_id` `req_processed`, plus a `Cancel` button;
   the row-append recorder was called once.
-- [ ] **History and buyer are on the card.** With an assignee, the card's section text
+- [x] **History and buyer are on the card.** With an assignee, the card's section text
   contains `Buyer:` and the assignee's name, its context block contains `Approved by` and
   `Assigned to`, and the payload holds `assignee_id`.
-- [ ] **The posted card is readable by the next handler.** Feed the kwargs of that
+- [x] **The posted card is readable by the next handler.** Feed the kwargs of that
   `chat_postMessage` back as the only message in a fake `conversations_replies` and assert
   `slack_io.find_card_in_thread` returns state `approved` with the same `assignee_id`.
-- [ ] **A thread that already has a card is updated, not duplicated.** With a card present
+- [x] **A thread that already has a card is updated, not duplicated.** With a card present
   in the fake replies: one `chat_update` whose `ts` is the card's, and **no**
   `chat_postMessage` call carrying `metadata` (absence asserted).
-- [ ] **A failing card post does not undo the approval.** `chat_postMessage` raising for the
+- [x] **A failing card post does not undo the approval.** `chat_postMessage` raising for the
   card only: the row-append recorder was still called once, the assignee's DM was still
   sent, an ERROR record is in `caplog`, and no exception escapes.
 
@@ -79,4 +79,11 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+Summary (2026-09-30):
+- Updated `lifecycle.finalize_purchase_request` (`on_success`) to build history, request payload, and card blocks cleanly once, and post an approved card via `chat_postMessage` if no existing card is present in the thread.
+- If `chat_postMessage` raises when posting the fallback card, the error is logged at ERROR level and the approval, row append, and assignee DM stand.
+- Thread with existing card continues to update in place via `chat_update` without posting a duplicate card.
+- Added comprehensive unit tests in `tests/test_64_approval_posts_card.py` covering all 5 acceptance criteria.
+
 

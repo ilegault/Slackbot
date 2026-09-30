@@ -83,6 +83,12 @@ Per Ticket 57 (ADR 0009 decision 6):
 - finalize_purchase_request, handle_processed, and handle_delivery catch StorageLocationError
   in their on_failure callbacks and reply in-thread with text_rules.storage_problem_message.
 
+Per Ticket 64 (ADR 0010 decision 1):
+- Approval always leaves a card in the thread. When target_card_ts is not found,
+  finalize_purchase_request posts an approved-state card with History and buttons
+  via chat_postMessage instead of doing nothing. A failing post is logged at ERROR
+  and does not undo the approval.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -448,24 +454,53 @@ def finalize_purchase_request(
         target_card_ts = card_ts or found_ts
         target_req = found_req or parsed or {}
         target_hist = found_hist or []
-        if saved_path:
-            target_req["epif_file"] = os.path.basename(saved_path.replace("\\", "/"))
+
         now_str = datetime.now().strftime("%m/%d/%y %H:%M")
         appr_name = slack_io.resolve_requester(client, approver) or (f"<@{approver}>" if approver else "Approver")
+        hist = list(target_hist)
+        hist.append(f"Approved by {appr_name} on {now_str}")
+        if assignee_id and assignee_name:
+            hist.append(f"Assigned to {assignee_name} on {now_str}")
+
         if target_card_ts:
             req_payload = dict(target_req)
-            req_payload["state"] = "approved"
-            req_payload["assignee_id"] = assignee_id
-            req_payload["assignee"] = assignee_name
-            if bom_fname:
-                req_payload["bom_file"] = bom_fname
-            if requester and not req_payload.get("requester"):
-                req_payload["requester"] = requester
-            hist = list(target_hist)
-            hist.append(f"Approved by {appr_name} on {now_str}")
-            if assignee_id and assignee_name:
-                hist.append(f"Assigned to {assignee_name} on {now_str}")
-            next_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=items)
+        else:
+            parsed_date = parsed.get("date_of_purchase")
+            iso_date = (
+                parsed_date.isoformat()
+                if hasattr(parsed_date, "isoformat")
+                else (parsed_date or None)
+            )
+            req_payload = {
+                "parsed": {
+                    **parsed,
+                    "date_of_purchase": iso_date,
+                    "payment_method": parsed.get("payment_method") or "EPIF",
+                },
+                "requester": requester,
+                "user_id": notify_target,
+                "is_pending_name": is_pending_name,
+                "thread_ts": thread_ts,
+            }
+            if pdf_bytes:
+                req_payload["source"] = "epif"
+            if items:
+                req_payload["items"] = items
+                req_payload["shipping"] = float(shipping or 0.0)
+
+        req_payload["state"] = "approved"
+        req_payload["assignee_id"] = assignee_id
+        req_payload["assignee"] = assignee_name
+        if saved_path:
+            req_payload["epif_file"] = os.path.basename(saved_path.replace("\\", "/"))
+        if bom_fname:
+            req_payload["bom_file"] = bom_fname
+        if requester and not req_payload.get("requester"):
+            req_payload["requester"] = requester
+
+        next_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=items)
+
+        if target_card_ts:
             try:
                 client.chat_update(
                     channel=channel,
@@ -479,6 +514,20 @@ def finalize_purchase_request(
                 )
             except Exception as e:
                 log.error("Failed to update card on approval: %s", e)
+        else:
+            try:
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="🛒 Purchase Request (Approved)",
+                    blocks=next_blks,
+                    metadata={
+                        "event_type": "purchase_request",
+                        "event_payload": req_payload,
+                    },
+                )
+            except Exception as e:
+                log.error("Failed to post purchase request card to channel %s: %s", channel, e)
 
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
