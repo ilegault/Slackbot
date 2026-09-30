@@ -1,6 +1,6 @@
 # 62: The bot ignores Slack's own message events
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
