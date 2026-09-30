@@ -6,6 +6,10 @@ This is the lowest pure domain layer for string operations, formatting, regex
 matching, and email generation. It has no Slack dependencies, makes no network
 or I/O calls, and contains no state.
 
+Ticket 65:
+Adds `format_card_failure_alert`: formats an alert for the admin alert channel
+when a purchase request card cannot be posted, updated, or an EPIF drop fails.
+
 Imports:
     - config (only)
 May NOT import:
@@ -451,5 +455,28 @@ def format_stage_unassigned() -> str:
     An unassigned request must be assigned to a buyer before any stage buttons can be used.
     """
     return "⚠️ This request must be assigned to a buyer before it can be updated. Use `@Purchasing assign @buyer`."
+
+
+def format_card_failure_alert(
+    step: str, channel: str, thread_ts: str, file_name: str | None, error: str
+) -> str:
+    """Format an alert message for the admin alert channel when a card or drop fails.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0010 decision 7: When a step that should have produced or updated a card
+    fails or is skipped, the bot must report it loudly in config.ADMIN_ALERT_CHANNEL
+    with step, channel, thread, optional file name, and error string.
+    """
+    lines = [
+        "⚠️ *Purchase card problem*",
+        f"• *Step:* {step}",
+        f"• *Channel:* <#{channel}>",
+        f"• *Thread:* {thread_ts}",
+    ]
+    if file_name is not None:
+        lines.append(f"• *File:* {file_name}")
+    lines.append(f"• *Error:* {error}")
+    return "\n".join(lines)
 
 

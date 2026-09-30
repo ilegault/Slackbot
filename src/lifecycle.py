@@ -89,6 +89,13 @@ Per Ticket 64 (ADR 0010 decision 1):
   via chat_postMessage instead of doing nothing. A failing post is logged at ERROR
   and does not undo the approval.
 
+Per Ticket 65 (ADR 0010 decision 7):
+- A missing card or a failed drop is reported loudly to config.ADMIN_ALERT_CHANNEL.
+- In handle_epif_drop, parse failures (for EPIF-named PDFs), unexpected errors (for EPIF-named PDFs),
+  and card post failures alert admins via slack_io.alert_admins and text_rules.format_card_failure_alert.
+- handle_epif_drop logs each exit with 'drop exit: <reason>' at INFO level.
+- In finalize_purchase_request, failed card updates and failed fallback card posts alert admins.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
 May NOT import:
@@ -514,6 +521,16 @@ def finalize_purchase_request(
                 )
             except Exception as e:
                 log.error("Failed to update card on approval: %s", e)
+                slack_io.alert_admins(
+                    client,
+                    text_rules.format_card_failure_alert(
+                        step="update the approval card",
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        file_name=file_name,
+                        error=str(e),
+                    ),
+                )
         else:
             try:
                 client.chat_postMessage(
@@ -528,6 +545,16 @@ def finalize_purchase_request(
                 )
             except Exception as e:
                 log.error("Failed to post purchase request card to channel %s: %s", channel, e)
+                slack_io.alert_admins(
+                    client,
+                    text_rules.format_card_failure_alert(
+                        step="post the approval card",
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        file_name=file_name,
+                        error=str(e),
+                    ),
+                )
 
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
@@ -792,11 +819,35 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
             slack_io.tell(client, target_dm, str(error))
             if channel != target_dm:
                 say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
+            slack_io.alert_admins(
+                client,
+                text_rules.format_card_failure_alert(
+                    step="parse the dropped EPIF",
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    file_name=file_name,
+                    error=str(error),
+                ),
+            )
+            log.info("drop exit: parse failed")
         else:
             log.debug("Non-EPIF PDF %s failed form parsing; ignoring: %s", file_name, error)
+            log.info("drop exit: parse failed (not an EPIF name, ignored)")
         return
     except Exception as e:
         log.error("Unexpected error parsing dropped PDF %s: %s", file_name, e)
+        if "epif" in file_name.lower():
+            slack_io.alert_admins(
+                client,
+                text_rules.format_card_failure_alert(
+                    step="parse the dropped EPIF",
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    file_name=file_name,
+                    error=str(e),
+                ),
+            )
+        log.info("drop exit: unexpected error")
         return
 
     requester = slack_io.resolve_requester(client, user_id)
@@ -885,8 +936,20 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
             "Posted purchase request card with Approve button for %s in %s (thread: %s)",
             file_name, channel, thread_ts,
         )
+        log.info("drop exit: card posted")
     except Exception as e:
         log.error("Failed to post purchase request card to channel %s: %s", channel, e)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                step="post the approval card",
+                channel=channel,
+                thread_ts=thread_ts,
+                file_name=file_name,
+                error=str(e),
+            ),
+        )
+        log.info("drop exit: card post failed")
 
 
 def handle_assign(

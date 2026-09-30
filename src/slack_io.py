@@ -30,6 +30,11 @@ the `app_mention` / `message` event path. Bolt puts a `respond` object in event
 contexts, but invoking it raises `ValueError` because events have no `response_url`.
 Event replies must always use `say()` in-thread.
 
+Ticket 65:
+Adds `alert_admins(client, text)`: posts card or processing failure alerts to
+config.ADMIN_ALERT_CHANNEL. Never raises: returns False and logs a WARNING when
+the channel is unset, client is None, or chat_postMessage raises.
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -63,6 +68,31 @@ def deny(respond, text: str) -> None:
     always use say() in the thread.
     """
     respond(text=text, response_type="ephemeral", replace_original=False)
+
+
+def alert_admins(client, text: str) -> bool:
+    """Post an alert message to config.ADMIN_ALERT_CHANNEL.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0010 decision 7: A missing card or a failed drop must be reported loudly
+    in the admin alert channel so an admin can investigate immediately.
+    Never raises: returns False and logs a WARNING if channel is unset, client is
+    None, or client.chat_postMessage raises.
+    """
+    channel = getattr(config, "ADMIN_ALERT_CHANNEL", "")
+    if not channel:
+        log.warning("Admin alert not posted: ADMIN_ALERT_CHANNEL is unset")
+        return False
+    if client is None:
+        log.warning("Admin alert not posted: client is None")
+        return False
+    try:
+        client.chat_postMessage(channel=channel, text=text)
+        return True
+    except Exception as e:
+        log.warning("Failed to post admin alert to %s: %s", channel, e)
+        return False
 
 
 def resolve_requester(client, user_id: str | None) -> str | None:
