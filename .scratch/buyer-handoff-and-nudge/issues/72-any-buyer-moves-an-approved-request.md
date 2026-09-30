@@ -1,6 +1,6 @@
 # 72: Any buyer can move an approved request from the thread card
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -49,22 +49,22 @@ New test file `tests/test_72_any_buyer_moves_a_request.py`. Reuse the `clean_ros
 `tests/test_69_cards_move_together.py` (roster with one admin, one approver, three buyers, one
 requester who is none of those).
 
-- [ ] **The approved card has the picker.** `blocks.build_request_blocks("approved", req)` for a
+- [x] **The approved card has the picker.** `blocks.build_request_blocks("approved", req)` for a
   request with `assignee_id="U_BUYER"` contains an `actions` element of type `users_select`,
   `action_id == "req_assign_select"`, `initial_user == "U_BUYER"`; for a request with no
   `assignee_id` the element has no `initial_user` and placeholder text `Assign a buyer`. For
   `processed`, `confirmed` and `delivered` no element of type `users_select` exists.
-- [ ] **Another buyer moves an assigned request.** Through `app.handle_req_assign_select_action`
+- [x] **Another buyer moves an assigned request.** Through `app.handle_req_assign_select_action`
   with a body whose message is an `approved` card assigned to buyer A, clicked by buyer B,
   selecting buyer C: the thread card's `chat_update` blocks carry `"assignee_id": "U_C"` in a
   button value; a `chat_postMessage` goes to `U_C` (the new DM card); history contains
   `Reassigned to`. The same click by buyer B selecting buyer B also succeeds.
-- [ ] **A non-buyer is refused privately.** The same click by the requester (not buyer, approver or
+- [x] **A non-buyer is refused privately.** The same click by the requester (not buyer, approver or
   admin): `respond` is called with text containing `Only buyers, approvers or admins`, and the
   fake client records **no** `chat_update` and **no** `chat_postMessage`.
-- [ ] **Picking the current buyer does nothing.** Buyer A selected on a card already assigned to
+- [x] **Picking the current buyer does nothing.** Buyer A selected on a card already assigned to
   buyer A: zero `chat_update` and zero `chat_postMessage` calls.
-- [ ] **The typed keyword follows the same rule.** `@Purchasing assign @C` sent by buyer B on a
+- [x] **The typed keyword follows the same rule.** `@Purchasing assign @C` sent by buyer B on a
   thread whose card is assigned to buyer A (drive through `app.dispatch_command` as
   `test_69` does): the thread card is updated to assignee C. The deleted test
   `test_buyer_reassign_already_assigned_request_denied` asserted the old rule and is replaced
@@ -88,3 +88,17 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-30
+- `blocks.build_request_blocks`: added `elif state == "approved":` branch with `users_select` picker
+  (action_id `req_assign_select`, placeholder `"Assign a buyer"`, `initial_user` when present).
+- `lifecycle.handle_assign`: unified permission check (ADR 0011 decision 1); added `deny` kwarg
+  for private refusals on picker path; added same-buyer no-op.
+- `app.handle_req_assign_select_action`: payload recovered from any button with a `"request"` key
+  (not only `req_approve`); `deny` lambda passed to `handle_assign`.
+- Harness defects fixed: `test_buyer_reassign_already_assigned_request_denied` (deleted — old ADR
+  0004 rule); `test_build_request_blocks_approved_state_and_no_req_claim_in_src` and
+  `test_build_request_blocks_posted_renders_users_select_and_approved_does_not` (updated to assert
+  the approved card DOES carry the picker under ADR 0011).
+- Gate: ruff ✓, check_tests_first ✓ (3 src / 3 test files), type_gate ✓ (0 hard / 0 soft),
+  558 passed 31 skipped.
