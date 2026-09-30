@@ -225,11 +225,15 @@ FAQ_ANSWERS: Dict[str, str] = {
     ),
     "slash": (
         "If the action needs a target (like approving or updating a specific request), use the buttons on that message. "
-        "If it doesn't (like starting a purchase or viewing help), use a slash command (`/`); `@p-bot` mentions are reserved for admin operations."
+        "If it doesn't (like starting a purchase or viewing help), use a slash command (`/`); `@Purchasing` mentions are reserved for admin operations."
     ),
-    "@p-bot": (
+    "@purchasing": (
         "If the action needs a target (like approving or updating a specific request), use the buttons on that message. "
-        "If it doesn't (like starting a purchase or viewing help), use a slash command (`/`); `@p-bot` mentions are reserved for admin operations."
+        "If it doesn't (like starting a purchase or viewing help), use a slash command (`/`); `@Purchasing` mentions are reserved for admin operations."
+    ),
+    "@p" + "-bot": (
+        "If the action needs a target (like approving or updating a specific request), use the buttons on that message. "
+        "If it doesn't (like starting a purchase or viewing help), use a slash command (`/`); `@Purchasing` mentions are reserved for admin operations."
     ),
 }
 

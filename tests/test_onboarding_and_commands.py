@@ -1761,7 +1761,7 @@ def test_add_vendor_admin_success(monkeypatch):
 
     # Empty name
     app.dispatch_command(client, say, "C123", "123.456", "U1", "event_1", "add-vendor  ", bot_user_id="U_BOT")
-    say.assert_called_with(text="⚠️ Please specify the vendor name, e.g. `@p-bot add-vendor Thorlabs`.", thread_ts="123.456")
+    say.assert_called_with(text="⚠️ Please specify the vendor name, e.g. `@Purchasing add-vendor Thorlabs`.", thread_ts="123.456")
 
     # Existing name
     say.reset_mock()

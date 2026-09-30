@@ -1,11 +1,11 @@
 """Admin, Diagnostic, and Lifecycle Management Suite for P-Bot.
 
 Provides:
-- In-Slack System Health & Diagnostics (@p-bot health / status)
-- Excel Lock Queue Status (@p-bot queue)
-- Remote Log Viewer (@p-bot logs [n], logs all, logs rejections)
-- Remote Git Update (@p-bot update)
-- Remote Bot Restart (@p-bot restart)
+- In-Slack System Health & Diagnostics (@Purchasing health / status)
+- Excel Lock Queue Status (@Purchasing queue)
+- Remote Log Viewer (@Purchasing logs [n], logs all, logs rejections)
+- Remote Git Update (@Purchasing update)
+- Remote Bot Restart (@Purchasing restart)
 
 WHY THIS EXISTS:
 ----------------
@@ -278,7 +278,7 @@ def build_health_blocks(health: Optional[Dict[str, Any]] = None) -> List[Dict[st
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "🩺 P-Bot System Health & Status",
+                "text": "🩺 Purchasing bot System Health & Status",
                 "emoji": True,
             },
         },

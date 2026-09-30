@@ -123,9 +123,9 @@ def send_startup_alert(client) -> bool:
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     header_text = (
-        "🟠 P-Bot Online — storage paths need attention"
+        "🟠 Purchasing bot online — storage paths need attention"
         if problems
-        else "🟢 P-Bot Online & Ready"
+        else "🟢 Purchasing bot online & ready"
     )
 
     blocks = [
@@ -188,7 +188,7 @@ def send_startup_alert(client) -> bool:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "Hirst Lab Automation • Send `@p-bot health` for system diagnostics",
+                    "text": "Hirst Lab Automation • Send `@Purchasing health` for system diagnostics",
                 },
             ],
         },
@@ -196,7 +196,7 @@ def send_startup_alert(client) -> bool:
 
     if problems:
         fallback_lines = [
-            "🟠 *P-Bot Online — storage paths need attention*",
+            "🟠 *Purchasing bot online — storage paths need attention*",
             f"• *Host:* `{host}` ({os_info})",
             f"• *Version:* `v{config.BOT_VERSION}`",
             f"• *Log Path:* `{config.WORKBOOK_PATH}`",
@@ -211,7 +211,7 @@ def send_startup_alert(client) -> bool:
         fallback_text = "\n".join(fallback_lines)
     else:
         fallback_text = (
-            f"🟢 *P-Bot Online*\n"
+            f"🟢 *Purchasing bot online*\n"
             f"• *Host:* `{host}` ({os_info})\n"
             f"• *Version:* `v{config.BOT_VERSION}`\n"
             f"• *Log Path:* `{config.WORKBOOK_PATH}`\n"
@@ -239,7 +239,7 @@ def send_crash_alert(client, error_msg: str, exc_info: Optional[str] = None) -> 
     host = platform.node() or "Unknown Host"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    text = f"🚨 *P-Bot Critical Error / Crash Alert*\n• *Host:* `{host}`\n• *Time:* {now_str}\n• *Error:* {error_msg}"
+    text = f"🚨 *Purchasing bot — Critical Error / Crash Alert*\n• *Host:* `{host}`\n• *Time:* {now_str}\n• *Error:* {error_msg}"
     if exc_info:
         snippet = exc_info[-1500:] if len(exc_info) > 1500 else exc_info
         text += f"\n```{snippet}```"

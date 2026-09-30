@@ -4,7 +4,7 @@ Flow of operations:
 
     1. Approval & Logging:
        Someone posts an EPIF pdf in #hirst-lab or a DM
-         -> Charlie replies in that thread: "@p-bot approved" (or DMs the bot)
+         -> Charlie replies in that thread: "@Purchasing approved" (or DMs the bot)
           -> Bot parses & validates EPIF, saves PDF to EPIFs/, logs row in Purchasing-Log.xlsx (via Lock Queue).
           -> Charlie names responsible buyer (@Dylan @Purchasing approved) or leaves unassigned.
           -> Assigned buyer receives pre-drafted email template via DM.
@@ -13,29 +13,29 @@ Flow of operations:
        Buyer replies: "@Purchasing assign" to take an unassigned order, or approver/assignee reassigns.
 
     3. Submission / Cart Adjustments:
-       Grad student replies: "@p-bot processed $152.49" (or "submitted" as a silent alias)
+       Grad student replies: "@Purchasing processed $152.49" (or "submitted" as a silent alias)
          -> Bot records Date Processed (Col U) and updates Total Price (Col H) if price changed.
 
     4. Confirmation:
-       User replies: "@p-bot confirmed" (with optional attachment)
+       User replies: "@Purchasing confirmed" (with optional attachment)
          -> Bot records Date Confirmed (Col V) and saves confirmation to Order-Confirmations/.
          -> Status formula automatically becomes "Confirmed".
 
     5. Delivery:
-       User replies: "@p-bot delivered"
+       User replies: "@Purchasing delivered"
          -> Bot records Date of Delivery (Col W) and Received By (Col X).
          -> Status formula automatically becomes "Delivered".
 
     6. Quotes:
-       User posts/mentions "@p-bot quote" with attached quote PDF/file
+       User posts/mentions "@Purchasing quote" with attached quote PDF/file
          -> Bot saves quote to Quotes/.
 
     7. Health, Diagnostics & Admin:
-       - "@p-bot health" / "@p-bot status" -> System health card (uptime, disk, memory, paths, queue)
-       - "@p-bot queue" -> Pending write tasks status
-       - "@p-bot logs [n]" -> Tail bot logs (Admin only)
-       - "@p-bot update" -> Pull git updates & restart (Admin only)
-       - "@p-bot restart" -> Restart bot process (Admin only)
+       - "@Purchasing health" / "@Purchasing status" -> System health card (uptime, disk, memory, paths, queue)
+       - "@Purchasing queue" -> Pending write tasks status
+       - "@Purchasing logs [n]" -> Tail bot logs (Admin only)
+       - "@Purchasing update" -> Pull git updates & restart (Admin only)
+       - "@Purchasing restart" -> Restart bot process (Admin only)
 """
 import json
 import logging
@@ -217,7 +217,7 @@ def handle_roster_list_command(ack, body, respond):
     vendors_list = roster.get_vendors() if hasattr(roster, "get_vendors") else []
     is_admin = admin.is_admin_user(user_id)
 
-    lines = ["📋 *P-Bot Roster & Vendor List*\n"]
+    lines = ["📋 *Purchasing Bot Roster & Vendor List*\n"]
 
     lines.append("*Registered Lab Members:*")
     if requesters_dict:
@@ -1757,7 +1757,7 @@ def main():
     """Main application startup routine."""
     setup_logging()
     log.info("=" * 70)
-    log.info("🤖 Starting P-Bot (Hirst Lab Purchasing Bot) v%s...", config.BOT_VERSION)
+    log.info("🤖 Starting Purchasing bot (Hirst Lab Purchasing Bot) v%s...", config.BOT_VERSION)
     log.info("Base Directory: %s", config.BASE_DIR)
     if config.LOADED_ENV_PATH:
         log.info("Loaded .env from: %s", config.LOADED_ENV_PATH)

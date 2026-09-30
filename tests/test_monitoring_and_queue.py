@@ -266,7 +266,7 @@ def test_get_system_health_and_build_blocks(tmp_path):
     assert isinstance(blocks, list)
     assert len(blocks) >= 4
     # Check that header block is present
-    assert blocks[0]["text"]["text"] == "🩺 P-Bot System Health & Status"
+    assert blocks[0]["text"]["text"] == "🩺 Purchasing bot System Health & Status"
 
 
 
@@ -315,7 +315,7 @@ def test_send_startup_alert():
     mock_client.chat_postMessage.assert_called_once()
     call_args = mock_client.chat_postMessage.call_args[1]
     assert call_args["channel"] == "C_ADMIN_ALERT"
-    assert "P-Bot Online" in call_args["text"]
+    assert "Purchasing bot online" in call_args["text"]
 
 
 def test_send_crash_alert():
