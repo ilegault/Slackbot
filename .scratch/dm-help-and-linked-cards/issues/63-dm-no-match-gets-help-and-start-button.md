@@ -1,6 +1,6 @@
 # 63: A DM the bot cannot read gets the help text and a Start button
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -38,24 +38,24 @@ behaviour is exactly ticket 53's.
 
 ## Acceptance criteria
 
-- [ ] **`chunk_mrkdwn` is tested directly** in `tests/test_63_dm_help.py`: the real
+- [x] **`chunk_mrkdwn` is tested directly** in `tests/test_63_dm_help.py`: the real
   `blocks.get_help_message()` yields chunks that are each at most 2900 characters, none
   empty, and whose paragraphs joined by a blank line equal the original text with
   surrounding whitespace stripped; a synthetic 7 000-character text of short lines does the
   same; a single 4 000-character line is split (no chunk over the limit).
-- [ ] **A sentence in a DM gets help and the button.** Drive the real `message` listener
+- [x] **A sentence in a DM gets help and the button.** Drive the real `message` listener
   (`app.on_direct_message`, as ticket 62's test does) with
   `{"user": "U1", "channel": "D1", "channel_type": "im", "ts": "1.1", "text": "I want to purchase this: <https://example.com/x?a=1&amp;b=2|example.com/x>"}`:
   exactly one `say`; its `blocks` contain an `actions` block whose button has
   `action_id == "start_purchase_interview"`, and a section whose text contains the first
   heading line of `blocks.get_help_message()`.
-- [ ] **A near-miss in a DM keeps ticket 53's reply.** `remve-vendor Thorlabs` in a DM: one
+- [x] **A near-miss in a DM keeps ticket 53's reply.** `remve-vendor Thorlabs` in a DM: one
   `say` whose text contains `@Purchasing remove-vendor` and whose `blocks` argument is
   absent or contains no `actions` block (absence asserted).
-- [ ] **A channel mention is unchanged.** `<@BOT> flurb` through the real `app_mention`
+- [x] **A channel mention is unchanged.** `<@BOT> flurb` through the real `app_mention`
   listener: one `say` containing `@Purchasing help`, with no `blocks` and no
   `start_purchase_interview` anywhere in the call (absence asserted).
-- [ ] **The button opens a blank form.** Call `app.handle_start_purchase_interview` with a
+- [x] **The button opens a blank form.** Call `app.handle_start_purchase_interview` with a
   body shaped like a click in a DM (`channel.id` `D1`, a `trigger_id`, no `container.thread_ts`,
   and a `message.text` containing `https://example.com/x`): `client.views_open` is called
   once with that `trigger_id`, and `json.dumps` of the opened view does not contain
@@ -78,4 +78,11 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+Completed 2026-09-30:
+- Added `is_dm: bool = False` to `dispatch_command` in `src/app.py`, passed `is_dm=True` from `on_direct_message`.
+- Added pure functions `chunk_mrkdwn` and `build_dm_help_blocks` to `src/blocks.py`.
+- In `dispatch_command`, when `is_dm and not suggestion`, reply with `blocks.get_help_message()` and `blocks.build_dm_help_blocks()`.
+- Updated test in `tests/test_51_unknown_word_no_crash.py` to reflect ADR 0010 decision 5 DM help behavior.
+- Added comprehensive test suite in `tests/test_63_dm_help.py` covering all 5 acceptance criteria (all green).
 

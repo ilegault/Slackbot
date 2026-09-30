@@ -14,7 +14,7 @@ the thread. slack_io.deny is for slash commands and block actions only.
 import json
 from unittest.mock import MagicMock
 
-from src import app, roster
+from src import app, blocks, roster
 
 
 def _find_listener(event_type: str):
@@ -90,7 +90,8 @@ def test_unknown_word_dm_does_not_crash():
 
     assert fake_say.call_count == 1
     call_kwargs = fake_say.call_args.kwargs
-    assert "flurb" in call_kwargs.get("text", "")
+    # Under ADR 0010 Decision 5 (Ticket 63): an unknown word in DM with no close match gets help text
+    assert blocks.get_help_message() in call_kwargs.get("text", "")
 
 
 def test_event_path_denial_goes_to_thread_and_leaves_roster_intact(tmp_path, monkeypatch):
