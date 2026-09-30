@@ -1,6 +1,6 @@
 # 64: Approval always leaves a card in the thread
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
