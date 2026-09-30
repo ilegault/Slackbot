@@ -261,8 +261,9 @@ def test_save_epif_writes_pdf_correctly(tmp_path):
     with open(FILLED, "rb") as f:
         pdf_bytes = f.read()
 
-    save_dir = str(tmp_path / "EPIFs")
-    dest = log_writer.save_epif(pdf_bytes, "Sample_EPIF.pdf", target_dir=save_dir)
+    save_dir = tmp_path / "EPIFs"
+    save_dir.mkdir(exist_ok=True)
+    dest = log_writer.save_epif(pdf_bytes, "Sample_EPIF.pdf", target_dir=str(save_dir))
 
     assert os.path.exists(dest)
     assert os.path.basename(dest) == "Sample_EPIF.pdf"
@@ -272,12 +273,13 @@ def test_save_epif_writes_pdf_correctly(tmp_path):
 
 
 def test_save_epif_handles_missing_extension_and_traversal(tmp_path):
-    save_dir = str(tmp_path / "EPIFs")
-    dest = log_writer.save_epif(b"%PDF-test", "../../evil_name", target_dir=save_dir)
+    save_dir = tmp_path / "EPIFs"
+    save_dir.mkdir(exist_ok=True)
+    dest = log_writer.save_epif(b"%PDF-test", "../../evil_name", target_dir=str(save_dir))
 
     assert os.path.exists(dest)
     assert os.path.basename(dest) == "evil_name.pdf"
-    assert os.path.dirname(dest) == save_dir
+    assert os.path.dirname(dest) == str(save_dir)
 
 
 # --- email draft & confirmation flow ------------------------------------------
@@ -352,8 +354,9 @@ def test_find_latest_unconfirmed_row(workbook, filled):
 
 def test_save_confirmation_file(tmp_path):
     conf_bytes = b"%PDF-1.4 Fake Confirmation"
-    save_dir = str(tmp_path / "Order-Confirmations")
-    dest = log_writer.save_confirmation(conf_bytes, "Keysight_Confirmation.pdf", target_dir=save_dir)
+    save_dir = tmp_path / "Order-Confirmations"
+    save_dir.mkdir(exist_ok=True)
+    dest = log_writer.save_confirmation(conf_bytes, "Keysight_Confirmation.pdf", target_dir=str(save_dir))
 
     assert os.path.exists(dest)
     assert os.path.basename(dest) == "Keysight_Confirmation.pdf"
@@ -363,8 +366,9 @@ def test_save_confirmation_file(tmp_path):
 
 def test_save_quote_file(tmp_path):
     quote_bytes = b"%PDF-1.4 Fake Vendor Quote"
-    save_dir = str(tmp_path / "Quotes")
-    dest = log_writer.save_quote(quote_bytes, "BH_Cart_Quote.pdf", target_dir=save_dir)
+    save_dir = tmp_path / "Quotes"
+    save_dir.mkdir(exist_ok=True)
+    dest = log_writer.save_quote(quote_bytes, "BH_Cart_Quote.pdf", target_dir=str(save_dir))
 
     assert os.path.exists(dest)
     assert os.path.basename(dest) == "BH_Cart_Quote.pdf"

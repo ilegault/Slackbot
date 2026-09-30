@@ -1093,6 +1093,8 @@ def handle_confirmation(
                     saved = log_writer.save_confirmation(content, fname)
                     saved_files.append(saved)
                     log.info("Saved confirmation file '%s' to %s", fname, saved)
+                except log_writer.StorageLocationError:
+                    raise
                 except Exception as e:
                     log.warning("Could not save confirmation attachment %s: %s", fname, e)
         log_writer.update_row(row, update_vals)
@@ -1147,6 +1149,14 @@ def handle_confirmation(
                 log.error("Failed to update message on req_confirmed: %s", e)
 
     def on_failure(error):
+        if isinstance(error, log_writer.StorageLocationError):
+            say(
+                text=text_rules.storage_problem_message(
+                    error.setting, error.path, error.reason
+                ),
+                thread_ts=thread_ts,
+            )
+            return
         log.error("Error updating Order Log for row %d: %s", row, error)
         say(text=f"Error updating Order Log for row {row}: {error}", thread_ts=thread_ts)
 
@@ -1275,6 +1285,7 @@ def handle_quote(client, say, channel: str, thread_ts: str, event_ts: str, files
         return
 
     saved_paths = []
+    storage_error = None
     for f in files:
         fname = f.get("name", "Vendor_Quote.pdf")
         try:
@@ -1282,8 +1293,20 @@ def handle_quote(client, say, channel: str, thread_ts: str, event_ts: str, files
             saved = log_writer.save_quote(content, fname)
             saved_paths.append(saved)
             log.info("Saved quote file '%s' to %s", fname, saved)
+        except log_writer.StorageLocationError as e:
+            storage_error = e
+            break
         except Exception as e:
             log.warning("Could not download/save quote %s: %s", fname, e)
+
+    if storage_error:
+        say(
+            text=text_rules.storage_problem_message(
+                storage_error.setting, storage_error.path, storage_error.reason
+            ),
+            thread_ts=thread_ts,
+        )
+        return
 
     if saved_paths:
         try:

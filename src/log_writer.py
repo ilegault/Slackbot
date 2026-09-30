@@ -26,6 +26,14 @@ sync_roster_lists() mirrors roster.json into the Roles & Lists sheet (sheet2.xml
 and updates the Requesters (table4.xml) and GradStudents (table3.xml) tables.
 Rows 5-49 already exist with their styles in sheet2.xml. We fill existing cells,
 grow the table and autoFilter refs in lockstep, and enforce row 50 as a hard floor.
+
+Storage location errors:
+    save_epif, save_confirmation, save_quote, and save_bom do not recreate missing
+    storage folders with os.makedirs. If a OneDrive folder moves, is renamed, or is
+    misconfigured in the environment, the save functions must fail loudly (raising
+    StorageLocationError) rather than quietly recreating an empty folder at the old
+    path. Silently recreating the folder leads to purchases and documents being archived
+    in detached folders without alerting the lab or admins (ADR 0009 decision 6).
 """
 import logging
 import os
@@ -46,6 +54,25 @@ log = logging.getLogger(__name__)
 
 
 from typing import Iterable
+
+
+class StorageLocationError(Exception):
+    """Raised when a storage path is not configured or does not exist."""
+
+    def __init__(self, setting: str, path: str, reason: str):
+        super().__init__(f"{setting} {reason}: {path}")
+        self.setting = setting
+        self.path = path
+        self.reason = reason
+
+
+def _check_workbook_path(workbook_path: str = None) -> str:
+    path = workbook_path or getattr(config, "WORKBOOK_PATH", "")
+    if not path:
+        raise StorageLocationError(setting="PURCHASING_LOG_PATH", path="", reason="not set")
+    if not os.path.exists(path):
+        raise StorageLocationError(setting="PURCHASING_LOG_PATH", path=path, reason="does not exist")
+    return path
 
 
 def epif_archive_name(vendor: str, total_price: float, project_id: str, existing: Iterable[str]) -> str:
@@ -202,7 +229,7 @@ def _assert_not_locked(path: str):
 
 def append_row(values: dict, workbook_path: str = None) -> int:
     """Write one order into the log. Returns the row number used."""
-    path = workbook_path or config.WORKBOOK_PATH
+    path = _check_workbook_path(workbook_path)
     _assert_not_locked(path)
 
     with zipfile.ZipFile(path) as archive:
@@ -254,7 +281,7 @@ def blank_row(row: int, workbook_path: str = None) -> int:
         row lets it be recycled. Columns A and Z hold array formulas already
         filled down to row 1999 and must not be touched.
     """
-    path = workbook_path or config.WORKBOOK_PATH
+    path = _check_workbook_path(workbook_path)
     _assert_not_locked(path)
 
     with zipfile.ZipFile(path) as archive:
@@ -291,7 +318,7 @@ def blank_row(row: int, workbook_path: str = None) -> int:
 
 def update_row(row: int, values: dict, workbook_path: str = None) -> int:
     """Update specific columns in an existing row of Purchasing-Log.xlsx atomically."""
-    path = workbook_path or config.WORKBOOK_PATH
+    path = _check_workbook_path(workbook_path)
     _assert_not_locked(path)
 
     with zipfile.ZipFile(path) as archive:
@@ -319,7 +346,7 @@ def update_row(row: int, values: dict, workbook_path: str = None) -> int:
 
 def get_row_info(row: int, workbook_path: str = None) -> dict:
     """Read basic info (Requester, Item, Date of Request, Confirmed date, etc.) for a row."""
-    path = workbook_path or config.WORKBOOK_PATH
+    path = _check_workbook_path(workbook_path)
     with zipfile.ZipFile(path) as archive:
         sheet_xml = archive.read(config.SHEET_XML).decode("utf-8")
 
@@ -359,8 +386,11 @@ def save_epif(pdf_bytes: bytes, filename: str, target_dir: str = None) -> str:
 
     Returns the absolute path to the saved PDF file.
     """
-    directory = target_dir or config.EPIFS_DIR
-    os.makedirs(directory, exist_ok=True)
+    directory = target_dir or getattr(config, "EPIFS_DIR", "")
+    if not directory:
+        raise StorageLocationError(setting="EPIFS_DIR", path="", reason="not set")
+    if not os.path.exists(directory):
+        raise StorageLocationError(setting="EPIFS_DIR", path=directory, reason="does not exist")
 
     clean_name = os.path.basename(filename).strip() if filename else "EPIF.pdf"
     if not clean_name:
@@ -393,8 +423,11 @@ def save_confirmation(file_bytes: bytes, filename: str, target_dir: str = None) 
 
     Returns the absolute path to the saved confirmation file.
     """
-    directory = target_dir or config.CONFIRMATIONS_DIR
-    os.makedirs(directory, exist_ok=True)
+    directory = target_dir or getattr(config, "CONFIRMATIONS_DIR", "")
+    if not directory:
+        raise StorageLocationError(setting="CONFIRMATIONS_DIR", path="", reason="not set")
+    if not os.path.exists(directory):
+        raise StorageLocationError(setting="CONFIRMATIONS_DIR", path=directory, reason="does not exist")
 
     clean_name = os.path.basename(filename).strip() if filename else "Order_Confirmation.pdf"
     if not clean_name:
@@ -423,8 +456,11 @@ def save_quote(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
 
     Returns the absolute path to the saved quote file.
     """
-    directory = target_dir or config.QUOTES_DIR
-    os.makedirs(directory, exist_ok=True)
+    directory = target_dir or getattr(config, "QUOTES_DIR", "")
+    if not directory:
+        raise StorageLocationError(setting="QUOTES_DIR", path="", reason="not set")
+    if not os.path.exists(directory):
+        raise StorageLocationError(setting="QUOTES_DIR", path=directory, reason="does not exist")
 
     clean_name = os.path.basename(filename).strip() if filename else "Vendor_Quote.pdf"
     if not clean_name:
@@ -453,8 +489,11 @@ def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
 
     Returns the absolute path to the saved BOM file.
     """
-    directory = target_dir or config.BOMS_DIR
-    os.makedirs(directory, exist_ok=True)
+    directory = target_dir or getattr(config, "BOMS_DIR", "")
+    if not directory:
+        raise StorageLocationError(setting="BOMS_DIR", path="", reason="not set")
+    if not os.path.exists(directory):
+        raise StorageLocationError(setting="BOMS_DIR", path=directory, reason="does not exist")
 
     clean_name = os.path.basename(filename).strip() if filename else "BOM.xlsx"
     if not clean_name:
