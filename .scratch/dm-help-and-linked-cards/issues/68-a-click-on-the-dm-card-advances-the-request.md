@@ -1,6 +1,6 @@
 # 68: A click on the DM card advances the request
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -48,13 +48,13 @@ on every surface, so `slack_io.deny(respond, …)` works in a DM.
 
 ## Acceptance criteria
 
-- [ ] **Registered once per stage.** In `tests/test_68_dm_click.py`,
+- [x] **Registered once per stage.** In `tests/test_68_dm_click.py`,
   `sum(1 for l in app.app._listeners if l.ack_function is app.handle_dm_stage_action) == 3`.
-- [ ] **`get_card_by_ts` reads the button value, not the metadata, and picks the exact card.** A fake
+- [x] **`get_card_by_ts` reads the button value, not the metadata, and picks the exact card.** A fake
   thread with two cards, one whose metadata says `posted` but whose button value says `approved`:
   asking for that card's `ts` returns state `approved` and its own history; the other card's `ts`
   returns the other card; an unknown `ts` returns `None`.
-- [ ] **The assignee's click advances the request, for each stage.** Parametrized over processed,
+- [x] **The assignee's click advances the request, for each stage.** Parametrized over processed,
   confirmed, delivered (fixtures as ticket 46 with `sync_queue`; `log_writer.update_row` replaced by
   a recorder): a body shaped like a DM click (`channel.id` `D_BUYER`, `message.ts` a DM ts, **no**
   `container.thread_ts`) whose pointer names thread channel `C123`. Assert `update_row` was called
@@ -62,12 +62,12 @@ on every surface, so `slack_io.deny(respond, …)` works in a DM.
   `COLUMN_DATE_DELIVERY` respectively; `chat_update` was called with `channel == "C123"` and the
   thread card's `ts` and blocks holding the next stage's button (none after delivered); and a
   `chat_postMessage(channel="C123", thread_ts=…)` confirms it in the thread.
-- [ ] **Everyone else is refused privately and nothing is written.** A different buyer, an
+- [x] **Everyone else is refused privately and nothing is written.** A different buyer, an
   unassigned request, and an unregistered user each: `respond` called once with
   `response_type="ephemeral"` and the exact text from `text_rules` (or the roster text);
   `update_row` not called; `chat_update` not called (absence asserted). The approver and an admin
   are **not** refused.
-- [ ] **A stale click and a vanished card.** With the thread card already in state `processed`, a
+- [x] **A stale click and a vanished card.** With the thread card already in state `processed`, a
   `dm_req_processed` click: `respond` text contains `already`, `update_row` not called. With the
   card missing from the thread: refused with the `can't find` text, `update_row` not called, and one
   message to the alert channel containing `find the card for a DM click`.
@@ -90,3 +90,9 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-30
+- Implemented `slack_io.get_card_by_ts` which reads `(request, history, state)` from the actions-block button value at `card_ts` in a thread, sharing parsing with `find_card_in_thread` and never reading message metadata for state.
+- Implemented `app.handle_dm_stage_action` registered with 3 stacked `@app.action` decorators for `dm_req_processed`, `dm_req_confirmed`, and `dm_req_delivered`. It acks first, reads the pointer, loads the card via `get_card_by_ts` (with ephemeral refusal and loud admin alert on missing card), enforces stage permissions via `admin.can_update_request`, rejects stale clicks privately, and delegates to `lifecycle.handle_processed`, `handle_confirmation`, and `handle_delivery`.
+- Added comprehensive test suite `tests/test_68_dm_click.py` covering listener registration, button value parsing, stage advancement, permission checks, stale clicks, and vanished card alerts.
+- Full test suite passed (543 passed, 31 skipped), ruff check passed, check_tests_first passed.
