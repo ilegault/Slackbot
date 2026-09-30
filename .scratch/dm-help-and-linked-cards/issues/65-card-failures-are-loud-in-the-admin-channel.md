@@ -1,6 +1,6 @@
 # 65: A missing or failed card is reported loudly to the admin channel
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
