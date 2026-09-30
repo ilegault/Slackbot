@@ -1,6 +1,6 @@
 # 63: A DM the bot cannot read gets the help text and a Start button
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
