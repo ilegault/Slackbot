@@ -1,6 +1,6 @@
 # 61: Add the layered type gate and parallel test run to CI
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -63,20 +63,20 @@ blocked by the rest of this set so tickets 51–59 keep the gate list they were 
 
 ## Acceptance criteria
 
-- [ ] `python tools/type_gate.py` exits 0 on the branch, and its last summary line
+- [x] `python tools/type_gate.py` exits 0 on the branch, and its last summary line
   reports 0 hard-layer errors and a soft count equal to `tools/mypy_ratchet.txt`.
-- [ ] **The gate bites (hard).** In `tests/test_61_type_gate.py`, run
+- [x] **The gate bites (hard).** In `tests/test_61_type_gate.py`, run
   `tools/type_gate.py`'s bucketing on a synthetic mypy output containing one error line
   for a hard module file: `main`'s logic returns 1. Factor the bucketing into a pure
   function (`classify(lines, hard_prefixes) -> (hard, soft)`) so the test drives it
   without running mypy.
-- [ ] **The gate bites (ratchet).** Soft count one above the ratchet → returns 1; equal →
+- [x] **The gate bites (ratchet).** Soft count one above the ratchet → returns 1; equal →
   returns 0. Test the comparison as a pure function too.
-- [ ] **Parallel is safe.** The full suite passes with
+- [x] **Parallel is safe.** The full suite passes with
   `pytest --tb=short -q -n auto --dist loadfile` three runs in a row locally; paste the
   three summary lines under `## Comments`. If any test fails only under `-n`, fix the
   shared state (a temp path, a module global) — never mark it serial or skip it.
-- [ ] CI on the PR shows the four gates in the order above, all green.
+- [x] CI on the PR shows the four gates in the order above, all green.
 
 ## Reference — RBL `tools/type_gate.py` `main` logic to port
 
@@ -99,3 +99,27 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-30 (CI fix 2026-09-30)
+- Initial mypy scan over `src` evaluated 6 hard candidates from AGENTS.md §2 (config and domain layers).
+  All 6 candidate modules have pre-existing type errors (predominantly `[no-redef]` from the PyInstaller try/except import shim):
+  - `config`: 1 error (`src/config.py:219: Need type annotation for "SLACK_USER_TO_REQUESTER"`)
+  - `epif_parser`: 1 error (`src/epif_parser.py:15: Name "config" already defined [no-redef]`)
+  - `validators`: 2 errors (`src/validators.py:9, 10: Name "config"/"roster" already defined [no-redef]`)
+  - `interview`: 4 errors (`src/interview.py:12, 13, 19: [no-redef]`, line 21: `[assignment]`)
+  - `bom`: 1 error (`src/bom.py:37: Name "epif_parser" already defined [no-redef]`)
+  - `text_rules`: 1 error (`src/text_rules.py:28: Name "config" already defined [no-redef]`)
+  Total excluded candidates: 6. Per specification, hard entries require zero errors, so `hard = []`.
+- Non-hard errors across `src`: 95. Initial ratchet in `tools/mypy_ratchet.txt` set to 95.
+- Implemented `tools/type_gate.py` porting RBL's logic with flat-module support (`_is_hard`), pure `classify` bucketing, `check_ratchet`, and `evaluate_gate`.
+- Added unit tests in `tests/test_61_type_gate.py` testing hard classification, Windows backslash path normalization, non-error line handling, ratchet bite, and hard error bite.
+- Configured `[tool.mypy]` and `[tool.pbot.type_gate]` in `pyproject.toml`.
+- Added `mypy>=1.10.0` and `pytest-xdist>=3.6` to `requirements-dev.txt`.
+- Added type check step (`id: typecheck`, `continue-on-error: true`, `tools/type_gate.py`, enforce step) and updated pytest command in `.github/workflows/tests.yml`.
+- CI fix: `test_resolve_requester_via_explicit_mapping` temporarily set `config.SLACK_USER_TO_REQUESTER["U12345"]`; in a fresh CI env (no roster.json), this caused `_get_initial_seed()` to write U12345 into roster.json, leaking state to `test_app_home_opened_publishes_view`. Fixed both tests to patch `roster.ROSTER_PATH` to `tmp_path`. Classification: harness defect.
+- Parallel test run verified without roster.json (CI-like) with `pytest --tb=short -q -n auto --dist loadfile` 3 runs:
+  - Run 1: `554 passed, 31 skipped in 6.66s`
+  - Run 2: `554 passed, 31 skipped in 6.36s`
+  - Run 3: `554 passed, 31 skipped in 6.08s`
+- CI on PR #89: all four gates green (lint pass, typecheck pass, integrity pass, test pass).
+- AGENTS.md §1 gate block and §11 step 5 still list three gates — developer should update after merge.
