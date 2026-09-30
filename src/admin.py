@@ -20,6 +20,10 @@ The health screen previously checked only four locations, omitted BOMS_DIR and
 EPIF_TEMPLATE_PATH, showed no paths, and kept a hard-coded list separate from the
 startup check. Now get_system_health and build_health_blocks read config.STORAGE_SETTINGS
 in order, report per-setting status and full paths, and format unset paths cleanly as "not set".
+
+Ticket 66 / ADR 0010 Decision 4:
+Unified stage permission check can_update_request: authorises the assigned buyer,
+any admin, or any approver. An unassigned request returns False.
 """
 import logging
 import os
@@ -65,6 +69,28 @@ def is_approved_reviewer(user_id: Optional[str]) -> bool:
     if hasattr(roster, "get_approvers"):
         return user_id in roster.get_approvers()
     return user_id in getattr(config, "APPROVER_SLACK_USER_IDS", set())
+
+
+def can_update_request(user_id: Optional[str], assignee_id: Optional[str]) -> bool:
+    """Check if user_id is authorized to update a stage request (Mark Processed, Confirmed, Delivered).
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 66 / ADR 0010 Decision 4:
+    The three stage-button listeners each carried their own inline 'assignee or admin'
+    check with three different refusal texts, and the approver was refused.
+    One permission predicate covers all three stages and the DM card: the assigned buyer,
+    any admin, or any approver. An unassigned request returns False.
+    """
+    if not assignee_id:
+        return False
+    if not user_id:
+        return False
+    return (
+        user_id == assignee_id
+        or is_admin_user(user_id)
+        or is_approved_reviewer(user_id)
+    )
 
 
 def format_uptime(start: datetime) -> str:

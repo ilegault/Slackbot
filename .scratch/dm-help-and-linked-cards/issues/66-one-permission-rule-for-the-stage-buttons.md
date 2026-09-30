@@ -1,6 +1,6 @@
 # 66: One permission rule for Mark Processed, Confirmed and Delivered — assignee, admin or approver
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -33,21 +33,21 @@ Replace them with one rule, so the DM card added later reuses it.
 
 ## Acceptance criteria
 
-- [ ] **The predicate's truth table** in `tests/test_66_stage_permissions.py`, on a temp roster
+- [x] **The predicate's truth table** in `tests/test_66_stage_permissions.py`, on a temp roster
   (copy `clean_roster` from `tests/test_46_epif_path_dm_attaches_epif.py`): the assignee, an
   admin and an approver → `True`; a different buyer, a requester with no role, and `None` →
   `False`; any user with `assignee_id=None` → `False`.
-- [ ] **The approver succeeds on all three buttons.** For each of the three listeners, a click
+- [x] **The approver succeeds on all three buttons.** For each of the three listeners, a click
   by the approver on an assigned request calls the matching `lifecycle.handle_processed` /
   `handle_confirmation` / `handle_delivery` once (a recorder on the lifecycle function is
   fine — the listener is the code under test) and does not call `respond`.
-- [ ] **A different buyer is refused privately on all three.** `respond` is called once with
+- [x] **A different buyer is refused privately on all three.** `respond` is called once with
   `response_type="ephemeral"`, `replace_original=False`, and text equal to
   `text_rules.format_stage_denial("U_ASSIGNED")`; the lifecycle handler is **not** called and
   `chat_update` is **not** called (absence asserted).
-- [ ] **An unassigned request is refused on all three**, text equal to
+- [x] **An unassigned request is refused on all three**, text equal to
   `format_stage_unassigned()`, lifecycle handler not called.
-- [ ] **A real write follows an approver's click.** With the workbook functions replaced by
+- [x] **A real write follows an approver's click.** With the workbook functions replaced by
   recorders as in ticket 46's fixtures and the queue made synchronous (`sync_queue`), the
   approver clicking Mark Processed causes `log_writer.update_row` to be called once with a
   dict containing `config.COLUMN_DATE_PROCESSED`.
@@ -77,3 +77,9 @@ pytest -q --tb=short --durations=25
 
 ## Comments
 
+### Completed (2026-09-30)
+- Added `admin.can_update_request(user_id, assignee_id)` predicate authorizing assignee, admin, or approver, and returning False for unassigned or missing user.
+- Added `text_rules.format_stage_denial(assignee_id)` and `text_rules.format_stage_unassigned()` message builders.
+- Replaced inline checks in `handle_req_processed_action`, `handle_req_confirmed_action`, and `handle_req_delivered_action` with `can_update_request` and the shared denial messages.
+- Updated expected role denial substring in `tests/test_12_denials.py` and `tests/test_08_assignment.py` for new unassigned wording.
+- Added unit and listener tests in `tests/test_66_stage_permissions.py` covering truth table, approver success on all 3 buttons, non-assignee refusal on all 3 buttons, unassigned refusal on all 3 buttons, and real write following approver click. All 521 tests pass.
