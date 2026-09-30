@@ -111,14 +111,34 @@ def test_docs_contain_no_p_bot_outside_adr():
 
 def test_docs_adr_is_unmodified():
     """docs/adr/ has not been modified relative to master."""
-    res = subprocess.run(
-        ["git", "diff", "--stat", "origin/master", "--", "docs/adr"],
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", "docs/adr"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        check=True,
     )
-    assert res.stdout.strip() == "", f"docs/adr has modifications:\n{res.stdout}"
+    assert status.returncode == 0
+    assert status.stdout.strip() == "", f"docs/adr has uncommitted modifications:\n{status.stdout}"
+
+    base_ref = None
+    for candidate in ["master", "origin/master", "HEAD^1"]:
+        if subprocess.run(
+            ["git", "rev-parse", "--verify", candidate],
+            cwd=REPO_ROOT,
+            capture_output=True,
+        ).returncode == 0:
+            base_ref = candidate
+            break
+
+    if base_ref:
+        res = subprocess.run(
+            ["git", "diff", "--stat", base_ref, "--", "docs/adr"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 0, f"git diff failed:\n{res.stderr}"
+        assert res.stdout.strip() == "", f"docs/adr has modifications against {base_ref}:\n{res.stdout}"
 
 
 def test_build_and_logs_still_name_p_bot_log_and_spec():
