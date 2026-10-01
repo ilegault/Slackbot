@@ -1,6 +1,6 @@
 # 76: Approval and assignment are written to the request log
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
