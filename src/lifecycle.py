@@ -1285,8 +1285,9 @@ def handle_assign(
 
     # Notify old buyer by DM that the request was moved (Ticket 73 / ADR 0011)
     if current_assignee:
-        parsed_dict = req_data.get("parsed") if isinstance(req_data.get("parsed"), dict) else {}
-        item_name = parsed_dict.get("item_description") or req_data.get("item_description") or "Item"
+        req = req_data if req_data is not None else {}
+        parsed_dict = req.get("parsed") if isinstance(req.get("parsed"), dict) else {}
+        item_name = parsed_dict.get("item_description") or req.get("item_description") or "Item"
         try:
             client.chat_postMessage(
                 channel=current_assignee,
