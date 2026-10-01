@@ -1,6 +1,6 @@
 # 74: The DM card carries the buyer picker too
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -13,7 +13,7 @@
 
 ## What to build
 
-The assigned buyer's DM card shows the same buyer picker while the request is `approved`, so
+An assigned buyer's DM card shows the same buyer picker while the request is `approved`, so
 a buyer who can't do an order hands it off from where they already are. The DM card holds
 only a pointer to the thread card; a pick there resolves the thread card exactly as a DM stage
 click does, and goes through `lifecycle.handle_assign`, so both cards end in sync.
@@ -35,17 +35,17 @@ click does, and goes through `lifecycle.handle_assign`, so both cards end in syn
 
 New test file `tests/test_74_dm_card_picker.py`, fixtures as `tests/test_68_dm_click.py`.
 
-- [ ] **The DM card has the picker only while approved.** `build_dm_card_blocks("approved", …)`
+- [x] **The DM card has the picker only while approved.** `build_dm_card_blocks("approved", …)`
   has a `users_select` with `action_id == "dm_req_assign_select"` and `initial_user` equal to
   the assignee, and its actions block's `block_id` parses as JSON with `thread_ts` and
   `card_ts`; for `processed` there is none.
-- [ ] **A pick in the DM moves the request.** The assignee (buyer A) selects buyer B on the DM
+- [x] **A pick in the DM moves the request.** The assignee (buyer A) selects buyer B on the DM
   card: the thread card (`channel` = thread channel, `ts` = card_ts) is `chat_update`d with
   `"assignee_id": "U_B"`, buyer A's DM card is retired (no `actions` block, contains
   `Reassigned to`), and a new DM card is posted to `U_B`.
-- [ ] **Permission and refusal match the thread card.** A requester who is not a buyer, approver or
+- [x] **Permission and refusal match the thread card.** A requester who is not a buyer, approver or
   admin: `respond` is called with `Only buyers, approvers or admins`, no `chat_update`.
-- [ ] **A missing thread card refuses privately and alerts.** `conversations_replies` returns no
+- [x] **A missing thread card refuses privately and alerts.** `conversations_replies` returns no
   card: `respond` contains `can't find the request card`, one message goes to the admin alert
   channel, no `chat_update`.
 
@@ -66,3 +66,11 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-30
+- `config`: added `ACTION_DM_REQ_ASSIGN_SELECT = "dm_req_assign_select"`.
+- `blocks.build_dm_card_blocks`: added buyer picker (`users_select`) in `approved` state with `initial_user` from request assignee and pointer serialized in actions block's `block_id`.
+- `app`: added `handle_dm_assign_select_action` listening on `ACTION_DM_REQ_ASSIGN_SELECT`. Reads thread card pointer from `block_id`, resolves card via `slack_io.get_card_by_ts` (with missing-card private refusal and admin alert), and delegates to `lifecycle.handle_assign`.
+- Tests added in `tests/test_74_dm_card_picker.py` covering all 4 criteria plus handler registration.
+- Updated `tests/test_67_dm_card.py` to expect 2 elements in actions block for approved DM card.
+- Gate: ruff ✓, check_tests_first ✓, type_gate ✓, full suite (568 passed, 31 skipped) ✓.

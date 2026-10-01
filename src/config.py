@@ -344,6 +344,7 @@ ACTION_REQ_EDIT = "req_edit"
 ACTION_DM_REQ_PROCESSED = "dm_req_processed"
 ACTION_DM_REQ_CONFIRMED = "dm_req_confirmed"
 ACTION_DM_REQ_DELIVERED = "dm_req_delivered"
+ACTION_DM_REQ_ASSIGN_SELECT = "dm_req_assign_select"
 
 
 
