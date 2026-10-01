@@ -1,6 +1,6 @@
 # 73: The old buyer is told, and the buyer locks at Processed
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -36,19 +36,19 @@ assign attempt — picker or typed keyword — is refused publicly in the thread
 
 New test file `tests/test_73_old_buyer_told_and_processed_lock.py`, fixtures as ticket 72.
 
-- [ ] **The old buyer gets a DM.** Approver moves an `approved` request from buyer A to buyer B via
+- [x] **The old buyer gets a DM.** Approver moves an `approved` request from buyer A to buyer B via
   `app.handle_req_assign_select_action`: exactly one `chat_postMessage` whose `channel` is
   `U_A` and whose text contains `was moved to` and buyer B's roster name and the approver's
   roster name.
-- [ ] **A first assignment sends no "moved" DM.** Assigning an unassigned approved request: no
+- [x] **A first assignment sends no "moved" DM.** Assigning an unassigned approved request: no
   `chat_postMessage` text contains `was moved to`.
-- [ ] **The picker on a Processed card is refused.** A card in state `processed` with history
+- [x] **The picker on a Processed card is refused.** A card in state `processed` with history
   `["Approved by …", "Processed by Dylan on 09/24/26 14:02"]`: a picker click posts one thread
   message containing `Already Processed by Dylan on 09/24/26 14:02` and there is no
   `chat_update` and no DM.
-- [ ] **The typed keyword on a Processed request is refused the same way** (through
+- [x] **The typed keyword on a Processed request is refused the same way** (through
   `app.dispatch_command` with `assign @B`), for each of `processed`, `confirmed`, `delivered`.
-- [ ] **A failed old-buyer DM never blocks.** With `chat_postMessage` raising only for
+- [x] **A failed old-buyer DM never blocks.** With `chat_postMessage` raising only for
   `channel == "U_A"`, the thread card is still updated to buyer B and buyer B's DM card is posted.
 
 **Tests may fake:** the Slack client. **Must be real:** `lifecycle.handle_assign`, the app handlers,
@@ -68,3 +68,9 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+Landed on 2026-09-30:
+- `lifecycle.handle_assign`: notifies old buyer via DM on reassignment (`↪️ <item> was moved to <new buyer> by <actor>. You don't need to do anything on it.`), catching failures non-blockingly.
+- `lifecycle.handle_assign`: locks assignment once request state is `processed`, `confirmed`, or `delivered`, refusing via in-thread message `🔒 Already <line> — the buyer can't change after this point.` before any permission or target checks.
+- Docstrings updated in `lifecycle.py` and `handle_assign`.
+- Tests added in `tests/test_73_old_buyer_told_and_processed_lock.py` covering all 5 criteria.
