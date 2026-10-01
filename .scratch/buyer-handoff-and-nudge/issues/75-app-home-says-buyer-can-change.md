@@ -1,6 +1,6 @@
 # 75: App Home says the buyer can be changed until Processed
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -25,9 +25,9 @@ the card by any buyer until the request is Processed, and stops teaching the old
 
 New test file `tests/test_75_help_says_buyer_can_change.py`.
 
-- [ ] `blocks.get_help_message()` contains `until it is *Processed*` and does not contain
+- [x] `blocks.get_help_message()` contains `until it is *Processed*` and does not contain
   `@Purchasing assign @themselves`.
-- [ ] The JSON of `blocks.build_app_home_view("U_ANY")` contains `until it is *Processed*`
+- [x] The JSON of `blocks.build_app_home_view("U_ANY")` contains `until it is *Processed*`
   and does not contain `@Purchasing assign @themselves`.
 
 **Tests may fake:** nothing needed beyond a temp roster if `build_app_home_view` reads it.
@@ -47,3 +47,9 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-09-30
+- `src/blocks.py`: updated `_BUTTON_LIST` to replace `@Purchasing assign @themselves` with `Any buyer can pick a buyer from the card — or move it to someone else — until it is *Processed*.` and updated module docstring.
+- `tests/test_75_help_says_buyer_can_change.py`: added tests verifying `get_help_message()` and `build_app_home_view("U_ANY")` contain `until it is *Processed*` and do not contain `@Purchasing assign @themselves`.
+- `tests/test_09_app_home_help.py`: updated fallback assertions to expect `until it is *Processed*` rather than `@Purchasing assign`.
+- Gate: ruff ✓, check_tests_first ✓, type_gate ✓ (0 hard / 0 soft), pytest ✓ (570 passed, 31 skipped).
