@@ -1,6 +1,6 @@
 # 76: Approval and assignment are written to the request log
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -45,20 +45,20 @@ New test file `tests/test_76_request_log_approval_and_assign.py`. `monkeypatch.s
 "STORE_PATH", str(tmp_path / "requests.json"))`; approval fixtures and fake client as
 `tests/test_64_approval_posts_card.py`; roster and `sync_queue` as `tests/test_69_cards_move_together.py`.
 
-- [ ] **Approval creates one entry.** An approval naming buyer A: reading the temp `requests.json`
+- [x] **Approval creates one entry.** An approval naming buyer A: reading the temp `requests.json`
   gives exactly one entry whose `thread_ts`, `channel` and `card_ts` equal the thread and the
   posted card's ts, `buyer_id == "U_A"`, `rows == [<row written>]`, `approved_at` and
   `buyer_set_at` both non-null, and a history line starting `Approved by`. The file has no key
   named `state` or `stage` in the entry.
-- [ ] **Unassigned approval.** Approval with no buyer named: entry has `buyer_id is None` and
+- [x] **Unassigned approval.** Approval with no buyer named: entry has `buyer_id is None` and
   `buyer_set_at is None`.
-- [ ] **Reassignment updates the entry.** After the approval above, `lifecycle.handle_assign`
+- [x] **Reassignment updates the entry.** After the approval above, `lifecycle.handle_assign`
   moves it to buyer B: still one entry, `buyer_id == "U_B"`, `buyer_set_at` later than or equal
   to `approved_at`, last history line starts `Reassigned to`.
-- [ ] **A log failure never blocks and alerts.** With `store.create` monkeypatched to raise, the
+- [x] **A log failure never blocks and alerts.** With `store.create` monkeypatched to raise, the
   approval still writes the workbook row and posts the card, and exactly one message goes to the
   admin alert channel containing `request log`.
-- [ ] **No entry, no noise.** `handle_assign` on a thread with no log entry: the assignment
+- [x] **No entry, no noise.** `handle_assign` on a thread with no log entry: the assignment
   happens, the log file is unchanged, and nothing is posted to the admin alert channel.
 
 **Tests may fake:** the Slack client, `log_writer` I/O as `test_64` does. **Must be real:** `store`
@@ -78,3 +78,10 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-10-01
+- `store.py`: updated module docstring to define "the request log" per ADR 0011; added `find_id_by_thread(channel, thread_ts) -> str | None`.
+- `lifecycle.py`: added `_request_log(client, fn, *args, **kwargs)` safe error handler alerting `ADMIN_ALERT_CHANNEL` without blocking; added request log write in `finalize_purchase_request` (on_success) after card post/update; added request log update and history append in `handle_assign` for non-posted states; updated module docstring.
+- `tests/conftest.py`: added global `isolate_store_path` autouse fixture to prevent parallel test worker collisions on `requests.json`.
+- `tests/test_76_request_log_approval_and_assign.py`: 6 tests covering all acceptance criteria.
+- Gate: ruff check passed, check_tests_first passed, type_gate passed (0 hard, 0 soft), 576 passed, 31 skipped.

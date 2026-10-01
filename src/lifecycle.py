@@ -112,8 +112,13 @@ Per Ticket 69 (ADR 0010 decision 3):
 - Reassignment retires the old buyer's DM card before posting to the new buyer.
 - sync_dm_card is a no-op if no dm_channel/dm_ts, never raises, and alerts admins on failure.
 
+Per Ticket 76 (ADR 0011 decision 3):
+- Approval writes an entry into the request log (requests.json via store).
+- Assignment in any state other than posted updates the buyer and appends history in the request log.
+- All request log writes are wrapped in _request_log; errors alert config.ADMIN_ALERT_CHANNEL and never block.
+
 Imports:
-    - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, validators, slack_io, text_rules
+    - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, slack_io, store, text_rules, validators
 May NOT import:
     - app.py
 """
@@ -135,6 +140,7 @@ try:
         queue_worker,
         roster,
         slack_io,
+        store,
         text_rules,
         validators,
     )
@@ -149,10 +155,27 @@ except ImportError:
     import queue_worker
     import roster
     import slack_io
+    import store  # type: ignore[no-redef]
     import text_rules
     import validators
 
 log = logging.getLogger("p-bot")
+
+
+def _request_log(client, fn, *args, **kwargs):
+    """Execute a store function safely, alerting admins on error.
+
+    Per ADR 0011 / Ticket 76:
+    The request log sits beside the cards and workbook. A write failure must
+    never block an approval, button click, or DM. On any exception, log at ERROR,
+    alert config.ADMIN_ALERT_CHANNEL via slack_io.alert_admins, and return None.
+    """
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        log.error("Couldn't write the request log (requests.json): %s", e, exc_info=True)
+        slack_io.alert_admins(client, f"⚠️ Couldn't write the request log (requests.json): {e}")
+        return None
 
 
 def _send_assignee_dm(
@@ -697,6 +720,53 @@ def finalize_purchase_request(
                         error=str(e),
                     ),
                 )
+
+        # Write to request log (requests.json) per Ticket 76 / ADR 0011
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        buyer_set_iso = now_iso if assignee_id else None
+        existing_id = None
+        try:
+            existing_id = store.find_id_by_thread(channel, thread_ts)
+        except Exception as read_err:
+            log.warning("Could not check existing entry in request log: %s", read_err)
+
+        if existing_id:
+            _request_log(
+                client,
+                store.update,
+                existing_id,
+                channel=channel,
+                thread_ts=thread_ts,
+                card_ts=actual_card_ts,
+                requester=requester,
+                requester_id=notify_target,
+                buyer=assignee_name,
+                buyer_id=assignee_id,
+                rows=[row] if row is not None else [],
+                history=list(hist),
+                approved_at=now_iso,
+                buyer_set_at=buyer_set_iso,
+                cancelled=False,
+                last_nudged=None,
+            )
+        else:
+            _request_log(
+                client,
+                store.create,
+                channel=channel,
+                thread_ts=thread_ts,
+                card_ts=actual_card_ts,
+                requester=requester or "Requester",
+                requester_id=notify_target,
+                buyer=assignee_name,
+                buyer_id=assignee_id,
+                rows=[row] if row is not None else [],
+                history=list(hist),
+                approved_at=now_iso,
+                buyer_set_at=buyer_set_iso,
+                cancelled=False,
+                last_nudged=None,
+            )
 
         if assignee_id and assignee_name:
             route = interview.get_request_route(parsed, bool(pdf_bytes))
@@ -1336,6 +1406,32 @@ def handle_assign(
             )
         except Exception as e:
             log.error("Failed to update message on assign with DM reference: %s", e)
+
+    # Update request log (requests.json) per Ticket 76 / ADR 0011
+    if current_state != "posted":
+        req_id = None
+        try:
+            req_id = store.find_id_by_thread(channel, thread_ts)
+        except Exception as read_err:
+            log.warning("Could not find request in log: %s", read_err)
+
+        if req_id:
+            now_iso = datetime.now().isoformat(timespec="seconds")
+            _request_log(
+                client,
+                store.update,
+                req_id,
+                buyer=target_name,
+                buyer_id=target_user_id,
+                buyer_set_at=now_iso,
+            )
+            if history:
+                _request_log(
+                    client,
+                    store.append_history,
+                    req_id,
+                    history[-1],
+                )
 
     return True
 

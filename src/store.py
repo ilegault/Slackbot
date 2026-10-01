@@ -1,8 +1,18 @@
-"""The request index store for P-Bot.
+"""The request log for the Purchasing bot.
 
-Maintains requests.json with atomic writes and thread-level request tracking.
-Excel remains the source of truth for row processing stages; this store tracks
-request metadata, multi-item batch mappings, card message timestamps, and history.
+WHY THIS EXISTS:
+----------------
+Maintains requests.json beside roster.json with atomic writes and corrupt-file
+handling (preserving bad files as requests.json.bad).
+
+Per ADR 0011:
+- This is the request log (glossary term), not the live request store.
+- The thread card remains the authoritative store for a request's live state.
+- Cards are not drawn from the request log; it sits beside them so the bot can
+  find open requests on its own for reminders (the nudge).
+- It never holds a stage; stage comes from the Purchasing Log workbook.
+- Finished (delivered or cancelled) requests remain in the log as history.
+- Write failures never block Slack actions; they log at ERROR and alert admins.
 """
 import json
 import logging
@@ -143,6 +153,15 @@ def get_by_thread(channel: str, thread_ts: str) -> Optional[Dict[str, Any]]:
             req_copy = dict(record)
             req_copy["request_id"] = req_id
             return req_copy
+    return None
+
+
+def find_id_by_thread(channel: str, thread_ts: str) -> Optional[str]:
+    """Find the request_id associated with a specific channel and thread_ts."""
+    store = load_store()
+    for req_id, record in store.items():
+        if record.get("channel") == channel and record.get("thread_ts") == thread_ts:
+            return req_id
     return None
 
 
