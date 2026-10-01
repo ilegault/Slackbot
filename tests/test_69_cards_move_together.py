@@ -147,6 +147,19 @@ def test_retired_states_have_no_buttons():
     text_delivered = "\n".join(b.get("text", {}).get("text", "") for b in blocks_delivered)
     assert "Delivered" in text_delivered
 
+    # 4. Replaced with note (Ticket 78)
+    blocks_replaced = blocks.build_dm_card_blocks(
+        state="replaced",
+        request=req,
+        thread_channel="C123",
+        thread_ts="1000.0",
+        card_ts="1000.1",
+        note="Replaced by the reminder below.",
+    )
+    assert not any(b.get("type") == "actions" for b in blocks_replaced)
+    text_replaced = "\n".join(b.get("text", {}).get("text", "") for b in blocks_replaced)
+    assert "Replaced by the reminder below" in text_replaced
+
 
 def test_thread_click_and_keyword_moves_dm_card(clean_roster, sync_queue, monkeypatch):
     """AC 2: A thread click moves the DM card, and the keyword does too.

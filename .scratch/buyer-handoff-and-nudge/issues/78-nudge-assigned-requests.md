@@ -1,6 +1,6 @@
 # 78: Nudge assigned requests
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -53,21 +53,21 @@ New test file `tests/test_78_nudge_assigned.py`. Temp `requests.json` via `store
 fake client whose `conversations_replies` returns an `approved` thread card for the entry (helper as
 `tests/test_69_cards_move_together.py`). Entry: `buyer_set_at` = Monday 2026-10-05.
 
-- [ ] **`working_days_between`** (2026-10-05, 2026-10-08) == 3; (Fri 2026-10-09, Mon 2026-10-12) == 1;
+- [x] **`working_days_between`** (2026-10-05, 2026-10-08) == 3; (Fri 2026-10-09, Mon 2026-10-12) == 1;
   (2026-10-05, 2026-10-05) == 0.
-- [ ] **Day 2 nothing, day 3 DM only.** `run_nudges(client, date(2026,10,7))` → no
+- [x] **Day 2 nothing, day 3 DM only.** `run_nudges(client, date(2026,10,7))` → no
   `chat_postMessage`. `date(2026,10,8)` → exactly one `chat_postMessage` to the buyer's ID whose
   blocks contain `3 working days` and a `Mark Processed` button, the old DM card is updated with
   `Replaced by the reminder below` and no `actions` block, the thread card's `chat_update`
   carries the new DM `ts`, no message has `reply_broadcast`, and the entry's `last_nudged` is
   `2026-10-08`.
-- [ ] **Day 6 adds one channel post; day 9 is DM only.** 2026-10-13 → the DM plus exactly one post
+- [x] **Day 6 adds one channel post; day 9 is DM only.** 2026-10-13 → the DM plus exactly one post
   with `reply_broadcast=True`, `thread_ts` = the thread, text containing `<@U_A>`.
   2026-10-16 → DM, no `reply_broadcast`. 2026-10-14 (day 7) → nothing.
-- [ ] **It stops when it should.** Each of these on day 3 → no `chat_postMessage`: a row with a
+- [x] **It stops when it should.** Each of these on day 3 → no `chat_postMessage`: a row with a
   `date_processed`; `cancelled=True`; `last_nudged == "2026-10-08"` (a second call the same day);
   a Saturday date; `buyer_set_at` moved to 2026-10-07 by a reassignment (day 1).
-- [ ] **One failure doesn't stop the rest.** Two due entries, `chat_postMessage` raising for the
+- [x] **One failure doesn't stop the rest.** Two due entries, `chat_postMessage` raising for the
   first buyer's ID: the second buyer still gets the DM and only the second entry's `last_nudged`
   is set.
 
@@ -88,3 +88,18 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-10-01
+- `src/nudge.py`:
+  - New module implementing `working_days_between(start, end)` (pure Mon-Fri working days calculation) and `run_nudges(client, today)` for assigned requests.
+  - Checks requests from `store.load_store`, skips cancelled, weekend, already-nudged-today, and requests with `date_processed` in workbook rows.
+  - On schedule (days 3, 6, 9+), retires buyer's old DM card with `state="replaced"` and note `"Replaced by the reminder below."`, posts fresh DM card with Mark Processed button and buyer picker, updates thread card with new DM references, sends channel broadcast on day 6, and updates `last_nudged` in store.
+  - Error isolation: each entry is processed in a separate `try/except` block so failure on one request does not block others.
+- `src/blocks.py`:
+  - Added `replaced` as a retired DM card state in `build_dm_card_blocks` displaying note without action buttons.
+- `tests/test_78_nudge_assigned.py`:
+  - Added 5 unit tests covering all acceptance criteria.
+- `tests/test_69_cards_move_together.py`:
+  - Added test case verifying `replaced` retired state in `test_retired_states_have_no_buttons`.
+- Gate: ruff check passed, check_tests_first passed, type_gate passed (0 hard, 0 soft), full pytest suite passed (586 passed, 31 skipped).
+
