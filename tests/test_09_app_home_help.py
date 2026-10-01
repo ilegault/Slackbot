@@ -6,7 +6,7 @@ Checks:
 - Neither surface contains 'Claim' or '@p-bot'.
 - Both surfaces show the approve-and-mention example in both mention orders.
 - Both surfaces explain that a forgotten mention still leaves the request approved
-  and how a buyer takes an unassigned request.
+  and how any buyer can pick or move the buyer from the card until Processed (ticket 75).
 - Both surfaces list 'add-buyer' and 'remove-buyer'.
 - Both surfaces carry the four stage words plus the 'Assigned isn't a stage' line.
 - No link to the Purchasing Log (ADR 0002 decision 9).
@@ -126,13 +126,13 @@ def test_approval_example_both_orders_in_help():
 def test_forgotten_mention_and_assign_fallback_in_app_home():
     home = _app_home_text()
     assert "still approved" in home, "Forgotten-mention note missing from App Home"
-    assert "@Purchasing assign" in home, "Assign keyword missing from App Home"
+    assert "until it is *Processed*" in home, "Buyer change note missing from App Home"
 
 
 def test_forgotten_mention_and_assign_fallback_in_help():
     help_ = _help_text()
     assert "still approved" in help_, "Forgotten-mention note missing from help message"
-    assert "@Purchasing assign" in help_, "Assign keyword missing from help message"
+    assert "until it is *Processed*" in help_, "Buyer change note missing from help message"
 
 
 # ---------------------------------------------------------------------------

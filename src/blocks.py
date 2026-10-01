@@ -17,6 +17,7 @@ Ticket 63: Adds chunk_mrkdwn and build_dm_help_blocks for DM help responses when
 Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step button (ADR 0010 Decision 2).
 Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned with note, delivered) with no buttons (ADR 0010 Decision 3).
 Ticket 74: build_dm_card_blocks carries the buyer picker in approved state with pointer in block_id (ADR 0011 Decision 2).
+Ticket 75: _BUTTON_LIST updates help text to teach that any buyer can pick/move the buyer from the card until Processed (ADR 0011 Decision 1).
 
 Imports:
     - bom, config, interview, roster, text_rules
@@ -59,7 +60,7 @@ _BUTTON_LIST = (
     "@Purchasing approved @Dylan\n"
     "```\n"
     "Forgot to name someone? The request is still approved. "
-    "Any buyer can take it with `@Purchasing assign @themselves`."
+    "Any buyer can pick a buyer from the card — or move it to someone else — until it is *Processed*."
 )
 
 _STAGE_DEFINITIONS = (
