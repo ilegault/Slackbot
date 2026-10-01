@@ -117,6 +117,11 @@ Per Ticket 76 (ADR 0011 decision 3):
 - Assignment in any state other than posted updates the buyer and appends history in the request log.
 - All request log writes are wrapped in _request_log; errors alert config.ADMIN_ALERT_CHANNEL and never block.
 
+Per Ticket 77 (ADR 0011 decision 3):
+- Stage transitions (processed, confirmed, delivered) and cancel append history lines in the request log.
+- Cancel sets cancelled=True in the request log without deleting the record.
+- All request log writes are wrapped in _request_log; errors alert config.ADMIN_ALERT_CHANNEL and never block.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, slack_io, store, text_rules, validators
 May NOT import:
@@ -1536,6 +1541,11 @@ def handle_processed(
             history=target_hist,
         )
 
+        # Update request log (requests.json) per Ticket 77 / ADR 0011
+        req_id = _request_log(client, store.find_id_by_thread, channel, thread_ts)
+        if req_id and target_hist:
+            _request_log(client, store.append_history, req_id, target_hist[-1])
+
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
             say(
@@ -1667,6 +1677,11 @@ def handle_confirmation(
             history=target_hist,
         )
 
+        # Update request log (requests.json) per Ticket 77 / ADR 0011
+        req_id = _request_log(client, store.find_id_by_thread, channel, thread_ts)
+        if req_id and target_hist:
+            _request_log(client, store.append_history, req_id, target_hist[-1])
+
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
             say(
@@ -1784,6 +1799,11 @@ def handle_delivery(
             card_ts=target_card_ts or "",
             history=target_hist,
         )
+
+        # Update request log (requests.json) per Ticket 77 / ADR 0011
+        req_id = _request_log(client, store.find_id_by_thread, channel, thread_ts)
+        if req_id and target_hist:
+            _request_log(client, store.append_history, req_id, target_hist[-1])
 
     def on_failure(error):
         if isinstance(error, log_writer.StorageLocationError):
@@ -2281,6 +2301,13 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
         card_ts=msg_ts,
         history=history,
     )
+
+    # Update request log (requests.json) per Ticket 77 / ADR 0011
+    req_id = _request_log(client, store.find_id_by_thread, channel, thread_ts)
+    if req_id:
+        if history:
+            _request_log(client, store.append_history, req_id, history[-1])
+        _request_log(client, store.update, req_id, cancelled=True)
 
     return True
 
