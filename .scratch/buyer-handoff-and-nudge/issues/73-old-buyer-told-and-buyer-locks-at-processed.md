@@ -1,6 +1,6 @@
 # 73: The old buyer is told, and the buyer locks at Processed
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
