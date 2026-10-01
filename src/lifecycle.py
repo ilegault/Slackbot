@@ -155,7 +155,7 @@ except ImportError:
     import queue_worker
     import roster
     import slack_io
-    import store
+    import store  # type: ignore[no-redef]
     import text_rules
     import validators
 
