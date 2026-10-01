@@ -1,6 +1,6 @@
 # 74: The DM card carries the buyer picker too
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
