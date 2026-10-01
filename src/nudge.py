@@ -7,13 +7,17 @@ unprocessed with no reminder to anyone. The workbook knows a row is unprocessed
 and how old it is, but not who the buyer is or which Slack thread the request lives in;
 that information lives in the request log (requests.json) and on Slack cards.
 
-Per ADR 0011 Decision 4 & Spec ("The nudge") & Tickets 78 & 80:
+Per ADR 0011 Decision 4 & Spec ("The nudge") & Tickets 78, 79 & 80:
 - Weekdays at 9:00 Central, check every logged request not yet Processed.
 - For assigned requests, count working days (Mon-Fri) elapsed since the buyer was set:
   - Day 3: private DM to the buyer re-posting their DM card (retiring the old one
     with state="replaced") carrying Mark Processed and the buyer picker.
   - Day 6: same DM plus a thread reply broadcast to the channel mentioning the buyer.
   - Day 9, 12, ...: DM only.
+- For unassigned requests, count working days (Mon-Fri) elapsed since approval (approved_at):
+  - Day 3: thread reply with text mentioning all buyers from roster.get_buyers().
+  - Day 6: same message with reply_broadcast=True.
+  - Day 9, 12, ...: nothing.
 - The date is passed as an explicit argument to run_nudges(client, today: date)
   rather than reading the system clock, allowing the schedule to be tested honestly
   without waiting days.
@@ -35,12 +39,13 @@ from datetime import date, datetime, time, timedelta
 from typing import Optional
 
 try:
-    from . import blocks, config, lifecycle, log_writer, slack_io, store
+    from . import blocks, config, lifecycle, log_writer, roster, slack_io, store
 except ImportError:
     import blocks  # type: ignore[no-redef]
     import config  # type: ignore[no-redef]
     import lifecycle  # type: ignore[no-redef]
     import log_writer  # type: ignore[no-redef]
+    import roster  # type: ignore[no-redef]
     import slack_io  # type: ignore[no-redef]
     import store  # type: ignore[no-redef]
 
@@ -67,7 +72,7 @@ def working_days_between(start: date, end: date) -> int:
 
 
 def run_nudges(client, today: date) -> list[str]:
-    """Execute one day's nudging for assigned requests.
+    """Execute one day's nudging for assigned and unassigned requests.
 
     Walks store.load_store and sends reminders according to the working-day schedule.
     Returns the list of request IDs that were nudged.
@@ -81,11 +86,6 @@ def run_nudges(client, today: date) -> list[str]:
 
     for req_id, entry in store_data.items():
         try:
-            buyer_id = entry.get("buyer_id")
-            if not buyer_id:
-                # Unassigned requests are skipped here (handled in ticket 79)
-                continue
-
             if entry.get("cancelled"):
                 continue
 
@@ -107,6 +107,48 @@ def run_nudges(client, today: date) -> list[str]:
             if has_date_processed:
                 continue
 
+            buyer_id = entry.get("buyer_id")
+            channel = entry.get("channel")
+            thread_ts = entry.get("thread_ts")
+            card_ts = entry.get("card_ts")
+
+            if not buyer_id:
+                # Unassigned request path (Ticket 79)
+                if not channel or not thread_ts:
+                    continue
+
+                approved_at = entry.get("approved_at")
+                if not approved_at:
+                    continue
+
+                n = working_days_between(date.fromisoformat(approved_at[:10]), today)
+                if n not in (3, 6):
+                    continue
+
+                buyers = roster.get_buyers()
+                mentions = " ".join(f"<@{bid}>" for bid in buyers) if buyers else ""
+                msg_text = f"⏰ Approved {n} working days ago and nobody's assigned yet. {mentions}".strip()
+
+                if n == 3:
+                    client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        text=msg_text,
+                    )
+                elif n == 6:
+                    client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        reply_broadcast=True,
+                        text=msg_text,
+                    )
+
+                store.update(req_id, last_nudged=today.isoformat())
+                nudged_ids.append(req_id)
+                log.info("Nudged unassigned request [%s] (day %d)", req_id, n)
+                continue
+
+            # Assigned request path (Ticket 78)
             buyer_set_at = entry.get("buyer_set_at")
             if not buyer_set_at:
                 continue
@@ -118,9 +160,6 @@ def run_nudges(client, today: date) -> list[str]:
                 continue
 
             # Load the thread card to verify state is approved
-            channel = entry.get("channel")
-            thread_ts = entry.get("thread_ts")
-            card_ts = entry.get("card_ts")
             if not channel or not thread_ts or not card_ts:
                 continue
 
