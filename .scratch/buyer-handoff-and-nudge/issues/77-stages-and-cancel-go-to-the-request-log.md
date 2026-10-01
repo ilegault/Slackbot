@@ -1,6 +1,6 @@
 # 77: Stages and cancel are written to the request log
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
