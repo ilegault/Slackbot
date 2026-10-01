@@ -28,11 +28,11 @@ from datetime import date, timedelta
 try:
     from . import blocks, lifecycle, log_writer, slack_io, store
 except ImportError:
-    import blocks
-    import lifecycle
-    import log_writer
-    import slack_io
-    import store
+    import blocks  # type: ignore[no-redef]
+    import lifecycle  # type: ignore[no-redef]
+    import log_writer  # type: ignore[no-redef]
+    import slack_io  # type: ignore[no-redef]
+    import store  # type: ignore[no-redef]
 
 log = logging.getLogger("p-bot.nudge")
 
@@ -121,6 +121,9 @@ def run_nudges(client, today: date) -> list[str]:
             if card_state != "approved":
                 continue
 
+            if not isinstance(req_data, dict):
+                req_data = {}
+
             # Ensure dm pointers exist in req_data if present in store entry
             if not req_data.get("dm_channel") and entry.get("dm_channel"):
                 req_data["dm_channel"] = entry.get("dm_channel")
@@ -139,8 +142,11 @@ def run_nudges(client, today: date) -> list[str]:
             )
 
             # Build and post the fresh DM card
-            parsed = req_data.get("parsed") if isinstance(req_data.get("parsed"), dict) else req_data
-            item = parsed.get("item_description") or req_data.get("item_description") or "Item"
+            parsed = req_data.get("parsed")
+            if isinstance(parsed, dict):
+                item = parsed.get("item_description") or req_data.get("item_description") or "Item"
+            else:
+                item = req_data.get("item_description") or "Item"
 
             if not req_data.get("assignee_id"):
                 req_data["assignee_id"] = buyer_id
