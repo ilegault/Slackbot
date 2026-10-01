@@ -1,6 +1,6 @@
 # 75: App Home says the buyer can be changed until Processed
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
