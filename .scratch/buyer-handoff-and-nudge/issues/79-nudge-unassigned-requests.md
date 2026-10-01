@@ -1,6 +1,6 @@
 # 79: Nudge unassigned requests
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -31,12 +31,12 @@ working days after approval, the same line also sent to the channel at 6, and no
 New test file `tests/test_79_nudge_unassigned.py`, fixtures as ticket 78 with a roster of three
 buyers; entry `approved_at` Monday 2026-10-05, `buyer_id` None.
 
-- [ ] **Day 3.** `run_nudges(client, date(2026,10,8))`: exactly one `chat_postMessage` with
+- [x] **Day 3.** `run_nudges(client, date(2026,10,8))`: exactly one `chat_postMessage` with
   `thread_ts` = the thread, no `reply_broadcast`, text containing `nobody's assigned` and
   `<@…>` for all three buyers, and not containing `yourself`. No message to any user ID (no DM).
-- [ ] **Day 6.** `date(2026,10,13)`: the same text with `reply_broadcast=True`.
-- [ ] **Nothing after.** `date(2026,10,16)` (day 9) and `date(2026,10,21)` (day 12): no `chat_postMessage`.
-- [ ] **Stops on processed, cancel, same day.** Day 3 with a row `date_processed`, with
+- [x] **Day 6.** `date(2026,10,13)`: the same text with `reply_broadcast=True`.
+- [x] **Nothing after.** `date(2026,10,16)` (day 9) and `date(2026,10,21)` (day 12): no `chat_postMessage`.
+- [x] **Stops on processed, cancel, same day.** Day 3 with a row `date_processed`, with
   `cancelled=True`, or called twice on 2026-10-08: no message (the second call adds none).
 
 **Tests may fake:** the Slack client, `log_writer.get_row_info`. **Must be real:** `nudge`, `store`
@@ -56,3 +56,16 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-10-01
+- `src/nudge.py`:
+  - Handled unassigned requests (`not buyer_id`) in `run_nudges(client, today: date)`.
+  - Calculates working days elapsed since `approved_at` using `working_days_between`.
+  - Applies identical skip rules (weekend, cancelled, last_nudged == today, row date_processed).
+  - On Day 3, posts single message to request thread mentioning all buyers from `roster.get_buyers()`.
+  - On Day 6, posts identical message with `reply_broadcast=True`.
+  - On any other day (Day 9, 12, etc.), takes no action.
+  - Updates `last_nudged` date in `store` on action.
+  - Entries with `buyer_id` set continue through the assigned request flow.
+- `tests/test_79_nudge_unassigned.py`:
+  - New test module covering Day 3 thread message with buyer mentions and no DM (`test_day_3_unassigned_nudge`), Day 6 thread broadcast (`test_day_6_broadcast`), no action on Day 9/12 (`test_nothing_after`), suppression when processed, cancelled, or run twice on the same day (`test_stops_on_processed_cancel_same_day`), and buyer assigned delegation (`test_entry_with_buyer_id_uses_assigned_path`).
