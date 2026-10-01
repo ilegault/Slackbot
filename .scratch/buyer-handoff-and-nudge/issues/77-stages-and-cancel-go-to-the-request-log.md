@@ -1,6 +1,6 @@
 # 77: Stages and cancel are written to the request log
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -32,16 +32,16 @@ stage — the stage lines are history text only.
 New test file `tests/test_77_request_log_stages_and_cancel.py`, fixtures as ticket 76 plus
 `tests/test_69_cards_move_together.py`'s thread-card helpers.
 
-- [ ] **Each stage appends one line.** Starting from a logged approved request, click Mark
+- [x] **Each stage appends one line.** Starting from a logged approved request, click Mark
   Processed, Mark Confirmed, Mark Delivered through the app handlers (feeding each
   `chat_update` back as `test_69` does): after each, the entry's last history line starts
   `Processed by`, then `Confirmed by`, then `Delivered to` respectively (the lines `handle_processed`, `handle_confirmation` and `handle_delivery` already append), and the entry has no
   `state`/`stage` key.
-- [ ] **The DM card click logs the same line.** `dm_req_processed` through
+- [x] **The DM card click logs the same line.** `dm_req_processed` through
   `app.handle_dm_stage_action` appends exactly one `Processed by` line (not two).
-- [ ] **Cancel keeps the entry.** `handle_cancel` on a logged approved request: the entry still
+- [x] **Cancel keeps the entry.** `handle_cancel` on a logged approved request: the entry still
   exists, `cancelled is True`, last history line starts `Cancelled by`.
-- [ ] **A log failure never blocks.** With `store.append_history` raising, Mark Processed still
+- [x] **A log failure never blocks.** With `store.append_history` raising, Mark Processed still
   calls `update_row` once and updates the thread card, and one admin-channel message contains
   `request log`.
 
@@ -62,3 +62,14 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+### Landed 2026-10-01
+- `lifecycle.py`:
+  - `handle_processed`: appends "Processed by ..." history line to request log in on_success via `_request_log`.
+  - `handle_confirmation`: appends "Confirmed by ..." history line to request log in on_success via `_request_log`.
+  - `handle_delivery`: appends "Delivered to ..." history line to request log in on_success via `_request_log`.
+  - `handle_cancel`: appends "Cancelled by ..." history line and updates `cancelled=True` in request log via `_request_log`.
+  - Updated module docstring for Ticket 77.
+- `tests/test_77_request_log_stages_and_cancel.py`:
+  - Added 5 unit tests covering each stage progression, DM card click idempotence, cancel retention with `cancelled=True`, log failure tolerance and admin alerting, and silent handling of unlogged requests.
+- Gate: ruff check passed, check_tests_first passed, type_gate passed (0 hard, 0 soft), full test suite passed (581 passed, 31 skipped).
