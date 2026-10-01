@@ -16,6 +16,7 @@ Ticket 28: Screen 2 (build_stage2_view) renders an optional multiline Line items
 Ticket 63: Adds chunk_mrkdwn and build_dm_help_blocks for DM help responses when a free-form message cannot be parsed (ADR 0010 Decision 5).
 Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step button (ADR 0010 Decision 2).
 Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned with note, delivered) with no buttons (ADR 0010 Decision 3).
+Ticket 74: build_dm_card_blocks carries the buyer picker in approved state with pointer in block_id (ADR 0011 Decision 2).
 
 Imports:
     - bom, config, interview, roster, text_rules
@@ -719,20 +720,37 @@ def build_dm_card_blocks(
                 "card_ts": card_ts,
             }
         )
-        blocks.append(
+        elements = [
             {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": btn_label, "emoji": True},
-                        "style": "primary",
-                        "action_id": btn_action_id,
-                        "value": btn_value,
-                    }
-                ],
+                "type": "button",
+                "text": {"type": "plain_text", "text": btn_label, "emoji": True},
+                "style": "primary",
+                "action_id": btn_action_id,
+                "value": btn_value,
             }
-        )
+        ]
+        if state == "approved":
+            # ADR 0011 decision 2 / Ticket 74: DM card carries buyer picker while approved.
+            # Slack does not allow value on users_select, so the pointer is in block_id.
+            picker_elem = {
+                "type": "users_select",
+                "action_id": config.ACTION_DM_REQ_ASSIGN_SELECT,
+                "placeholder": {"type": "plain_text", "text": "Assign a buyer"},
+            }
+            assignee_id = request.get("assignee_id")
+            if not assignee_id and isinstance(parsed, dict):
+                assignee_id = parsed.get("assignee_id")
+            if assignee_id:
+                picker_elem["initial_user"] = assignee_id
+            elements.append(picker_elem)
+
+        actions_block = {
+            "type": "actions",
+            "elements": elements,
+        }
+        if state == "approved":
+            actions_block["block_id"] = btn_value
+        blocks.append(actions_block)
 
     return blocks
 

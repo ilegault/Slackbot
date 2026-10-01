@@ -134,7 +134,7 @@ def test_dm_card_blocks_shape():
 
     actions_appr = blks_appr[1]
     assert actions_appr["type"] == "actions"
-    assert len(actions_appr["elements"]) == 1
+    assert len(actions_appr["elements"]) == 2  # Ticket 74: Mark Processed button + buyer picker
     btn_appr = actions_appr["elements"][0]
     assert btn_appr["text"]["text"] == "Mark Processed"
     assert btn_appr["action_id"] == config.ACTION_DM_REQ_PROCESSED

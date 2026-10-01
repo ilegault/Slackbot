@@ -1571,6 +1571,81 @@ def handle_dm_stage_action(ack, body, respond, client):
         )
 
 
+@app.action(config.ACTION_DM_REQ_ASSIGN_SELECT)
+def handle_dm_assign_select_action(ack, body, respond, client):
+    """Handle selecting a buyer from the users_select picker on the buyer's DM card (Ticket 74).
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0011 decision 2 & Ticket 74:
+    The buyer's DM card carries the buyer picker while approved, allowing the buyer
+    to hand off a request from their DM. The DM card holds only a pointer to the thread
+    card in block_id; resolving the thread card with slack_io.get_card_by_ts and delegating
+    to lifecycle.handle_assign keeps both cards in sync.
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    selected_user = action.get("selected_user")
+    val_data = action.get("block_id") or "{}"
+    if isinstance(val_data, str):
+        try:
+            val_data = json.loads(val_data)
+        except Exception:
+            val_data = {}
+    if not val_data or not val_data.get("thread_ts"):
+        for b in body.get("message", {}).get("blocks", []):
+            bid = b.get("block_id")
+            if bid:
+                try:
+                    parsed_bid = json.loads(bid)
+                    if isinstance(parsed_bid, dict) and "thread_ts" in parsed_bid:
+                        val_data = parsed_bid
+                        break
+                except Exception:
+                    pass
+
+    thread_channel = val_data.get("thread_channel")
+    thread_ts = val_data.get("thread_ts")
+    card_ts = val_data.get("card_ts")
+
+    # Fetch thread card state and history from its actions-block button value
+    card_info = slack_io.get_card_by_ts(client, channel=thread_channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        log.warning("Card %s not found in thread %s for DM assign select action", card_ts, thread_ts)
+        slack_io.deny(
+            respond,
+            "⚠️ I can't find the request card in the thread any more, so nothing was changed. An admin has been told.",
+        )
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                "find the card for a DM click", thread_channel, thread_ts, None, "card not found"
+            ),
+        )
+        return
+
+    req_data, history, current_state = card_info
+
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=thread_channel, text=text, thread_ts=thread_ts, **kw)
+
+    lifecycle.handle_assign(
+        client=client,
+        say=say,
+        channel=thread_channel,
+        thread_ts=thread_ts,
+        user_id=user_id,
+        event_ts=card_ts,
+        target_user_id=selected_user,
+        req_data=req_data,
+        msg_ts=card_ts,
+        history=history,
+        current_state=current_state,
+        deny=lambda t: slack_io.deny(respond, t),
+    )
+
+
 @app.action("start_purchase_interview")
 def handle_start_purchase_interview(ack, body, client):
     """Open Screen 1 when user clicks 'New Purchase Request' in App Home."""
