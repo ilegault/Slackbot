@@ -662,8 +662,8 @@ def build_dm_card_blocks(
     linking to the thread card, and offering the one next-step button for the current stage.
     The DM card holds only a pointer to the thread card (thread_channel, thread_ts, card_ts)
     and no request state of its own; the thread card remains the store.
-    Retired states (cancelled, reassigned, delivered) render the section plus a status line
-    and no buttons (Ticket 69).
+    Retired states (cancelled, reassigned, replaced, delivered) render the section plus a status line
+    and no buttons (Tickets 69 & 78).
     """
     parsed = request.get("parsed") if isinstance(request.get("parsed"), dict) else {}
     item = parsed.get("item_description") or request.get("item_description") or "Item"
@@ -693,6 +693,8 @@ def build_dm_card_blocks(
         lines.append("🚫 Cancelled")
     elif state == "reassigned":
         lines.append(f"↪️ {note}" if note else "↪️ Reassigned")
+    elif state == "replaced":
+        lines.append(f"↪️ {note}" if note else "↪️ Replaced")
     elif state == "delivered":
         lines.append("✅ Delivered")
 
