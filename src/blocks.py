@@ -720,31 +720,36 @@ def build_dm_card_blocks(
                 "card_ts": card_ts,
             }
         )
-        actions_block = {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": btn_label, "emoji": True},
-                    "style": "primary",
-                    "action_id": btn_action_id,
-                    "value": btn_value,
-                }
-            ],
-        }
+        elements = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": btn_label, "emoji": True},
+                "style": "primary",
+                "action_id": btn_action_id,
+                "value": btn_value,
+            }
+        ]
         if state == "approved":
             # ADR 0011 decision 2 / Ticket 74: DM card carries buyer picker while approved.
             # Slack does not allow value on users_select, so the pointer is in block_id.
-            actions_block["block_id"] = btn_value
             picker_elem = {
                 "type": "users_select",
                 "action_id": config.ACTION_DM_REQ_ASSIGN_SELECT,
                 "placeholder": {"type": "plain_text", "text": "Assign a buyer"},
             }
-            assignee_id = request.get("assignee_id") or parsed.get("assignee_id")
+            assignee_id = request.get("assignee_id")
+            if not assignee_id and isinstance(parsed, dict):
+                assignee_id = parsed.get("assignee_id")
             if assignee_id:
                 picker_elem["initial_user"] = assignee_id
-            actions_block["elements"].append(picker_elem)
+            elements.append(picker_elem)
+
+        actions_block = {
+            "type": "actions",
+            "elements": elements,
+        }
+        if state == "approved":
+            actions_block["block_id"] = btn_value
         blocks.append(actions_block)
 
     return blocks
