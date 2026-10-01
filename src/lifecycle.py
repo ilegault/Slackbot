@@ -9,8 +9,8 @@ Slack client I/O, domain validation, storage write queue, and Block Kit messages
 Per ADR 0004:
 - The approver names the responsible buyer in the approval message itself (@Dylan @Purchasing approved).
 - Claim is deleted entirely. Requests without a valid buyer mention are approved and unassigned.
-- Any buyer, approver, or admin can assign an unassigned request (@Purchasing assign).
-- Only the current assignee, an approver, or an admin may reassign an already assigned request.
+- Any buyer, approver, or admin can assign or reassign a request until it is Processed (ADR 0011).
+- From Processed onward, assignment is refused with "Already Processed by ...".
 - The pre-filled email draft is generated once, at assignment time, and DM'd to the assignee.
 
 Per Ticket 13:
@@ -1154,13 +1154,15 @@ def handle_assign(
 
     WHY THIS EXISTS:
     ----------------
-    ADR 0004 & ADR 0005: Assignment replaces claim. Charlie names the responsible buyer when
+    ADR 0004 & ADR 0005 & ADR 0011: Assignment replaces claim. Charlie names the responsible buyer when
     approving (via @-mention or the buyer picker on the posted card), or any buyer can move an
     approved order.
     Permission per ADR 0011 decision 1 (amends ADR 0004 decision 3):
-    - Any buyer, approver, or admin may assign or change the assignee, regardless of whether
-      the request is already assigned.  From Processed onward assignment is refused (handled
-      by the caller).
+    - Any buyer, approver, or admin may assign or change the assignee before Processed,
+      regardless of whether the request is already assigned.
+    - When current_state is processed, confirmed or delivered, assignment is refused in-thread
+      with "Already Processed by ...".
+    - On reassignment, the old buyer receives a DM notifying them that the request was moved.
     - `deny`: optional callable(text) for private refusals (picker path uses
       `lambda t: slack_io.deny(respond, t)`); keyword path falls back to say().
     Selecting a buyer on the posted card (ADR 0005) re-renders the card with the assignee set,
@@ -1176,6 +1178,16 @@ def handle_assign(
     else:
         current_state = current_state or "posted"
         history = history if history is not None else []
+
+    # Stage cutoff (ADR 0011 decision 1 / Ticket 73): once processed, confirmed, or delivered,
+    # the buyer cannot change. Refuse publicly in-thread before permission or target checks.
+    if current_state in ("processed", "confirmed", "delivered"):
+        processed_line = "Processed"
+        for entry in history:
+            if isinstance(entry, str) and entry.startswith("Processed by"):
+                processed_line = entry
+        say(text=f"🔒 Already {processed_line} — the buyer can't change after this point.", thread_ts=thread_ts)
+        return False
 
     current_assignee = req_data.get("assignee_id")
 
@@ -1270,6 +1282,18 @@ def handle_assign(
             history=history,
             note=f"Reassigned to {target_name}",
         )
+
+    # Notify old buyer by DM that the request was moved (Ticket 73 / ADR 0011)
+    if current_assignee:
+        parsed_dict = req_data.get("parsed") if isinstance(req_data.get("parsed"), dict) else {}
+        item_name = parsed_dict.get("item_description") or req_data.get("item_description") or "Item"
+        try:
+            client.chat_postMessage(
+                channel=current_assignee,
+                text=f"↪️ {item_name} was moved to {target_name} by {actor_name}. You don't need to do anything on it.",
+            )
+        except Exception as e:
+            log.warning("Could not send reassignment notification DM to old buyer %s: %s", current_assignee, e)
 
     dm_ref = _send_assignee_dm(
         client=client,
