@@ -141,6 +141,9 @@ def test_gitignore_and_app_main_scheduler():
     lines = [line.strip() for line in gitignore_text.splitlines()]
     assert "nudge_run.json" in lines, "Expected nudge_run.json in .gitignore"
 
+    import os
+    os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-test-not-a-real-token")
+    os.environ.setdefault("SLACK_APP_TOKEN", "xapp-test-not-a-real-token")
     from src import app
     source = inspect.getsource(app.main)
     assert "nudge.start_nudge_scheduler" in source, "Expected app.main to call nudge.start_nudge_scheduler"

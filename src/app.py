@@ -79,7 +79,7 @@ except ImportError:
     import heartbeat
     import interview
     import lifecycle
-    import nudge
+    import nudge  # type: ignore[no-redef]
     import ops
     import path_validator
     import queue_worker
