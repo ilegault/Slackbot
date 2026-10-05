@@ -21,6 +21,7 @@ Ticket 75: _BUTTON_LIST updates help text to teach that any buyer can pick/move 
 Ticket 82: Adds bom_inputs (optional BOM file + one-vendor tick box on Screen 2, omitted when is_edit=True) and updates _BUTTON_LIST to teach attaching a BOM in the form (ADR 0012 Decisions 1-4).
 Ticket 96: Adds nudge_summary_text (built from nudge_settings.load()) rendered under a Nudges header on App Home and inside get_help_message, so the words always match what the bot does (ADR 0013 decisions 3, 6); the stage text says the requester can mark Delivered.
 Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
+Ticket 86: keep_quotes_input lists a card's current quotes as pre-ticked checkboxes on both edit forms (Edit, Edit items); Edit also gains the BOM and quotes fields (ADR 0012 Decision 6). Current quotes never ride in private_metadata.
 
 Imports:
     - bom, config, interview, nudge_settings, roster, text_rules
@@ -1134,6 +1135,37 @@ def quotes_input(action_id: str = "quotes") -> dict:
     }
 
 
+def keep_quotes_input(quotes: list[dict]) -> dict | None:
+    """Build the pre-ticked "quotes on this request" checkboxes for the edit forms.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 86 / ADR 0012 Decision 6: Slack cannot pre-fill a file field, so the quotes a
+    card already carries are listed as ticked checkboxes (value = Slack file id): untick to
+    remove, untick and attach to replace. Returns None with no quotes because Slack rejects
+    a checkboxes element with no options. The quotes come from the card payload, never
+    private_metadata (3000-char cap).
+    """
+    if not quotes:
+        return None
+    options = [
+        {"text": {"type": "plain_text", "text": (q.get("name") or "quote")[:75]}, "value": q["id"]}
+        for q in quotes
+    ]
+    return {
+        "type": "input",
+        "block_id": "block_keep_quotes",
+        "optional": True,
+        "element": {
+            "type": "checkboxes",
+            "action_id": "keep_quotes",
+            "options": options,
+            "initial_options": list(options),
+        },
+        "label": {"type": "plain_text", "text": "Quotes on this request — untick to remove"},
+    }
+
+
 def build_items_view(
     channel: str,
     thread_ts: str,
@@ -1141,6 +1173,7 @@ def build_items_view(
     items: list[dict] | None = None,
     shipping: float = 0.0,
     initial_text: str | None = None,
+    quotes: list[dict] | None = None,
 ) -> dict:
     """Generate Block Kit modal for adding or editing line items on a purchase request."""
     if initial_text is None and items:
@@ -1150,6 +1183,7 @@ def build_items_view(
     # own BOM and/or quotes instead; handle_items_modal_submit refuses a form with none of them.
     blocks_list = [
         line_items_input("action_line_items", optional=True, initial_value=initial_text or None),
+        *([keep] if (keep := keep_quotes_input(quotes or [])) else []),
         *bom_inputs(),
         quotes_input(),
     ]
@@ -1450,7 +1484,11 @@ def build_stage2_view(meta: dict) -> dict:
             initial_value=meta.get("line_items") or None,
             max_length=getattr(config, "MAX_LINE_ITEMS_LEN", 1500),
         ),
-        *([] if is_edit else [quotes_input(), *bom_inputs()]),
+        *(
+            [*([keep] if (keep := keep_quotes_input(meta.get("quotes") or [])) else []), *bom_inputs(), quotes_input()]
+            if is_edit
+            else [quotes_input(), *bom_inputs()]
+        ),
         {
             "type": "input",
             "block_id": "block_vendor_contact_name",
@@ -1585,7 +1623,9 @@ def build_stage2_view(meta: dict) -> dict:
         "title": {"type": "plain_text", "text": title_text},
         "submit": {"type": "plain_text", "text": submit_text},
         "close": {"type": "plain_text", "text": "Cancel"},
-        "private_metadata": json.dumps(meta),
+        # Ticket 86: the card's current quotes feed the keep-quotes checkboxes only; they
+        # never ride in private_metadata (3000-char cap). The submit re-reads the card.
+        "private_metadata": json.dumps({k: v for k, v in meta.items() if k != "quotes"}),
         "blocks": blocks,
     }
 

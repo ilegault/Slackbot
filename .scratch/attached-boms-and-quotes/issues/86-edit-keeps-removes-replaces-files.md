@@ -1,6 +1,6 @@
 # 86: Edit keeps, removes or replaces quotes and the BOM
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -52,12 +52,12 @@ New test file `tests/test_86_edit_files.py`, set up like `tests/test_32_edit_a_p
 (a posted modal-born card with two quotes F1 `a.pdf`, F2 `b.pdf` and a BOM `old.xlsx` in its
 metadata).
 
-- [ ] **The form shows current quotes.** The Edit view has `block_keep_quotes` with options `F1`/`a.pdf`, `F2`/`b.pdf`, both in `initial_options`, plus `block_bom` and `block_quotes`; a card with no quotes has no `block_keep_quotes`. The view's `private_metadata` does not contain `a.pdf`.
-- [ ] **Remove and replace.** Submitting with only F1 ticked and new quote F3 `c.pdf` → card metadata `attachments` quotes are `a.pdf`, `c.pdf` (in that order) and the BOM is still `old.xlsx`; one `files_upload_v2` (for `c.pdf` only); the thread line contains `removed quote b.pdf` and `added quote c.pdf`.
-- [ ] **New BOM replaces.** Submitting a new BOM `new.xlsx` with the box ticked → the BOM entry is `new.xlsx`; the thread line contains `replaced BOM with new.xlsx`.
-- [ ] **Final-state rule.** Pasting line items while the card keeps `old.xlsx` → the not-both error on `block_bom`, no `chat_update`.
-- [ ] **Edit items on an EPIF-born card** gets `block_keep_quotes` the same way, and unticking a quote there removes it from the metadata.
-- [ ] **`bom.merge_attachments` and `bom.describe_attachment_changes`** are tested directly with the cases above, including "nothing changed" → `[]`.
+- [x] **The form shows current quotes.** The Edit view has `block_keep_quotes` with options `F1`/`a.pdf`, `F2`/`b.pdf`, both in `initial_options`, plus `block_bom` and `block_quotes`; a card with no quotes has no `block_keep_quotes`. The view's `private_metadata` does not contain `a.pdf`.
+- [x] **Remove and replace.** Submitting with only F1 ticked and new quote F3 `c.pdf` → card metadata `attachments` quotes are `a.pdf`, `c.pdf` (in that order) and the BOM is still `old.xlsx`; one `files_upload_v2` (for `c.pdf` only); the thread line contains `removed quote b.pdf` and `added quote c.pdf`.
+- [x] **New BOM replaces.** Submitting a new BOM `new.xlsx` with the box ticked → the BOM entry is `new.xlsx`; the thread line contains `replaced BOM with new.xlsx`.
+- [x] **Final-state rule.** Pasting line items while the card keeps `old.xlsx` → the not-both error on `block_bom`, no `chat_update`.
+- [x] **Edit items on an EPIF-born card** gets `block_keep_quotes` the same way, and unticking a quote there removes it from the metadata.
+- [x] **`bom.merge_attachments` and `bom.describe_attachment_changes`** are tested directly with the cases above, including "nothing changed" → `[]`.
 
 **Tests may fake:** the Slack client, `slack_io.download_file`. **Must be real:** the view builders, both submit handlers, `bom.merge_attachments`, `bom.describe_attachment_changes`, `handle_request_edit`, `handle_items_update`.
 
@@ -74,3 +74,10 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+Landed. `bom.merge_attachments` / `describe_attachment_changes`, `blocks.keep_quotes_input`, both submit handlers
+validate the final state via `bom.attachment_errors`, and `handle_request_edit` / `handle_items_update` now take the
+merged list (None = untouched), re-post only new files and name each change on the edit line. All six criteria are
+covered by `tests/test_86_edit_files.py`. Existing tests changed because ticket 86 reverses what they asserted:
+tests 81/82 asserted Edit has no quotes/BOM fields (now asserts it has them); test 85 asserted the "added 2 quote(s)"
+wording and BOM-after-kept-quote order (now asserts per-file names and BOM-first order). Assertions kept as strict.
