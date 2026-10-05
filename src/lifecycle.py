@@ -31,6 +31,13 @@ Per Ticket 27:
   post edit notices, and upload draft BOM spreadsheets when needs_bom is True.
 - Records source='epif' on dropped EPIF cards.
 
+Per Ticket 81 / ADR 0012:
+- Adds post_attachments_to_thread to download attached quotes and re-post them
+  to the thread right after card posting.
+- _process_interview_completion copies stage2 attachments into req_payload
+  and passes them to build_request_blocks.
+- Attachment download failures alert both the thread and the requester via DM.
+
 Per Ticket 33:
 - handle_epif_drop supersedes any posted card in the same thread from the same
   requester and vendor before posting the new card (ADR 0006 decision 9).
@@ -2035,11 +2042,16 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     if items:
         req_payload["items"] = items
         req_payload["shipping"] = float(shipping or 0.0)
+    attachments = stage2.get("attachments")
+    if attachments:
+        req_payload["attachments"] = attachments
 
-    req_blocks = blocks.build_request_blocks("posted", req_payload, items=items)
+    req_blocks = blocks.build_request_blocks("posted", req_payload, items=items, attachments=attachments)
 
     link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
     items_line = f"\n📋 {len(items)} line items (BOM attached in thread)" if (items and bom.needs_bom(items)) else ""
+    quote_count = sum(1 for a in (attachments or []) if a.get("role") == "quote")
+    quotes_line = f"\n📎 Quotes: {quote_count}" if quote_count > 0 else ""
     summary_text = (
         f"🛒 *New Purchase Request from {display_name}:*\n"
         f"• *Item:* {parsed['item_description']}\n"
@@ -2050,7 +2062,8 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         f"• *Delivery Room:* {parsed['delivery_room']}\n"
         f"• *Purpose:* {parsed['purpose']}"
         f"{link_line}"
-        f"{items_line}\n\n"
+        f"{items_line}"
+        f"{quotes_line}\n\n"
         f"Use the buttons below to approve and track this request."
     )
 
@@ -2078,6 +2091,15 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
 
     if not card_ts or not isinstance(card_ts, str):
         card_ts = "1000.1000"
+
+    if attachments:
+        post_attachments_to_thread(
+            client=client,
+            channel=post_channel,
+            thread_ts=card_ts,
+            attachments=attachments,
+            requester_id=user_id,
+        )
 
     if items and bom.needs_bom(items):
         upload_draft_bom(
@@ -2359,6 +2381,67 @@ def upload_draft_bom(
     except Exception as e:
         log.warning("Could not upload draft BOM %s: %s", draft_filename, e)
         return False
+
+
+def post_attachments_to_thread(
+    client,
+    channel: str,
+    thread_ts: str,
+    attachments: list[dict],
+    requester_id: str,
+) -> list[str]:
+    """Download submitted attachments from Slack and re-post them into the request's thread.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 81 / ADR 0012 Decision 5:
+    Re-posts quotes into the card's thread so the approver sees them before approving.
+    If a file fails to fetch, alerts both the thread and the requester via DM (spec user story 31),
+    without blocking card posting. Returns a list of failed filenames.
+    """
+    failed: list[str] = []
+    if not attachments:
+        return failed
+
+    for a in attachments:
+        fname = a.get("name") or "attachment"
+        try:
+            file_id = a.get("id")
+            info = client.files_info(file=file_id)
+            file_obj = info.get("file", info) if isinstance(info, dict) else info["file"]
+            content = slack_io.download_file(file_obj)
+
+            if hasattr(client, "files_upload_v2"):
+                client.files_upload_v2(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    content=content,
+                    filename=fname,
+                    title=fname,
+                )
+            else:
+                client.files_upload(
+                    channels=channel,
+                    thread_ts=thread_ts,
+                    content=content,
+                    filename=fname,
+                    title=fname,
+                )
+            log.info("Uploaded attachment %s to thread %s in %s", fname, thread_ts, channel)
+        except Exception as e:
+            log.warning("Couldn't attach '%s' (id=%s) to thread %s: %s", fname, a.get("id"), thread_ts, e)
+            msg = f"⚠️ Couldn't attach `{fname}` — drop it in the thread with `@Purchasing quote`."
+            try:
+                client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=msg)
+            except Exception as e_post:
+                log.warning("Failed to post attachment failure warning to thread %s: %s", thread_ts, e_post)
+            try:
+                slack_io.tell(client, requester_id, msg)
+            except Exception as e_tell:
+                log.warning("Failed to DM attachment failure warning to %s: %s", requester_id, e_tell)
+            failed.append(fname)
+
+    return failed
 
 
 def upload_archived_bom(

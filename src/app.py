@@ -532,6 +532,10 @@ def handle_stage2_submit(ack, body, client, view):
             return
         stage2["line_items"] = raw_line_items
 
+    raw_quote_files = text_rules.extract_modal_files(values, "block_quotes", "quotes")
+    if raw_quote_files:
+        stage2["attachments"] = [{"role": "quote", **f} for f in raw_quote_files]
+
     category = stage2.get("category")
     if interview.needs_asset_details(category):
         meta["stage2"] = stage2

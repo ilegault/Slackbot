@@ -18,6 +18,7 @@ Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step butt
 Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned with note, delivered) with no buttons (ADR 0010 Decision 3).
 Ticket 74: build_dm_card_blocks carries the buyer picker in approved state with pointer in block_id (ADR 0011 Decision 2).
 Ticket 75: _BUTTON_LIST updates help text to teach that any buyer can pick/move the buyer from the card until Processed (ADR 0011 Decision 1).
+Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
 
 Imports:
     - bom, config, interview, roster, text_rules
@@ -403,6 +404,7 @@ def build_request_blocks(
     history: list | None = None,
     requester: str | None = None,
     items: list[dict] | None = None,
+    attachments: list[dict] | None = None,
 ) -> list:
     """Generate Block Kit blocks for a purchase request at a given lifecycle state.
 
@@ -416,6 +418,8 @@ def build_request_blocks(
 
     if items is None:
         items = request.get("items")
+    if attachments is None:
+        attachments = request.get("attachments")
 
     display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or (f"<@{user_id}>" if user_id else "Requester"))
 
@@ -465,6 +469,10 @@ def build_request_blocks(
     if items and bom.needs_bom(items):
         summary_lines.append(f"📋 {len(items)} line items (BOM attached in thread)")
 
+    quote_count = sum(1 for a in (attachments or []) if a.get("role") == "quote")
+    if quote_count > 0:
+        summary_lines.append(f"📎 Quotes: {quote_count}")
+
     if suggest_note:
         summary_lines.append(suggest_note)
 
@@ -500,9 +508,9 @@ def build_request_blocks(
                 }
             ],
         })
-        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping")}
+        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping", "attachments")}
         if "parsed" in safe_req and isinstance(safe_req["parsed"], dict):
-            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping")}
+            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping", "attachments")}
         btn_value = json.dumps(
             {
                 "state": state,
@@ -568,9 +576,9 @@ def build_request_blocks(
 
     if state in primary_buttons:
         btn_label, btn_action_id = primary_buttons[state]
-        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping")}
+        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping", "attachments")}
         if "parsed" in safe_req and isinstance(safe_req["parsed"], dict):
-            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping")}
+            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping", "attachments")}
         btn_value = json.dumps(
             {
                 "state": state,
@@ -802,6 +810,34 @@ def line_items_input(
     if optional:
         block["optional"] = True
     return block
+
+
+def quotes_input(action_id: str = "quotes") -> dict:
+    """Build an optional file_input block for vendor quotes in PDF format.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 81 / ADR 0012 Decisions 1, 2:
+    Allows attaching up to 10 PDF quote files on interview Screen 2, Add items (ticket 85),
+    and Edit (ticket 86). Shared builder ensures consistent block_id, action_id, filetypes,
+    and hint across all modal item forms.
+    """
+    return {
+        "type": "input",
+        "block_id": "block_quotes",
+        "optional": True,
+        "element": {
+            "type": "file_input",
+            "action_id": action_id,
+            "filetypes": ["pdf"],
+            "max_files": 10,
+        },
+        "label": {"type": "plain_text", "text": "Quotes (PDF, optional)"},
+        "hint": {
+            "type": "plain_text",
+            "text": "Up to 10. More? Drop them in the thread with @Purchasing quote.",
+        },
+    }
 
 
 def build_items_view(
@@ -1116,6 +1152,7 @@ def build_stage2_view(meta: dict) -> dict:
             initial_value=meta.get("line_items") or None,
             max_length=getattr(config, "MAX_LINE_ITEMS_LEN", 1500),
         ),
+        *([] if is_edit else [quotes_input()]),
         {
             "type": "input",
             "block_id": "block_vendor_contact_name",
