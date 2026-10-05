@@ -72,7 +72,7 @@ def test_day_10_posts_card_to_channel(monkeypatch):
     assert "<@U_B>" in text and "<@U_R>" in text
     assert "Has this been delivered?" in text
     assert "confirmed 10 working days ago" in text
-    assert [b["action_id"] for b in _buttons(p["blocks"])] == ["nudge_delivered"]
+    assert [b["action_id"] for b in _buttons(p["blocks"])] == ["nudge_delivered", "nudge_not_yet"]
     entry = store.get(req_id)
     assert entry["nudge_cards"] == [["C_PURCHASING", "post_ts_1"]]
     assert entry["last_nudged"] == "2026-10-19"
@@ -168,7 +168,8 @@ def test_inactive_card_has_note_and_no_actions():
         assert not _buttons(rendered)
         assert "a note" in json.dumps(rendered) and "Has this been delivered?" in json.dumps(rendered)
     active = blocks.build_nudge_card_blocks("active", "<@U_B>", "Laser Diode", 10, "C", "1.1", "1.2")
-    assert [b["action_id"] for b in _buttons(active)] == ["nudge_delivered"]
+    # ticket 92 added the second button, "Not yet"; Delivered stays first and primary
+    assert [b["action_id"] for b in _buttons(active)] == ["nudge_delivered", "nudge_not_yet"]
 
 
 # ---- the button -------------------------------------------------------------
