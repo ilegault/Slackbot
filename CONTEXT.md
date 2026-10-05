@@ -151,11 +151,23 @@ the buyer is fixed. When it changes, the old buyer is told by DM who has it now.
 > state are all gone — see ADR 0004, which supersedes ADR 0002 decision 6. Do not
 > reintroduce it as a synonym for assigning yourself; that is `assign`.
 
-**Nudge** — the bot's reminder that an approved request has not been Processed.
-Counted in working days from approval (restarted by a reassignment): day 3 a private
-DM to the buyer, day 6 the DM plus one post the whole channel sees, then a DM every
-3 working days. An unassigned request gets a thread line to all buyers on day 3 and
-day 6, then nothing. Only requests in the request log are nudged.
+**Nudge** — the bot's reminder that a request has sat too long waiting for its next
+stage. There are four, each named for the stage it waits on: the **approved** nudge
+(a posted card nobody has approved; goes to the approvers), the **processed** nudge,
+the **confirmed** nudge and the **delivered** nudge (go to the assigned buyer; the
+delivered nudge also to the requester). Each has its own **nudge setting**: on or off,
+every N working days counted from when the request entered its current stage, sent by
+DM, by a thread reply also sent to the channel, or both. An unassigned request's "DM"
+is one thread line @-mentioning all buyers. Admins change the settings from App Home (ADR 0013).
+Only requests in the request log are nudged.
+
+**Nudge card** — the delivered nudge's message: **Delivered** and **Not yet — set
+expected date**. A newer nudge card retires the older one. Not a store; a click on it
+moves the thread card like any stage button.
+
+**Expected delivery** — the date someone says a confirmed order should arrive. Optional.
+Delivered nudges pause until it, then resume every N. Set from the nudge card or a
+Confirmed card by the buyer, the requester, an admin or an approver. Not in the workbook.
 
 **Decline** — an approver's "no" on a request that has not been approved. No
 reason, no logging, one click. The point is to reduce friction.
@@ -189,6 +201,13 @@ before approval. At approval it is archived as `BOMS_DIR/NNNN_<Vendor>_BOM.xlsx`
 assignee's email-draft DM. The items must add up to the EPIF amount (plus a
 shipping line). Frozen at approval. Laid out like the lab's hand-made BOM:
 item prices only, no shipping row, live formulas, an empty Notes column (ADR 0008).
+A BOM is either **made** — built by the bot from line items, as above — or
+**attached** — the requester's own `.xlsx` / `.csv`, given in the forms' BOM field. An
+attached BOM is carried, never read: the bot does not check it against the EPIF amount
+and does not re-lay it out. The Total Price the requester types is the amount.
+
+**Quote** — a vendor's price document for a request, a PDF. Given in the forms'
+Quotes field, or with `@Purchasing quote` in the thread. Carried, never read.
 
 **Edit** — changing a **posted** card before anyone approves it. The requester, a
 buyer or an admin may edit. A modal-born card reopens the full Screen 2 form. A
@@ -252,7 +271,7 @@ thread card, and the one next-step button for the current stage (no Cancel). It 
 *view*, not a second store: the thread card is authoritative, and a click on either
 card moves both. A cancel retires it; a reassignment retires the old buyer's and gives
 the new buyer a fresh one (ADR 0010). Who may click a stage button on either card: the
-assigned buyer, an admin or an approver.
+assigned buyer, an admin or an approver — and, for **Delivered** only, the requester.
 
 **DM** — where the bot notifies people. Notifications stay DMs across the whole
 flow rather than moving to the alert channel, and they are consistent about it. The
@@ -292,8 +311,8 @@ after ticket 02, buyers). Admin-manageable from Slack; changes take effect
 immediately because every getter re-reads from disk.
 
 **The request log** — `requests.json`, next to the roster, kept by `src/store.py`.
-One entry per approved request: its thread, its card, its current buyer and a history
-line for every event. It never holds a stage (the workbook does) and cards are not
+One entry per request from the moment its card is **posted** (so the approved nudge can
+find it): its thread, its card, its current buyer and a history line for every event. It never holds a stage (the workbook does) and cards are not
 drawn from it; it exists so the bot can find open requests on its own (ADR 0011).
 Finished requests stay in it. Say "the request log", not "the store".
 
