@@ -30,7 +30,7 @@ May NOT import:
     - lifecycle/ops handlers
 """
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 try:
     from . import bom, config, interview, nudge_settings, roster
@@ -523,8 +523,14 @@ def build_request_blocks(
     requester: str | None = None,
     items: list[dict] | None = None,
     attachments: list[dict] | None = None,
+    thread_channel: str | None = None,
+    card_ts: str | None = None,
 ) -> list:
     """Generate Block Kit blocks for a purchase request at a given lifecycle state.
+
+    ``thread_channel`` / ``card_ts`` fill the pointer on a Confirmed card's optional
+    'Set expected delivery' button (Ticket 91); when omitted the button still renders and the
+    click handler falls back to the channel and message the click came from.
 
     States: posted -> approved -> processed -> confirmed -> delivered
     Terminal states with no buttons: declined, cancelled, delivered, superseded.
@@ -583,6 +589,10 @@ def build_request_blocks(
         summary_lines.append(f"• *Buyer:* {assignee}")
     elif state != "posted":
         summary_lines.append("• *Buyer:* ⚠️ _Unassigned_")
+
+    expected_delivery = request.get("expected_delivery")
+    if expected_delivery:
+        summary_lines.append(f"• *Expected delivery:* {format_short_date(expected_delivery)}")
 
     if items and bom.needs_bom(items):
         summary_lines.append(f"📋 {len(items)} line items (BOM attached in thread)")
@@ -720,6 +730,11 @@ def build_request_blocks(
                 "value": btn_value,
             }
         ]
+        if state == "confirmed":
+            # ADR 0013 decision 5: optional ship date; the value is a pointer, never the request.
+            elements.append(_expected_delivery_button(
+                thread_channel, request.get("thread_ts"), card_ts
+            ))
         if state in secondary_buttons:
             sec_label, sec_action_id = secondary_buttons[state]
             elements.append({
@@ -774,6 +789,58 @@ def build_request_blocks(
     return blocks
 
 
+def format_short_date(iso_date: str) -> str:
+    """Render an ISO date as ``Mon D`` (``2026-11-16`` -> ``Nov 16``).
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 91 / ADR 0013 decision 5: the expected-delivery date is shown on both cards and in a
+    thread line. ``strftime('%-d')`` is not portable (the dev venv is Windows), so the day is
+    formatted by hand. An unparseable value is returned unchanged rather than raising on a card.
+    """
+    try:
+        d = date.fromisoformat(str(iso_date)[:10])
+    except ValueError:
+        return str(iso_date)
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def _expected_delivery_button(thread_channel, thread_ts, card_ts) -> dict:
+    """The optional 'Set expected delivery' button on a Confirmed card (ADR 0013 decision 5)."""
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Set expected delivery", "emoji": True},
+        "action_id": config.ACTION_SET_EXPECTED_DELIVERY,
+        "value": json.dumps({"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}),
+    }
+
+
+def build_expected_delivery_view(thread_channel: str, thread_ts: str, card_ts: str, initial_date: str) -> dict:
+    """Modal with one date picker for the expected delivery date (ADR 0013 decision 5)."""
+    return {
+        "type": "modal",
+        "callback_id": config.EXPECTED_DELIVERY_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Expected delivery"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(
+            {"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}
+        ),
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "block_expected_delivery",
+                "label": {"type": "plain_text", "text": "When does the vendor expect to deliver?"},
+                "element": {
+                    "type": "datepicker",
+                    "action_id": "expected_delivery",
+                    "initial_date": initial_date,
+                },
+            }
+        ],
+    }
+
+
 def build_dm_card_blocks(
     state: str,
     request: dict,
@@ -819,6 +886,9 @@ def build_dm_card_blocks(
     if thread_link:
         lines.append(f"<{thread_link}|Open the request thread>")
 
+    if request.get("expected_delivery") and state not in ("cancelled", "reassigned", "replaced", "delivered"):
+        lines.append(f"*Expected delivery:* {format_short_date(request['expected_delivery'])}")
+
     if state == "cancelled":
         lines.append("🚫 Cancelled")
     elif state == "reassigned":
@@ -862,6 +932,8 @@ def build_dm_card_blocks(
                 "value": btn_value,
             }
         ]
+        if state == "confirmed":
+            elements.append(_expected_delivery_button(thread_channel, thread_ts, card_ts))
         if state == "approved":
             # ADR 0011 decision 2 / Ticket 74: DM card carries buyer picker while approved.
             # Slack does not allow value on users_select, so the pointer is in block_id.

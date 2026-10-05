@@ -1722,7 +1722,9 @@ def handle_confirmation(
         target_hist.append(f"Confirmed by {actor_name} on {now_str}")
 
         if target_card_ts:
-            next_blocks = blocks.build_request_blocks("confirmed", target_req, history=target_hist)
+            next_blocks = blocks.build_request_blocks(
+                "confirmed", target_req, history=target_hist, thread_channel=channel, card_ts=target_card_ts
+            )
             try:
                 client.chat_update(
                     channel=channel,
@@ -1772,6 +1774,68 @@ def handle_confirmation(
         failure_callback=on_failure,
         client=client,
     )
+
+
+def handle_set_expected_delivery(client, channel: str, thread_ts: str, card_ts: str, user_id: str, chosen_date) -> bool:
+    """Record an expected delivery date on a Confirmed card (Ticket 91 / ADR 0013 decision 5).
+
+    WHY THIS EXISTS:
+    ----------------
+    The date has to land in four places that must never disagree: the thread card (its button
+    value is the store), the buyer's DM card, the request log (so ticket 92 can pause the
+    delivered nudge until then), and a thread line. The form handler in app.py only validates and
+    delegates; the card is re-read here so a stale form cannot overwrite newer card state.
+    The date is optional and never touches the workbook. Returns False when the card is gone
+    (admins are alerted); a request-log failure alerts but never blocks the card update.
+    """
+    card_info = slack_io.get_card_by_ts(client, channel=channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        log.warning("Card %s not found in thread %s for expected delivery", card_ts, thread_ts)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                "set the expected delivery date", channel, thread_ts, None, "card not found"
+            ),
+        )
+        return False
+    req_data, history, _state = card_info
+    req_data = dict(req_data)
+    history = list(history)
+    short = blocks.format_short_date(chosen_date.isoformat())
+    actor = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    history.append(f"Expected delivery set to {short} by {actor} on {datetime.now().strftime('%m/%d/%y %H:%M')}")
+    req_data["expected_delivery"] = chosen_date.isoformat()
+
+    client.chat_update(
+        channel=channel,
+        ts=card_ts,
+        text="🛒 Purchase Request (Confirmed)",
+        blocks=blocks.build_request_blocks(
+            "confirmed", req_data, history=history, thread_channel=channel, card_ts=card_ts
+        ),
+    )
+    sync_dm_card(
+        client=client,
+        request=req_data,
+        state="confirmed",
+        channel=channel,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        history=history,
+    )
+    req_id = _request_log(client, store.find_id_by_card, channel, card_ts) or _request_log(
+        client, store.find_id_by_thread, channel, thread_ts
+    )
+    if req_id:
+        _request_log(client, store.update, req_id, expected_delivery=chosen_date.isoformat())
+        _request_log(client, store.append_history, req_id, history[-1])
+    client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=f"📦 Expected delivery {short} — I'll check back then.",
+    )
+    log.info("Expected delivery for card %s set to %s by %s", card_ts, chosen_date.isoformat(), user_id)
+    return True
 
 
 def handle_delivery(
