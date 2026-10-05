@@ -521,6 +521,19 @@ def handle_stage2_submit(ack, body, client, view):
         or ""
     )
 
+    raw_bom_files = text_rules.extract_modal_files(values, "block_bom", "bom")
+    one_vendor_ticked = any(
+        o.get("value") == "one_vendor"
+        for o in (
+            values.get("block_bom_one_vendor", {}).get("bom_one_vendor", {}).get("selected_options")
+            or []
+        )
+    )
+    bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked, raw_line_items)
+    if bom_errors:
+        ack(response_action="errors", errors=bom_errors)
+        return
+
     if raw_line_items.strip():
         items, shipping, parse_errors = bom.parse_line_items(raw_line_items)
         if parse_errors:
@@ -533,8 +546,11 @@ def handle_stage2_submit(ack, body, client, view):
         stage2["line_items"] = raw_line_items
 
     raw_quote_files = text_rules.extract_modal_files(values, "block_quotes", "quotes")
-    if raw_quote_files:
-        stage2["attachments"] = [{"role": "quote", **f} for f in raw_quote_files]
+    attachments = [{"role": "bom", **f} for f in raw_bom_files] + [
+        {"role": "quote", **f} for f in raw_quote_files
+    ]
+    if attachments:
+        stage2["attachments"] = attachments
 
     category = stage2.get("category")
     if interview.needs_asset_details(category):
