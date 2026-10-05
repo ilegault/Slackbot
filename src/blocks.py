@@ -1093,8 +1093,12 @@ def build_items_view(
     if initial_text is None and items:
         initial_text = bom.format_line_items(items, shipping)
 
+    # Ticket 85 / ADR 0012: the paste box is optional because a requester may attach their
+    # own BOM and/or quotes instead; handle_items_modal_submit refuses a form with none of them.
     blocks_list = [
-        line_items_input("action_line_items", optional=False, initial_value=initial_text or None)
+        line_items_input("action_line_items", optional=True, initial_value=initial_text or None),
+        *bom_inputs(),
+        quotes_input(),
     ]
 
     return {

@@ -723,11 +723,34 @@ def handle_items_modal_submit(ack, body, client, view):
     user_id = body.get("user", {}).get("id")
 
     raw_text = text_rules._extract_modal_field(values, "block_line_items", "action_line_items") or ""
+    raw_bom_files = text_rules.extract_modal_files(values, "block_bom", "bom")
+    raw_quote_files = text_rules.extract_modal_files(values, "block_quotes", "quotes")
+    one_vendor_ticked = any(
+        o.get("value") == "one_vendor"
+        for o in (
+            values.get("block_bom_one_vendor", {}).get("bom_one_vendor", {}).get("selected_options")
+            or []
+        )
+    )
 
-    items, shipping, parse_errors = bom.parse_line_items(raw_text)
-    if parse_errors:
-        ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
+    if not raw_text.strip() and not raw_bom_files and not raw_quote_files:
+        ack(response_action="errors", errors={"block_line_items": "Add line items, a BOM or quotes."})
         return
+    bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked, raw_text)
+    if bom_errors:
+        ack(response_action="errors", errors=bom_errors)
+        return
+
+    items = None  # None = paste box blank; the card keeps its existing items
+    shipping = 0.0
+    if raw_text.strip():
+        items, shipping, parse_errors = bom.parse_line_items(raw_text)
+        if parse_errors:
+            ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
+            return
+    attachments = [{"role": "bom", **f} for f in raw_bom_files] + [
+        {"role": "quote", **f} for f in raw_quote_files
+    ]
 
     card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
     if not card_payload:
@@ -742,10 +765,11 @@ def handle_items_modal_submit(ack, body, client, view):
     parsed = card_payload.get("parsed") or {}
     total_price = parsed.get("total_price") if "total_price" in parsed else parsed.get("Amount of Purchase")
 
-    total_error = bom.check_total(items, shipping, total_price)
-    if total_error:
-        ack(response_action="errors", errors={"block_line_items": total_error})
-        return
+    if items is not None:
+        total_error = bom.check_total(items, shipping, total_price)
+        if total_error:
+            ack(response_action="errors", errors={"block_line_items": total_error})
+            return
 
     ack()
 
@@ -757,6 +781,7 @@ def handle_items_modal_submit(ack, body, client, view):
         items=items,
         shipping=shipping,
         user_id=user_id,
+        attachments=attachments or None,
     )
 
 
