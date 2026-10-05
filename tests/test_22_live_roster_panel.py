@@ -57,7 +57,9 @@ def _extract_all_text(view: dict) -> str:
             parts.append(txt.get("text", ""))
         for el in b.get("elements", []):
             if isinstance(el, dict):
-                parts.append(el.get("text", ""))
+                el_txt = el.get("text", "")
+                # Button elements carry a text object, context elements a string.
+                parts.append(el_txt.get("text", "") if isinstance(el_txt, dict) else el_txt)
     return "\n".join(parts)
 
 

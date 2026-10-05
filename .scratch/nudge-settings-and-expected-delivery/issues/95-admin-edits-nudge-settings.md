@@ -1,6 +1,6 @@
 # 95: Admin edits nudge settings from App Home
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -50,11 +50,11 @@ New test file `tests/test_95_nudge_settings_form.py`; temp roster (admin `U_ADM`
 `U_X`) and temp `nudge_settings.SETTINGS_PATH`; prior art `tests/test_22_live_roster_panel.py`
 for App Home and `tests/test_19_roster_set_name.py` for a view submission.
 
-- [ ] **Only admins see the button.** `build_app_home_view("U_ADM")` contains a button with `action_id == "open_nudge_settings"`; `build_app_home_view("U_X")` does not.
-- [ ] **The form is pre-filled.** `build_nudge_settings_view(DEFAULTS)` has the 12 block ids `block_<s>_enabled|every|send`; `block_delivered_every` `initial_value == "10"`; `block_delivered_send` has only `channel` in `initial_options`; `block_approved_enabled` has no `initial_options`.
-- [ ] **Saving.** `U_ADM` submitting `delivered` every `15`, DM+Channel → `ack()` with no errors; `nudge_settings.load()["delivered"] == {"enabled": True, "every": 15, "dm": True, "channel": True}`; `views_publish` called for `U_ADM`; one post to the admin alert channel containing `<@U_ADM>`.
-- [ ] **Validation.** `processed` on with neither DM nor Channel → `errors == {"block_processed_send": "Pick DM, Channel or both."}` and the file is unchanged; `every` `0` → an error on `block_<s>_every`.
-- [ ] **Non-admins refused.** `U_X` clicking the button → a DM containing `Only admins` and no `views_open`; `U_X` submitting → the refusal error and the file unchanged.
+- [x] **Only admins see the button.** `build_app_home_view("U_ADM")` contains a button with `action_id == "open_nudge_settings"`; `build_app_home_view("U_X")` does not.
+- [x] **The form is pre-filled.** `build_nudge_settings_view(DEFAULTS)` has the 12 block ids `block_<s>_enabled|every|send`; `block_delivered_every` `initial_value == "10"`; `block_delivered_send` has only `channel` in `initial_options`; `block_approved_enabled` has no `initial_options`.
+- [x] **Saving.** `U_ADM` submitting `delivered` every `15`, DM+Channel → `ack()` with no errors; `nudge_settings.load()["delivered"] == {"enabled": True, "every": 15, "dm": True, "channel": True}`; `views_publish` called for `U_ADM`; one post to the admin alert channel containing `<@U_ADM>`.
+- [x] **Validation.** `processed` on with neither DM nor Channel → `errors == {"block_processed_send": "Pick DM, Channel or both."}` and the file is unchanged; `every` `0` → an error on `block_<s>_every`.
+- [x] **Non-admins refused.** `U_X` clicking the button → a DM containing `Only admins` and no `views_open`; `U_X` submitting → the refusal error and the file unchanged.
 
 **Tests may fake:** the Slack client. **Must be real:** `blocks`, both handlers, `nudge_settings` on the temp file, the roster on a temp file.
 
@@ -71,3 +71,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+2026-10-05: Added config ids, admin-only App Home button, `blocks.build_nudge_settings_view`, and `handle_open_nudge_settings_action` / `handle_nudge_settings_submit` in app.py. All five criteria are covered by `tests/test_95_nudge_settings_form.py`. `tests/test_22_live_roster_panel.py::_extract_all_text` now handles button elements whose text is an object (harness defect; assertions unchanged).

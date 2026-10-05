@@ -209,6 +209,22 @@ def build_app_home_view(user_id: str | None = None) -> dict:
         "accessory": profile_button,
     }
 
+    # Ticket 95: only admins get the nudge-settings button (same check as the Roles line).
+    nudge_settings_blocks: list = []
+    if "Admin" in roles:
+        nudge_settings_blocks = [
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Edit nudge settings", "emoji": True},
+                        "action_id": config.ACTION_OPEN_NUDGE_SETTINGS,
+                    }
+                ],
+            }
+        ]
+
     return {
         "type": "home",
         "blocks": [
@@ -284,6 +300,7 @@ def build_app_home_view(user_id: str | None = None) -> dict:
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": _ADMIN_COMMANDS},
             },
+            *nudge_settings_blocks,
             {"type": "divider"},
             {
                 "type": "header",
@@ -321,6 +338,61 @@ def build_app_home_view(user_id: str | None = None) -> dict:
                 "elements": [{"type": "mrkdwn", "text": "Hirst Lab Automation • Report issues to Isaac Legault"}],
             },
         ],
+    }
+
+
+def build_nudge_settings_view(settings: dict) -> dict:
+    """Modal for an admin to edit the four per-stage nudges (ticket 95, ADR 0013).
+
+    Pre-filled from `settings` (the nudge_settings shape). Block ids are
+    block_<stage>_enabled|every|send; app.py maps nudge_settings.validate keys
+    onto them. Pure: holds no Slack client.
+    """
+    stages = ("approved", "processed", "confirmed", "delivered")
+    out: list = []
+    for s in stages:
+        cur = settings.get(s) or {}
+        on_opt = {"text": {"type": "plain_text", "text": "On"}, "value": "on"}
+        dm_opt = {"text": {"type": "plain_text", "text": "DM"}, "value": "dm"}
+        ch_opt = {
+            "text": {"type": "plain_text", "text": "Channel (thread reply also sent to the channel)"},
+            "value": "channel",
+        }
+        enabled_el: dict = {"type": "checkboxes", "action_id": "enabled", "options": [on_opt]}
+        if cur.get("enabled"):
+            enabled_el["initial_options"] = [on_opt]
+        send_el: dict = {"type": "checkboxes", "action_id": "send", "options": [dm_opt, ch_opt]}
+        initial = [o for o, k in ((dm_opt, "dm"), (ch_opt, "channel")) if cur.get(k)]
+        if initial:
+            send_el["initial_options"] = initial
+        out.append({
+            "type": "header",
+            "text": {"type": "plain_text", "text": f"{s.capitalize()} nudge"},
+        })
+        out.append({
+            "type": "input", "optional": True, "block_id": f"block_{s}_enabled",
+            "label": {"type": "plain_text", "text": "Nudge"}, "element": enabled_el,
+        })
+        out.append({
+            "type": "input", "block_id": f"block_{s}_every",
+            "label": {"type": "plain_text", "text": "Every N working days"},
+            "element": {
+                "type": "number_input", "action_id": "every",
+                "is_decimal_allowed": False, "min_value": "1",
+                "initial_value": str(cur.get("every", 1)),
+            },
+        })
+        out.append({
+            "type": "input", "optional": True, "block_id": f"block_{s}_send",
+            "label": {"type": "plain_text", "text": "Send by"}, "element": send_el,
+        })
+    return {
+        "type": "modal",
+        "callback_id": config.NUDGE_SETTINGS_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Nudge settings"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": out,
     }
 
 
