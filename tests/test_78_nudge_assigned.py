@@ -3,7 +3,7 @@
 Covers:
 - working_days_between pure function calculation.
 - Day 2 nothing, day 3 DM only with replaced old card and thread card update pointing to new DM ts.
-- Day 6 DM plus thread reply with reply_broadcast=True mentioning buyer; day 9 DM only; day 7 nothing.
+- (Day 6 broadcast / day 9 rules were replaced by the settings file in ticket 87; see test_87_nudge_settings.py.)
 - Stops when it should: row has date_processed, cancelled=True, last_nudged == today, Saturday/Sunday, or buyer_set_at recently changed.
 - Failure tolerance: one buyer's DM failure does not block the other; only successful entry's last_nudged updated.
 """
@@ -177,80 +177,6 @@ def test_day_2_nothing_day_3_dm_only(monkeypatch):
     # Entry's last_nudged is '2026-10-08'
     entry = store.get(req_id)
     assert entry.get("last_nudged") == "2026-10-08"
-
-
-def test_day_6_broadcast_day_9_dm_only(monkeypatch):
-    """AC 3: Day 6 adds one channel post; day 9 is DM only.
-    - 2026-10-13 (Day 6) -> DM plus exactly one post with reply_broadcast=True, thread_ts=thread, text containing <@U_A>.
-    - 2026-10-14 (Day 7) -> nothing.
-    - 2026-10-16 (Day 9) -> DM, no reply_broadcast.
-    """
-    monkeypatch.setattr(log_writer, "get_row_info", lambda row: {"date_processed": ""})
-
-    req_data = {
-        "item_description": "Laser Diode",
-        "vendor": "Thorlabs",
-        "total_price": 120.0,
-        "row": 18,
-        "dm_channel": "D_BUYER_A",
-        "dm_ts": "dm_ts_1",
-        "assignee_id": "U_A",
-    }
-    thread_card = _make_thread_card_message(ts="111.200", state="approved", req_data=req_data)
-    client = _make_fake_client({"111.200": thread_card})
-
-    req_id = store.create(
-        channel="C_PURCHASING",
-        thread_ts="111.100",
-        card_ts="111.200",
-        requester="Alex",
-        buyer="Alice",
-        buyer_id="U_A",
-        rows=[18],
-        buyer_set_at="2026-10-05T09:00:00",
-        approved_at="2026-10-05T09:00:00",
-        cancelled=False,
-        last_nudged="2026-10-08",
-        dm_channel="D_BUYER_A",
-        dm_ts="dm_ts_1",
-    )
-
-    # 2026-10-13 (Day 6)
-    res_day6 = run_nudges(client, date(2026, 10, 13))
-    assert res_day6 == [req_id]
-
-    # Two posts: DM + channel broadcast
-    posts = client.chat_postMessage.call_args_list
-    assert len(posts) == 2
-
-    # DM post
-    dm_posts = [p[1] for p in posts if p[1].get("channel") == "U_A"]
-    assert len(dm_posts) == 1
-    assert not dm_posts[0].get("reply_broadcast")
-
-    # Broadcast post to thread channel
-    broadcast_posts = [p[1] for p in posts if p[1].get("reply_broadcast") is True]
-    assert len(broadcast_posts) == 1
-    b_post = broadcast_posts[0]
-    assert b_post.get("channel") == "C_PURCHASING"
-    assert b_post.get("thread_ts") == "111.100"
-    assert "<@U_A>" in b_post.get("text", "")
-    assert "approved 6 working days ago" in b_post.get("text", "")
-
-    # 2026-10-14 (Day 7) -> nothing
-    client.chat_postMessage.reset_mock()
-    res_day7 = run_nudges(client, date(2026, 10, 14))
-    assert res_day7 == []
-    assert client.chat_postMessage.call_count == 0
-
-    # 2026-10-16 (Day 9) -> DM, no reply_broadcast
-    client.chat_postMessage.reset_mock()
-    res_day9 = run_nudges(client, date(2026, 10, 16))
-    assert res_day9 == [req_id]
-    posts_day9 = client.chat_postMessage.call_args_list
-    assert len(posts_day9) == 1
-    assert posts_day9[0][1].get("channel") == "U_A"
-    assert not posts_day9[0][1].get("reply_broadcast")
 
 
 def test_stops_when_it_should(monkeypatch):

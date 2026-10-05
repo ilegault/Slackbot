@@ -7,17 +7,20 @@ unprocessed with no reminder to anyone. The workbook knows a row is unprocessed
 and how old it is, but not who the buyer is or which Slack thread the request lives in;
 that information lives in the request log (requests.json) and on Slack cards.
 
-Per ADR 0011 Decision 4 & Spec ("The nudge") & Tickets 78, 79 & 80:
+Per ADR 0011 Decision 4 (amended by ADR 0013 decisions 2-3) & Tickets 78, 79, 80 & 87:
 - Weekdays at 9:00 Central, check every logged request not yet Processed.
-- For assigned requests, count working days (Mon-Fri) elapsed since the buyer was set:
-  - Day 3: private DM to the buyer re-posting their DM card (retiring the old one
-    with state="replaced") carrying Mark Processed and the buyer picker.
-  - Day 6: same DM plus a thread reply broadcast to the channel mentioning the buyer.
-  - Day 9, 12, ...: DM only.
-- For unassigned requests, count working days (Mon-Fri) elapsed since approval (approved_at):
-  - Day 3: thread reply with text mentioning all buyers from roster.get_buyers().
-  - Day 6: same message with reply_broadcast=True.
-  - Day 9, 12, ...: nothing.
+- The schedule is no longer hardcoded: nudge_settings.json (loaded once per run)
+  says whether the processed nudge is on, every N working days, and whether it goes
+  by DM, by a thread reply also sent to the channel, or both. Shipped default:
+  every 3 working days, DM only. is_due(n, every) is the pure schedule rule.
+- For assigned requests, count working days (Mon-Fri) elapsed since the buyer was set.
+  When due: `dm` re-posts the buyer's DM card (retiring the old one with
+  state="replaced") carrying Mark Processed and the buyer picker; `channel` posts a
+  thread reply broadcast to the channel mentioning the buyer.
+- For unassigned requests, count working days (Mon-Fri) elapsed since approval
+  (approved_at). When due, one thread line mentioning all buyers from
+  roster.get_buyers(), repeated every N days with no upper limit until someone is
+  assigned; reply_broadcast only when `channel` is set.
 - The date is passed as an explicit argument to run_nudges(client, today: date)
   rather than reading the system clock, allowing the schedule to be tested honestly
   without waiting days.
@@ -36,15 +39,16 @@ import os
 import tempfile
 import threading
 from datetime import date, datetime, time, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 try:
-    from . import blocks, config, lifecycle, log_writer, roster, slack_io, store
+    from . import blocks, config, lifecycle, log_writer, nudge_settings, roster, slack_io, store
 except ImportError:
     import blocks  # type: ignore[no-redef]
     import config  # type: ignore[no-redef]
     import lifecycle  # type: ignore[no-redef]
     import log_writer  # type: ignore[no-redef]
+    import nudge_settings  # type: ignore[no-redef]
     import roster  # type: ignore[no-redef]
     import slack_io  # type: ignore[no-redef]
     import store  # type: ignore[no-redef]
@@ -71,6 +75,11 @@ def working_days_between(start: date, end: date) -> int:
     return count
 
 
+def is_due(n: int, every: int) -> bool:
+    """True on working day n when a nudge repeating every `every` days is due."""
+    return n >= every and n % every == 0
+
+
 def run_nudges(client, today: date) -> list[str]:
     """Execute one day's nudging for assigned and unassigned requests.
 
@@ -82,6 +91,13 @@ def run_nudges(client, today: date) -> list[str]:
         return []
 
     store_data = store.load_store(alert_callback=lambda msg: slack_io.alert_admins(client, msg))
+    settings = nudge_settings.load(alert_callback=lambda msg: slack_io.alert_admins(client, msg))
+    processed_cfg = settings["processed"]
+    if not processed_cfg["enabled"]:
+        return []
+    every = processed_cfg["every"]
+    want_dm = processed_cfg["dm"]
+    want_channel = processed_cfg["channel"]
     nudged_ids: list[str] = []
 
     for req_id, entry in store_data.items():
@@ -122,26 +138,17 @@ def run_nudges(client, today: date) -> list[str]:
                     continue
 
                 n = working_days_between(date.fromisoformat(approved_at[:10]), today)
-                if n not in (3, 6):
+                if not is_due(n, every):
                     continue
 
                 buyers = roster.get_buyers()
                 mentions = " ".join(f"<@{bid}>" for bid in buyers) if buyers else ""
                 msg_text = f"⏰ Approved {n} working days ago and nobody's assigned yet. {mentions}".strip()
 
-                if n == 3:
-                    client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=thread_ts,
-                        text=msg_text,
-                    )
-                elif n == 6:
-                    client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=thread_ts,
-                        reply_broadcast=True,
-                        text=msg_text,
-                    )
+                post_kwargs = {"channel": channel, "thread_ts": thread_ts, "text": msg_text}
+                if want_channel:
+                    post_kwargs["reply_broadcast"] = True
+                client.chat_postMessage(**post_kwargs)
 
                 store.update(req_id, last_nudged=today.isoformat())
                 nudged_ids.append(req_id)
@@ -156,7 +163,7 @@ def run_nudges(client, today: date) -> list[str]:
             start_date = date.fromisoformat(buyer_set_at[:10])
             n = working_days_between(start_date, today)
 
-            if not (n == 3 or n == 6 or (n > 6 and n % 3 == 0)):
+            if not is_due(n, every):
                 continue
 
             # Load the thread card to verify state is approved
@@ -181,94 +188,97 @@ def run_nudges(client, today: date) -> list[str]:
             if not req_data.get("dm_ts") and entry.get("dm_ts"):
                 req_data["dm_ts"] = entry.get("dm_ts")
 
-            # Retire the buyer's current DM card
-            lifecycle.sync_dm_card(
-                client=client,
-                request=req_data,
-                state="replaced",
-                channel=channel,
-                thread_ts=thread_ts,
-                card_ts=card_ts,
-                note="Replaced by the reminder below.",
-            )
-
-            # Build and post the fresh DM card
-            parsed = req_data.get("parsed")
-            if isinstance(parsed, dict):
-                item = parsed.get("item_description") or req_data.get("item_description") or "Item"
-            else:
-                item = req_data.get("item_description") or "Item"
-
-            if not req_data.get("assignee_id"):
-                req_data["assignee_id"] = buyer_id
-
-            thread_link = None
-            try:
-                resp_link = client.chat_getPermalink(channel=channel, message_ts=card_ts)
-                if isinstance(resp_link, dict):
-                    thread_link = resp_link.get("permalink")
-                elif hasattr(resp_link, "get"):
-                    thread_link = resp_link.get("permalink")
-                elif hasattr(resp_link, "data") and isinstance(resp_link.data, dict):
-                    thread_link = resp_link.data.get("permalink")
-            except Exception as link_err:
-                log.warning("Could not get thread link for card (%s, %s): %s", channel, card_ts, link_err)
-                thread_link = None
-
-            dm_card_blocks = blocks.build_dm_card_blocks(
-                state="approved",
-                request=req_data,
-                thread_channel=channel,
-                thread_ts=thread_ts,
-                card_ts=card_ts,
-                thread_link=thread_link,
-            )
-
-            section_text = f"⏰ {item} has been assigned to you for {n} working days and isn't marked Processed yet."
-            dm_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": section_text,
-                    },
-                }
-            ] + dm_card_blocks
-
-            resp = client.chat_postMessage(
-                channel=buyer_id,
-                text=section_text,
-                blocks=dm_blocks,
-            )
-
-            new_dm_ts = None
             new_dm_channel = None
-            if isinstance(resp, dict):
-                new_dm_ts = resp.get("ts")
-                new_dm_channel = resp.get("channel")
-            elif hasattr(resp, "get"):
-                new_dm_ts = resp.get("ts")
-                new_dm_channel = resp.get("channel")
-            elif hasattr(resp, "data") and isinstance(resp.data, dict):
-                new_dm_ts = resp.data.get("ts")
-                new_dm_channel = resp.data.get("channel")
+            new_dm_ts = None
+            if want_dm:
+                # Retire the buyer's current DM card
+                lifecycle.sync_dm_card(
+                    client=client,
+                    request=req_data,
+                    state="replaced",
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    card_ts=card_ts,
+                    note="Replaced by the reminder below.",
+                )
 
-            if not new_dm_channel:
-                new_dm_channel = buyer_id
+                # Build and post the fresh DM card
+                parsed = req_data.get("parsed")
+                if isinstance(parsed, dict):
+                    item = parsed.get("item_description") or req_data.get("item_description") or "Item"
+                else:
+                    item = req_data.get("item_description") or "Item"
 
-            # Update the thread card with the new DM references so two-card sync points at new DM card
-            req_data["dm_channel"] = new_dm_channel
-            req_data["dm_ts"] = new_dm_ts
-            thread_card_blocks = blocks.build_request_blocks("approved", req_data, history=history)
-            client.chat_update(
-                channel=channel,
-                ts=card_ts,
-                text="🛒 Purchase Request (Approved)",
-                blocks=thread_card_blocks,
-            )
+                if not req_data.get("assignee_id"):
+                    req_data["assignee_id"] = buyer_id
 
-            # On day 6 only, broadcast a thread reply to the channel
-            if n == 6:
+                thread_link = None
+                try:
+                    resp_link = client.chat_getPermalink(channel=channel, message_ts=card_ts)
+                    if isinstance(resp_link, dict):
+                        thread_link = resp_link.get("permalink")
+                    elif hasattr(resp_link, "get"):
+                        thread_link = resp_link.get("permalink")
+                    elif hasattr(resp_link, "data") and isinstance(resp_link.data, dict):
+                        thread_link = resp_link.data.get("permalink")
+                except Exception as link_err:
+                    log.warning("Could not get thread link for card (%s, %s): %s", channel, card_ts, link_err)
+                    thread_link = None
+
+                dm_card_blocks = blocks.build_dm_card_blocks(
+                    state="approved",
+                    request=req_data,
+                    thread_channel=channel,
+                    thread_ts=thread_ts,
+                    card_ts=card_ts,
+                    thread_link=thread_link,
+                )
+
+                section_text = f"⏰ {item} has been assigned to you for {n} working days and isn't marked Processed yet."
+                dm_blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": section_text,
+                        },
+                    }
+                ] + dm_card_blocks
+
+                resp = client.chat_postMessage(
+                    channel=buyer_id,
+                    text=section_text,
+                    blocks=dm_blocks,
+                )
+
+                new_dm_ts = None
+                new_dm_channel = None
+                if isinstance(resp, dict):
+                    new_dm_ts = resp.get("ts")
+                    new_dm_channel = resp.get("channel")
+                elif hasattr(resp, "get"):
+                    new_dm_ts = resp.get("ts")
+                    new_dm_channel = resp.get("channel")
+                elif hasattr(resp, "data") and isinstance(resp.data, dict):
+                    new_dm_ts = resp.data.get("ts")
+                    new_dm_channel = resp.data.get("channel")
+
+                if not new_dm_channel:
+                    new_dm_channel = buyer_id
+
+                # Update the thread card with the new DM references so two-card sync points at new DM card
+                req_data["dm_channel"] = new_dm_channel
+                req_data["dm_ts"] = new_dm_ts
+                thread_card_blocks = blocks.build_request_blocks("approved", req_data, history=history)
+                client.chat_update(
+                    channel=channel,
+                    ts=card_ts,
+                    text="🛒 Purchase Request (Approved)",
+                    blocks=thread_card_blocks,
+                )
+
+            # `channel` setting: broadcast a thread reply to the channel
+            if want_channel:
                 broadcast_text = f"⏰ <@{buyer_id}> — this request was approved {n} working days ago and isn't marked Processed yet."
                 client.chat_postMessage(
                     channel=channel,
@@ -278,7 +288,10 @@ def run_nudges(client, today: date) -> list[str]:
                 )
 
             # Update request log with last_nudged date and new DM coordinates
-            store.update(req_id, last_nudged=today.isoformat(), dm_channel=new_dm_channel, dm_ts=new_dm_ts)
+            updates: dict[str, Any] = {"last_nudged": today.isoformat()}
+            if want_dm:
+                updates.update(dm_channel=new_dm_channel, dm_ts=new_dm_ts)
+            store.update(req_id, **updates)
             nudged_ids.append(req_id)
             log.info("Nudged request [%s] (day %d) for buyer %s", req_id, n, buyer_id)
 

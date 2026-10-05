@@ -1,6 +1,6 @@
 # 87: Nudge settings file drives the processed nudge
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -53,11 +53,11 @@ New test file `tests/test_87_nudge_settings.py`; `nudge_settings.SETTINGS_PATH` 
 `store.STORE_PATH` monkeypatched to temp files; existing fake-client helpers from
 `tests/test_78_nudge_assigned.py`.
 
-- [ ] **Loading.** No file → `load()` == `DEFAULTS`; file containing `not json` → defaults and the alert callback called once with text containing `nudge_settings.json`; file `{"processed": {"enabled": true, "every": 0, "dm": true, "channel": false}}` → `processed.every == 3` and the other three stages equal their defaults; `save(x)` then `load()` == `x`. `.gitignore` contains a line `nudge_settings.json`.
-- [ ] **`is_due` and `validate`.** `is_due(2,3)` false, `(3,3)` true, `(6,3)` true, `(7,3)` false, `(0,3)` false. `validate` on `processed` enabled with `dm` and `channel` false returns `{"processed_send": "Pick DM, Channel or both."}`.
-- [ ] **Defaults: DM every 3, no channel.** Rewrite in place `test_day_2_nothing_day_3_dm_only` (unchanged expectations) and add `test_default_day_6_and_9_dm_only`: day 6 and day 9 → one DM each, no `reply_broadcast` anywhere.
-- [ ] **Settings change behaviour.** Settings file with `processed = {"enabled": true, "every": 2, "dm": false, "channel": true}` → day 2: exactly one post with `reply_broadcast=True` containing `<@buyer>`, no DM to the buyer; with `enabled: false` → day 3: no `chat_postMessage` at all.
-- [ ] **Unassigned repeats.** In `tests/test_79_nudge_unassigned.py`, rewrite in place `test_day_3_unassigned_nudge` (unchanged) and add `test_unassigned_repeats_every_n`: defaults, day 6 and day 9 → one thread line each naming every buyer, no `reply_broadcast`; with `processed.channel` true → day 3 line has `reply_broadcast=True`.
+- [x] **Loading.** No file → `load()` == `DEFAULTS`; file containing `not json` → defaults and the alert callback called once with text containing `nudge_settings.json`; file `{"processed": {"enabled": true, "every": 0, "dm": true, "channel": false}}` → `processed.every == 3` and the other three stages equal their defaults; `save(x)` then `load()` == `x`. `.gitignore` contains a line `nudge_settings.json`.
+- [x] **`is_due` and `validate`.** `is_due(2,3)` false, `(3,3)` true, `(6,3)` true, `(7,3)` false, `(0,3)` false. `validate` on `processed` enabled with `dm` and `channel` false returns `{"processed_send": "Pick DM, Channel or both."}`.
+- [x] **Defaults: DM every 3, no channel.** Rewrite in place `test_day_2_nothing_day_3_dm_only` (unchanged expectations) and add `test_default_day_6_and_9_dm_only`: day 6 and day 9 → one DM each, no `reply_broadcast` anywhere.
+- [x] **Settings change behaviour.** Settings file with `processed = {"enabled": true, "every": 2, "dm": false, "channel": true}` → day 2: exactly one post with `reply_broadcast=True` containing `<@buyer>`, no DM to the buyer; with `enabled: false` → day 3: no `chat_postMessage` at all.
+- [x] **Unassigned repeats.** In `tests/test_79_nudge_unassigned.py`, rewrite in place `test_day_3_unassigned_nudge` (unchanged) and add `test_unassigned_repeats_every_n`: defaults, day 6 and day 9 → one thread line each naming every buyer, no `reply_broadcast`; with `processed.channel` true → day 3 line has `reply_broadcast=True`.
 
 **Tests may fake:** the Slack client, `log_writer.get_row_info`. **Must be real:** `nudge_settings` on the temp file, `nudge.run_nudges`, `store` on the temp file, `blocks`.
 
@@ -74,3 +74,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+2026-10-05: Added `src/nudge_settings.py` (DEFAULTS, load, validate, save), `nudge.is_due`, and made the processed nudge (assigned and unassigned paths) follow `processed` settings; `.gitignore` lists `nudge_settings.json`; conftest isolates `SETTINGS_PATH` for every test. Deleted the three tests named in the ticket (replaced by `test_default_day_6_and_9_dm_only`, `test_unassigned_repeats_every_n` and the settings tests). All criteria covered by `tests/test_87_nudge_settings.py` and `tests/test_79_nudge_unassigned.py`. Gate: ruff clean, tests-first OK, type_gate 95/95, pytest 617 passed. No bench verification needed.

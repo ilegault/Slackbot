@@ -3,18 +3,18 @@
 Covers:
 - Day 3: exactly one chat_postMessage to thread, no reply_broadcast, mentioning all 3 buyers,
   containing nobody's assigned, no 'yourself', no DM.
-- Day 6: same text with reply_broadcast=True.
-- Nothing after: Day 9 (2026-10-16) and Day 12 (2026-10-21) send no chat_postMessage.
+- (Day 6 broadcast / nothing-after rules were replaced by the settings file in ticket 87; see test_87_nudge_settings.py.)
 - Stops on processed, cancel, same day (second run adds none).
 - Roster must be real on temp file; store on temp file; Slack client and log_writer.get_row_info faked.
 """
+import copy
 import json
 from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
 
-from src import log_writer, roster, store
+from src import log_writer, nudge_settings, roster, store
 from src.nudge import run_nudges
 
 
@@ -101,78 +101,6 @@ def test_day_3_unassigned_nudge(clean_roster, monkeypatch):
 
     entry = store.get(req_id)
     assert entry.get("last_nudged") == "2026-10-08"
-
-
-def test_day_6_broadcast(clean_roster, monkeypatch):
-    """AC: Day 6. date(2026,10,13): the same text with reply_broadcast=True."""
-    monkeypatch.setattr(log_writer, "get_row_info", lambda row: {"date_processed": ""})
-    client = _make_fake_client()
-
-    req_id = store.create(
-        channel="C_PURCHASING",
-        thread_ts="111.100",
-        card_ts="111.200",
-        requester="Alex",
-        buyer=None,
-        buyer_id=None,
-        rows=[17],
-        approved_at="2026-10-05T09:00:00",
-        cancelled=False,
-        last_nudged="2026-10-08",
-    )
-
-    res = run_nudges(client, date(2026, 10, 13))
-    assert res == [req_id]
-
-    assert client.chat_postMessage.call_count == 1
-    call_kwargs = client.chat_postMessage.call_args[1]
-
-    assert call_kwargs.get("channel") == "C_PURCHASING"
-    assert call_kwargs.get("thread_ts") == "111.100"
-    assert call_kwargs.get("reply_broadcast") is True
-
-    msg_text = call_kwargs.get("text", "")
-    assert "nobody's assigned" in msg_text
-    assert "<@U_BUYER1>" in msg_text
-    assert "<@U_BUYER2>" in msg_text
-    assert "<@U_BUYER3>" in msg_text
-    assert "yourself" not in msg_text.lower()
-
-    entry = store.get(req_id)
-    assert entry.get("last_nudged") == "2026-10-13"
-
-
-def test_nothing_after(clean_roster, monkeypatch):
-    """AC: Nothing after. date(2026,10,16) (day 9) and date(2026,10,21) (day 12): no chat_postMessage."""
-    monkeypatch.setattr(log_writer, "get_row_info", lambda row: {"date_processed": ""})
-    client = _make_fake_client()
-
-    req_id = store.create(
-        channel="C_PURCHASING",
-        thread_ts="111.100",
-        card_ts="111.200",
-        requester="Alex",
-        buyer=None,
-        buyer_id=None,
-        rows=[17],
-        approved_at="2026-10-05T09:00:00",
-        cancelled=False,
-        last_nudged="2026-10-13",
-    )
-
-    # Day 9: 2026-10-16
-    res_day9 = run_nudges(client, date(2026, 10, 16))
-    assert res_day9 == []
-    assert client.chat_postMessage.call_count == 0
-
-    # Day 12: 2026-10-21
-    res_day12 = run_nudges(client, date(2026, 10, 21))
-    assert res_day12 == []
-    assert client.chat_postMessage.call_count == 0
-
-    # last_nudged unchanged
-    entry = store.get(req_id)
-    assert entry.get("last_nudged") == "2026-10-13"
 
 
 def test_stops_on_processed_cancel_same_day(clean_roster, monkeypatch):
@@ -317,3 +245,45 @@ def test_entry_with_buyer_id_uses_assigned_path(clean_roster, monkeypatch):
     assert "<@U_BUYER2>" not in msg_text
     assert "<@U_BUYER3>" not in msg_text
 
+
+def _unassigned(last_nudged=None):
+    return store.create(
+        channel="C_PURCHASING", thread_ts="111.100", card_ts="111.200",
+        requester="Alex", buyer=None, buyer_id=None, rows=[17],
+        approved_at="2026-10-05T09:00:00", cancelled=False, last_nudged=last_nudged,
+    )
+
+
+def test_unassigned_repeats_every_n(clean_roster, monkeypatch):
+    """Ticket 87: defaults (every 3, DM only => no broadcast). Day 6 and day 9 each
+    get one thread line naming every buyer, with no reply_broadcast."""
+    monkeypatch.setattr(log_writer, "get_row_info", lambda row: {"date_processed": ""})
+    client = _make_fake_client()
+    req_id = _unassigned()
+
+    for day in (date(2026, 10, 13), date(2026, 10, 16)):  # day 6, day 9
+        client.chat_postMessage.reset_mock()
+        assert run_nudges(client, day) == [req_id]
+        assert client.chat_postMessage.call_count == 1
+        kw = client.chat_postMessage.call_args[1]
+        assert kw["thread_ts"] == "111.100"
+        assert not kw.get("reply_broadcast")
+        for b in ("U_BUYER1", "U_BUYER2", "U_BUYER3"):
+            assert f"<@{b}>" in kw["text"]
+
+    # day 7 is not due
+    client.chat_postMessage.reset_mock()
+    assert run_nudges(client, date(2026, 10, 14)) == []
+    assert client.chat_postMessage.call_count == 0
+
+
+def test_unassigned_channel_setting_broadcasts(clean_roster, monkeypatch):
+    s = copy.deepcopy(nudge_settings.DEFAULTS)
+    s["processed"]["channel"] = True
+    nudge_settings.save(s)
+    monkeypatch.setattr(log_writer, "get_row_info", lambda row: {"date_processed": ""})
+    client = _make_fake_client()
+    _unassigned()
+    run_nudges(client, date(2026, 10, 8))  # day 3
+    assert client.chat_postMessage.call_count == 1
+    assert client.chat_postMessage.call_args[1]["reply_broadcast"] is True
