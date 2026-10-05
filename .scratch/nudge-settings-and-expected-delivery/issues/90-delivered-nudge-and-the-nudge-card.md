@@ -1,6 +1,6 @@
 # 90: Delivered nudge and the nudge card
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -55,11 +55,11 @@ New test file `tests/test_90_delivered_nudge.py`; temp log/settings/roster; `get
 returns Date Processed and Date Confirmed = `"46300"` (2026-10-05), Date Delivered empty; card in
 state `confirmed`, buyer `U_B`, requester `U_R`.
 
-- [ ] **Day 10 posts the card to the channel.** 2026-10-16 (day 9) → nothing. 2026-10-19 (day 10) → exactly one post with `reply_broadcast=True` whose blocks contain `<@U_B>`, `<@U_R>`, `Has this been delivered?` and a button with `action_id == "nudge_delivered"`; no DMs; the entry's `nudge_cards` holds that post's channel and ts.
-- [ ] **DM option.** Settings `delivered = {"enabled": true, "every": 10, "dm": true, "channel": false}` → day 10: the card goes to `U_B` and `U_R` by DM, no channel post.
-- [ ] **One live card.** Running day 10 then day 20 (2026-11-02) → before the day-20 post, the day-10 card is `chat_update`d with `Replaced by a newer reminder.` and no `actions` block.
-- [ ] **Delivered from the card.** `U_R` pressing `nudge_delivered` → `lifecycle.handle_delivery` runs (spy or observe the thread card's `chat_update` to delivered blocks) and every nudge card is updated to contain `Delivered by <@U_R>` with no `actions`. A stranger pressing it → the denial text, no thread-card update. Pressing it when the thread card is already `delivered` → the clicked card shows `Already delivered.` and `handle_delivery` is not called.
-- [ ] **Stops.** Date Delivered present → nothing; `delivered.enabled` false → nothing; the confirmed nudge never fires once Date Confirmed is present.
+- [x] **Day 10 posts the card to the channel.** 2026-10-16 (day 9) → nothing. 2026-10-19 (day 10) → exactly one post with `reply_broadcast=True` whose blocks contain `<@U_B>`, `<@U_R>`, `Has this been delivered?` and a button with `action_id == "nudge_delivered"`; no DMs; the entry's `nudge_cards` holds that post's channel and ts.
+- [x] **DM option.** Settings `delivered = {"enabled": true, "every": 10, "dm": true, "channel": false}` → day 10: the card goes to `U_B` and `U_R` by DM, no channel post.
+- [x] **One live card.** Running day 10 then day 20 (2026-11-02) → before the day-20 post, the day-10 card is `chat_update`d with `Replaced by a newer reminder.` and no `actions` block.
+- [x] **Delivered from the card.** `U_R` pressing `nudge_delivered` → `lifecycle.handle_delivery` runs (spy or observe the thread card's `chat_update` to delivered blocks) and every nudge card is updated to contain `Delivered by <@U_R>` with no `actions`. A stranger pressing it → the denial text, no thread-card update. Pressing it when the thread card is already `delivered` → the clicked card shows `Already delivered.` and `handle_delivery` is not called.
+- [x] **Stops.** Date Delivered present → nothing; `delivered.enabled` false → nothing; the confirmed nudge never fires once Date Confirmed is present.
 
 **Tests may fake:** the Slack client, `log_writer.get_row_info`. **Must be real:** `nudge`, `nudge_settings` and `store` on temp files, `blocks.build_nudge_card_blocks`, the action handler, `admin.can_update_request`.
 
@@ -76,3 +76,10 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+Done (2026-10-05). Added `config.ACTION_NUDGE_DELIVERED`, `blocks.build_nudge_card_blocks`
+(n may be None on a click, where the age is unknown), `nudge._delivered_nudge` (dispatched
+from `run_nudges` once Date Confirmed is present), `lifecycle.update_nudge_cards` (the one
+place nudge cards are edited, because `tests/test_13` forbids `chat_update` in `src/app.py`) and
+`app.handle_nudge_delivered_action`. All criteria are covered by `tests/test_90_delivered_nudge.py`;
+every test fails on the base `src`.

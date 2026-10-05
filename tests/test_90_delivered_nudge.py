@@ -12,8 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src import app, config, lifecycle, log_writer, nudge_settings, roster, slack_io, store, text_rules
-from src.blocks import build_nudge_card_blocks
+from src import app, blocks, config, lifecycle, log_writer, nudge_settings, roster, slack_io, store, text_rules
 from src.nudge import run_nudges
 from tests.test_78_nudge_assigned import _make_fake_client, _make_thread_card_message
 
@@ -114,36 +113,62 @@ def test_one_live_card(monkeypatch):
     assert store.get(req_id)["nudge_cards"] == [["C_PURCHASING", "post_ts_2"]]
 
 
-@pytest.mark.parametrize("kwargs", [{"delivered": "46310"}, {"state": "delivered"}, {"state": "processed"}])
-def test_stops(monkeypatch, kwargs):
-    client, _ = _setup(monkeypatch, **kwargs)
+def _lift_delivered(monkeypatch, client):
+    monkeypatch.setattr(log_writer, "get_row_info", lambda row: {
+        "date_processed": "46300", "date_confirmed": "46300", "date_delivered": ""})
+
+
+def _lift_state(monkeypatch, client):
+    req = {"item_description": "Laser Diode", "row": 18, "assignee_id": "U_B", "user_id": "U_R"}
+    card = _make_thread_card_message(ts="111.200", state="confirmed", req_data=req)
+    client.conversations_replies.side_effect = lambda channel, ts=None, **k: {"ok": True, "messages": [card]}
+
+
+def _lift_enabled(monkeypatch, client):
+    nudge_settings.save(copy.deepcopy(nudge_settings.DEFAULTS))
+
+
+@pytest.mark.parametrize("kwargs,lift", [
+    ({"delivered": "46310"}, _lift_delivered),
+    ({"state": "delivered"}, _lift_state),
+    ({"state": "processed"}, _lift_state),
+])
+def test_stops_then_fires_when_condition_lifted(monkeypatch, kwargs, lift):
+    client, req_id = _setup(monkeypatch, **kwargs)
     assert run_nudges(client, DAY_10) == []
     assert client.chat_postMessage.call_count == 0
+    lift(monkeypatch, client)
+    assert run_nudges(client, DAY_10) == [req_id]
+    assert client.chat_postMessage.call_count == 1
 
 
 def test_disabled(monkeypatch):
     s = copy.deepcopy(nudge_settings.DEFAULTS)
     s["delivered"]["enabled"] = False
     nudge_settings.save(s)
-    client, _ = _setup(monkeypatch)
+    client, req_id = _setup(monkeypatch)
     assert run_nudges(client, DAY_10) == []
     assert client.chat_postMessage.call_count == 0
+    _lift_enabled(monkeypatch, client)
+    assert run_nudges(client, DAY_10) == [req_id]
 
 
-def test_confirmed_nudge_does_not_fire_once_confirmed(monkeypatch):
-    s = copy.deepcopy(nudge_settings.DEFAULTS)
-    s["delivered"]["enabled"] = False
-    nudge_settings.save(s)
-    client, _ = _setup(monkeypatch)
+def test_confirmed_nudge_never_fires_once_confirmed(monkeypatch):
+    client, req_id = _setup(monkeypatch)
+    # Date Processed == Date Confirmed == day 0: the confirmed nudge would be due on 10-12.
     assert run_nudges(client, date(2026, 10, 12)) == []
     assert client.chat_postMessage.call_count == 0
+    assert run_nudges(client, DAY_10) == [req_id]
+    assert "Has this been delivered?" in json.dumps(_posts(client)[0]["blocks"])
 
 
 def test_inactive_card_has_note_and_no_actions():
     for state in ("replaced", "delivered", "closed"):
-        blocks = build_nudge_card_blocks(state, "<@U_B>", "Laser Diode", 10, "C", "1.1", "1.2", note="a note")
-        assert not _buttons(blocks)
-        assert "a note" in json.dumps(blocks) and "Has this been delivered?" in json.dumps(blocks)
+        rendered = blocks.build_nudge_card_blocks(state, "<@U_B>", "Laser Diode", 10, "C", "1.1", "1.2", note="a note")
+        assert not _buttons(rendered)
+        assert "a note" in json.dumps(rendered) and "Has this been delivered?" in json.dumps(rendered)
+    active = blocks.build_nudge_card_blocks("active", "<@U_B>", "Laser Diode", 10, "C", "1.1", "1.2")
+    assert [b["action_id"] for b in _buttons(active)] == ["nudge_delivered"]
 
 
 # ---- the button -------------------------------------------------------------
