@@ -129,6 +129,12 @@ Per Ticket 77 (ADR 0011 decision 3):
 - Cancel sets cancelled=True in the request log without deleting the record.
 - All request log writes are wrapped in _request_log; errors alert config.ADMIN_ALERT_CHANNEL and never block.
 
+Per Ticket 93 (ADR 0013 decision 7):
+- A card's request-log entry is created when the card is POSTED (modal or EPIF drop), not at approval.
+  finalize_purchase_request then updates that entry, matched by card (store.find_id_by_card); the thread
+  lookup is only a fallback for an entry that was never posted, because a thread can hold several cards.
+- Decline sets declined=True and a superseding EPIF drop sets superseded=True on that card's entry.
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, slack_io, store, text_rules, validators
 May NOT import:
@@ -188,6 +194,36 @@ def _request_log(client, fn, *args, **kwargs):
         log.error("Couldn't write the request log (requests.json): %s", e, exc_info=True)
         slack_io.alert_admins(client, f"⚠️ Couldn't write the request log (requests.json): {e}")
         return None
+
+
+def _log_posted_card(client, channel: str, thread_ts: str, card_ts: str | None, requester: str, requester_id: str | None):
+    """Create the request-log entry for a card the moment it is posted.
+
+    WHY THIS EXISTS:
+        ADR 0013 decision 7: the approved nudge must find requests nobody has approved yet, so
+        the entry starts at posting and approval later updates it (one history per request).
+        Goes through _request_log, so a log failure alerts and never blocks posting.
+    """
+    now = datetime.now()
+    _request_log(
+        client,
+        store.create,
+        channel=channel,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        requester=requester,
+        requester_id=requester_id,
+        posted_at=now.isoformat(timespec="seconds"),
+        history=[f"Posted by {requester} on {now.strftime('%m/%d/%y %H:%M')}"],
+    )
+
+
+def _flag_card_entry(client, channel: str, card_ts: str, line: str, **flags):
+    """Set flags (declined / superseded) and a history line on the entry for this card, if any."""
+    req_id = _request_log(client, store.find_id_by_card, channel, card_ts)
+    if req_id:
+        _request_log(client, store.update, req_id, **flags)
+        _request_log(client, store.append_history, req_id, line)
 
 
 def _send_assignee_dm(
@@ -738,11 +774,23 @@ def finalize_purchase_request(
         buyer_set_iso = now_iso if assignee_id else None
         existing_id = None
         try:
-            existing_id = store.find_id_by_thread(channel, thread_ts)
+            # ADR 0013 decision 7: the card's entry was created at posting. Match by card;
+            # fall back to the thread only for an entry that was never posted, so approving
+            # one card of a batch never overwrites another card's entry.
+            if actual_card_ts:
+                existing_id = store.find_id_by_card(channel, actual_card_ts)
+            if not existing_id:
+                thread_id = store.find_id_by_thread(channel, thread_ts)
+                thread_entry = store.get(thread_id) if thread_id else None
+                if thread_entry is not None and not thread_entry.get("posted_at"):
+                    existing_id = thread_id
         except Exception as read_err:
             log.warning("Could not check existing entry in request log: %s", read_err)
 
         if existing_id:
+            # Keep the "Posted by" line the entry started with; add only the card's lines it lacks.
+            prior = (store.get(existing_id) or {}).get("history") or []
+            merged_history = list(prior) + [h for h in hist if h not in prior]
             _request_log(
                 client,
                 store.update,
@@ -755,7 +803,7 @@ def finalize_purchase_request(
                 buyer=assignee_name,
                 buyer_id=assignee_id,
                 rows=[row] if row is not None else [],
-                history=list(hist),
+                history=merged_history,
                 approved_at=now_iso,
                 buyer_set_at=buyer_set_iso,
                 cancelled=False,
@@ -1160,6 +1208,7 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
                 blocks=superseded_blks,
             )
             log.info("Superseded posted card at %s in %s (thread: %s)", stale_ts, channel, thread_ts)
+            _flag_card_entry(client, channel, stale_ts, new_hist[-1], superseded=True)
         except Exception as e:
             log.warning("Failed to supersede card at %s: %s", stale_ts, e)
 
@@ -1193,7 +1242,7 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
     )
 
     try:
-        client.chat_postMessage(
+        post_resp = client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
             text=summary_text,
@@ -1206,6 +1255,12 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         log.info(
             "Posted purchase request card with Approve button for %s in %s (thread: %s)",
             file_name, channel, thread_ts,
+        )
+        posted_ts = post_resp.get("ts") if hasattr(post_resp, "get") else None
+        _log_posted_card(
+            client, channel=channel, thread_ts=thread_ts,
+            card_ts=posted_ts if isinstance(posted_ts, str) else None,
+            requester=requester or f"<@{user_id}>", requester_id=user_id,
         )
         log.info("drop exit: card posted")
     except Exception as e:
@@ -2092,6 +2147,11 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     if not card_ts or not isinstance(card_ts, str):
         card_ts = "1000.1000"
 
+    _log_posted_card(
+        client, channel=post_channel, thread_ts=card_ts, card_ts=card_ts,
+        requester=requester or "Requester", requester_id=user_id,
+    )
+
     if attachments:
         post_attachments_to_thread(
             client=client,
@@ -2161,6 +2221,7 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
     """Decline a posted purchase request.
 
     WHY THIS EXISTS:
+        The card's request-log entry is flagged declined=True (ADR 0013 decision 7).
         Decline is an approver's or buyer's "no" on a request in the posted state.
         It updates the message to show it was declined and by whom, and removes
         every button.  Nothing is written to Excel (no row exists yet),
@@ -2180,6 +2241,7 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
         log.info("Purchase request declined by %s in channel %s (ts: %s)", user_id, channel, msg_ts)
     except Exception as e:
         log.error("Failed to update message on decline: %s", e)
+    _flag_card_entry(client, channel, msg_ts, history[-1], declined=True)
 
 def _move_epif_to_cancelled(epif_fname: str) -> None:
     """Move the named EPIF file from EPIFS_DIR into EPIFS_DIR/Cancelled/.

@@ -1,6 +1,6 @@
 # 93: Posted cards enter the request log
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -42,11 +42,11 @@ Requests posted before this ships have no entry until approval, as today.
 New test file `tests/test_93_posted_cards_logged.py`; temp `requests.json`; fake client; prior art
 `tests/test_76_request_log_approval_and_assign.py`.
 
-- [ ] **Posting creates the entry.** Completing `/new-purchase` → exactly one entry with `card_ts` = the posted card's ts, `requester_id` = the submitter, a `posted_at`, no `approved_at`. Dropping an EPIF that posts a card → one entry with that card's ts and the dropper's ID.
-- [ ] **Approval updates it.** Approving that card → still exactly one entry for that `card_ts`, now with `approved_at`, `rows`, and its history containing the `Posted by` line and the approval lines.
-- [ ] **Batch-safe.** A thread with two posted cards (two entries) → approving the second card updates only the second entry; the first keeps no `approved_at`.
-- [ ] **Decline and supersede flag the entry.** Declining a posted card → its entry has `declined == True`. Dropping a corrected EPIF that supersedes a card → the old card's entry has `superseded == True`, and the new card has its own entry.
-- [ ] **The nudge ignores posted entries.** A posted entry with `posted_at` three working days ago → `nudge.run_nudges` sends nothing for it; a `store.create` that raises during posting → the card is still posted and `slack_io.alert_admins` is called.
+- [x] **Posting creates the entry.** Completing `/new-purchase` → exactly one entry with `card_ts` = the posted card's ts, `requester_id` = the submitter, a `posted_at`, no `approved_at`. Dropping an EPIF that posts a card → one entry with that card's ts and the dropper's ID.
+- [x] **Approval updates it.** Approving that card → still exactly one entry for that `card_ts`, now with `approved_at`, `rows`, and its history containing the `Posted by` line and the approval lines.
+- [x] **Batch-safe.** A thread with two posted cards (two entries) → approving the second card updates only the second entry; the first keeps no `approved_at`.
+- [x] **Decline and supersede flag the entry.** Declining a posted card → its entry has `declined == True`. Dropping a corrected EPIF that supersedes a card → the old card's entry has `superseded == True`, and the new card has its own entry.
+- [x] **The nudge ignores posted entries.** A posted entry with `posted_at` three working days ago → `nudge.run_nudges` sends nothing for it; a `store.create` that raises during posting → the card is still posted and `slack_io.alert_admins` is called.
 
 **Tests may fake:** the Slack client, the lock queue. **Must be real:** `store` on the temp file, `_process_interview_completion`, `handle_epif_drop`, `finalize_purchase_request`, `handle_decline`.
 
@@ -63,3 +63,8 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+Done (2026-10-05). `store.find_id_by_card`; `lifecycle._log_posted_card` creates the entry at posting (modal and EPIF drop);
+`finalize_purchase_request` matches by card, thread fallback only for entries with no `posted_at`, and merges the entry's
+`Posted by` history with the card's lines; `handle_decline` / supersede flag `declined` / `superseded`; `nudge.run_nudges`
+explicitly skips entries with no `approved_at`. All five criteria are covered by `tests/test_93_posted_cards_logged.py`.
