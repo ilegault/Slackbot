@@ -91,16 +91,22 @@ def test_cancel_with_a_missing_quote_still_moves_the_rest_and_blanks_row(tmp_pat
     assert any(names[1] in r.getMessage() for r in caplog.records)
 
 
-def test_cancel_without_quote_count_leaves_quotes_folder_alone(tmp_path, monkeypatch):
+def test_cancel_moves_quotes_only_when_card_has_quote_count(tmp_path, monkeypatch):
     qdir = _quotes_dir(tmp_path, monkeypatch)
-    other = _touch(qdir, bom.quote_filename(ROW, VENDOR, 1))
+    quote = bom.quote_filename(ROW, VENDOR, 1)
+    live = _touch(qdir, quote)
 
+    # No quote_count: cancels as before, nothing touched, Cancelled/ never created.
     blanked: list = []
     assert _cancel(_card(), blanked) is True
-
     assert blanked == [ROW]
     assert not os.path.exists(os.path.join(qdir, "Cancelled"))
-    assert os.path.exists(other)
+    assert os.path.exists(live)
+
+    # Same files, card now carrying quote_count: they move.
+    assert _cancel(_card(quote_count=1)) is True
+    assert not os.path.exists(live)
+    assert os.path.exists(os.path.join(qdir, "Cancelled", quote))
 
 
 def test_cancel_moves_attached_csv_bom(tmp_path, monkeypatch):
