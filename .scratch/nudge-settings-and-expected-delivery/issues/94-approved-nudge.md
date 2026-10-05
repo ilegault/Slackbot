@@ -1,6 +1,6 @@
 # 94: Approved nudge
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -37,11 +37,11 @@ New test file `tests/test_94_approved_nudge.py`; temp log, settings and roster (
 `U_A2`); entry posted Monday 2026-10-05 with a `posted` thread card; settings with
 `approved = {"enabled": true, "every": 3, "dm": true, "channel": false}` unless stated.
 
-- [ ] **Off by default.** With no settings file, 2026-10-08 → nothing posted.
-- [ ] **Day 3 DMs every approver.** 2026-10-07 → nothing. 2026-10-08 → one DM each to `U_A1` and `U_A2` containing `waiting for approval for 3 working days` and the fake permalink; no `actions` block; no thread post.
-- [ ] **Channel option.** `dm` false, `channel` true → day 3: one thread post with `reply_broadcast=True` containing `<@U_A1>` and `<@U_A2>`; no DMs.
-- [ ] **Stops.** Each on day 3 → nothing: `declined: true`; `superseded: true`; `approved_at` set; thread card state `approved`; `last_nudged` already today.
-- [ ] **Day 6 repeats.** 2026-10-13 → the DMs again.
+- [x] **Off by default.** With no settings file, 2026-10-08 → nothing posted.
+- [x] **Day 3 DMs every approver.** 2026-10-07 → nothing. 2026-10-08 → one DM each to `U_A1` and `U_A2` containing `waiting for approval for 3 working days` and the fake permalink; no `actions` block; no thread post.
+- [x] **Channel option.** `dm` false, `channel` true → day 3: one thread post with `reply_broadcast=True` containing `<@U_A1>` and `<@U_A2>`; no DMs.
+- [x] **Stops.** Each on day 3 → nothing: `declined: true`; `superseded: true`; `approved_at` set; thread card state `approved`; `last_nudged` already today.
+- [x] **Day 6 repeats.** 2026-10-13 → the DMs again.
 
 **Tests may fake:** the Slack client, `log_writer.get_row_info`. **Must be real:** `nudge`, `nudge_settings`, `store` and `roster` on temp files.
 
@@ -58,3 +58,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+2026-10-05: `src/nudge.py` gains `_nudge_approved` (called from `run_nudges` before the processed gate, so it runs even when the processed nudge is off) and `_permalink`. All five criteria are covered in `tests/test_94_approved_nudge.py`; the stop cases each run beside a control entry that is nudged, and every test fails on base src. Real nudge/settings/store/roster on temp files.
