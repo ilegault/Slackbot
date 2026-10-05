@@ -211,10 +211,13 @@ def test_supersede_flags_old_entry_and_new_card_gets_own():
 
 
 def test_nudge_ignores_posted_entries(monkeypatch):
-    store.create(
-        CHANNEL, "T1", "Alex", card_ts="A", requester_id="U_REQ",
-        posted_at="2026-10-01T09:00:00", buyer_id=None, history=["Posted by Alex"],
-    )
+    # Post through the real flow so the entry exists only because posting created it,
+    # then age it three working days: the nudge must still say nothing about it.
+    _modal(_client("500.001"))
+    request_id = store.find_id_by_card(CHANNEL, "500.001")
+    assert request_id is not None
+    assert not store.get(request_id).get("approved_at")
+    store.update(request_id, posted_at="2026-10-01T09:00:00")
     client = MagicMock()
     nudged = nudge.run_nudges(client, date(2026, 10, 6))
     assert nudged == []
