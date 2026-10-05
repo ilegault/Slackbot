@@ -1,6 +1,6 @@
 # 93: Posted cards enter the request log
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
