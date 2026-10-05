@@ -7,7 +7,7 @@ unprocessed with no reminder to anyone. The workbook knows a row is unprocessed
 and how old it is, but not who the buyer is or which Slack thread the request lives in;
 that information lives in the request log (requests.json) and on Slack cards.
 
-Per ADR 0011 Decision 4 & Spec ("The nudge") & Ticket 78:
+Per ADR 0011 Decision 4 & Spec ("The nudge") & Tickets 78 & 80:
 - Weekdays at 9:00 Central, check every logged request not yet Processed.
 - For assigned requests, count working days (Mon-Fri) elapsed since the buyer was set:
   - Day 3: private DM to the buyer re-posting their DM card (retiring the old one
@@ -21,20 +21,32 @@ Per ADR 0011 Decision 4 & Spec ("The nudge") & Ticket 78:
   requests where any row in the workbook already has Date Processed filled in.
 - Each request entry is processed in its own try/except block so one failure
   never blocks the remaining requests.
+- The 9:00 weekday timer: run_if_due checks whether the run is due on weekdays
+  at or after 9:00, records the run in nudge_run.json atomically, and catches up
+  if started late. start_nudge_scheduler runs as a background daemon thread beside
+  heartbeat.
 """
+import json
 import logging
-from datetime import date, timedelta
+import os
+import tempfile
+import threading
+from datetime import date, datetime, time, timedelta
+from typing import Optional
 
 try:
-    from . import blocks, lifecycle, log_writer, slack_io, store
+    from . import blocks, config, lifecycle, log_writer, slack_io, store
 except ImportError:
     import blocks  # type: ignore[no-redef]
+    import config  # type: ignore[no-redef]
     import lifecycle  # type: ignore[no-redef]
     import log_writer  # type: ignore[no-redef]
     import slack_io  # type: ignore[no-redef]
     import store  # type: ignore[no-redef]
 
 log = logging.getLogger("p-bot.nudge")
+
+NUDGE_RUN_PATH = os.path.join(config.BASE_DIR, "nudge_run.json")
 
 
 def working_days_between(start: date, end: date) -> int:
@@ -235,3 +247,100 @@ def run_nudges(client, today: date) -> list[str]:
             log.error("Failed to nudge request [%s]: %s", req_id, e)
 
     return nudged_ids
+
+
+def _read_last_run() -> Optional[str]:
+    """Read the last run date string from NUDGE_RUN_PATH.
+
+    Returns None if missing, corrupt, or not containing a valid last_run string.
+    """
+    if not os.path.exists(NUDGE_RUN_PATH):
+        return None
+    try:
+        with open(NUDGE_RUN_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            last_run = data.get("last_run")
+            if isinstance(last_run, str):
+                return last_run
+    except Exception as e:
+        log.warning("Could not read nudge run file %s (treating as never run): %s", NUDGE_RUN_PATH, e)
+    return None
+
+
+def _write_last_run(run_date_iso: str) -> None:
+    """Atomically write {"last_run": run_date_iso} to NUDGE_RUN_PATH."""
+    dir_name = os.path.dirname(os.path.abspath(NUDGE_RUN_PATH))
+    os.makedirs(dir_name, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tf:
+        json.dump({"last_run": run_date_iso}, tf, indent=2)
+        temp_path = tf.name
+
+    try:
+        os.replace(temp_path, NUDGE_RUN_PATH)
+        log.debug("Wrote nudge last_run=%s to %s", run_date_iso, NUDGE_RUN_PATH)
+    except Exception as e:
+        log.error("Failed to replace nudge run file with %s: %s", temp_path, e)
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        raise
+
+
+def run_if_due(client, now: datetime) -> bool:
+    """Check if the weekday 9:00 nudge is due and run it if so.
+
+    Returns False without calling run_nudges when:
+    - now is Saturday or Sunday (now.weekday() >= 5)
+    - now.time() < time(9, 0)
+    - the last_run in NUDGE_RUN_PATH matches today's date (now.date().isoformat())
+
+    Otherwise, calls run_nudges(client, now.date()), writes today's date to NUDGE_RUN_PATH,
+    and returns True. A missing or unreadable file counts as never run.
+    """
+    if now.weekday() >= 5:
+        return False
+
+    if now.time() < time(9, 0):
+        return False
+
+    today_iso = now.date().isoformat()
+    last_run = _read_last_run()
+    if last_run == today_iso:
+        return False
+
+    run_nudges(client, now.date())
+    _write_last_run(today_iso)
+    return True
+
+
+def start_nudge_scheduler(
+    client,
+    interval_seconds: int = 60,
+    stop_event: Optional[threading.Event] = None,
+) -> threading.Thread:
+    """Start the background daemon thread that runs run_if_due periodically."""
+    if stop_event is None:
+        stop_event = threading.Event()
+
+    def _loop():
+        log.info("NudgeSchedulerThread started (interval: %ds)", interval_seconds)
+        while not stop_event.is_set():
+            try:
+                run_if_due(client, datetime.now())
+            except Exception as e:
+                log.error("Error in nudge scheduler loop: %s", e)
+            if stop_event.wait(interval_seconds):
+                break
+        log.info("NudgeSchedulerThread stopped.")
+
+    thread = threading.Thread(
+        target=_loop,
+        name="NudgeSchedulerThread",
+        daemon=True,
+    )
+    thread.start()
+    return thread
