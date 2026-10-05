@@ -200,6 +200,30 @@ def check_total(items: List[Dict[str, Any]], shipping: float, total_price: Any) 
     )
 
 
+def attachment_errors(
+    bom_files: List[Dict[str, Any]], one_vendor_ticked: bool, line_items_text: str
+) -> Dict[str, str]:
+    """Validate an attached BOM against the one-vendor and attach-or-paste rules.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 82 / ADR 0012 Decisions 1-4: an attached BOM is carried, never opened, so the
+    bot cannot see whether it holds one vendor or whether its lines add up. It can only
+    refuse the two combinations it can detect: a BOM plus pasted items (two sources of
+    truth for the order) and a BOM without the requester's one-vendor confirmation (one
+    EPIF per vendor). Returns Slack view-error text keyed by block_id, in that priority,
+    one error at a time. Pure, so Screen 2 here and Add items / Edit (tickets 85, 86)
+    share one rule.
+    """
+    if not bom_files:
+        return {}
+    if (line_items_text or "").strip():
+        return {"block_bom": "Attach a BOM or paste line items, not both."}
+    if not one_vendor_ticked:
+        return {"block_bom_one_vendor": "One EPIF per vendor — split this into one request per vendor."}
+    return {}
+
+
 def needs_bom(items: List[Dict[str, Any]]) -> bool:
     """Return True if request has two or more line items."""
     return len(items) >= 2

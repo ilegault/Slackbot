@@ -31,6 +31,11 @@ Per Ticket 27:
   post edit notices, and upload draft BOM spreadsheets when needs_bom is True.
 - Records source='epif' on dropped EPIF cards.
 
+Per Ticket 82 / ADR 0012 Decisions 1-4:
+- An attachment with role 'bom' (the requester's own sheet, carried never read) adds a
+  '📎 BOM attached: <name>' summary line and is posted to the thread like a quote; no
+  made BOM (upload_draft_bom) is built for it.
+
 Per Ticket 81 / ADR 0012:
 - Adds post_attachments_to_thread to download attached quotes and re-post them
   to the thread right after card posting.
@@ -2052,6 +2057,8 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     items_line = f"\n📋 {len(items)} line items (BOM attached in thread)" if (items and bom.needs_bom(items)) else ""
     quote_count = sum(1 for a in (attachments or []) if a.get("role") == "quote")
     quotes_line = f"\n📎 Quotes: {quote_count}" if quote_count > 0 else ""
+    bom_names = [a.get("name") or "BOM" for a in (attachments or []) if a.get("role") == "bom"]
+    bom_line = "".join(f"\n📎 BOM attached: {n}" for n in bom_names)
     summary_text = (
         f"🛒 *New Purchase Request from {display_name}:*\n"
         f"• *Item:* {parsed['item_description']}\n"
@@ -2063,6 +2070,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         f"• *Purpose:* {parsed['purpose']}"
         f"{link_line}"
         f"{items_line}"
+        f"{bom_line}"
         f"{quotes_line}\n\n"
         f"Use the buttons below to approve and track this request."
     )

@@ -1,6 +1,6 @@
 # 82: BOM field on /new-purchase
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -51,11 +51,11 @@ made BOM is built.
 New test file `tests/test_82_bom_on_new_purchase.py`, payloads built like
 `tests/test_81_quotes_on_new_purchase.py`.
 
-- [ ] **The fields.** `build_stage2_view(meta)` has `block_bom` (file_input, `filetypes == ["xlsx", "csv"]`, `max_files == 1`, optional) and `block_bom_one_vendor` (checkboxes, one option `one_vendor`, optional); neither appears with `is_edit` true.
-- [ ] **The rules, directly.** `bom.attachment_errors([{"id": "F"}], True, "1 | x | | 5 | |")` == the not-both error on `block_bom`; `([{"id": "F"}], False, "")` == the one-vendor error on `block_bom_one_vendor`; `([{"id": "F"}], True, "")` == `{}`; `([], False, "")` == `{}`.
-- [ ] **The rules, through the form.** Submitting Screen 2 with a BOM and pasted items → `ack` called with `response_action="errors"` and exactly that text on `block_bom`, no card posted; with a BOM and the box unticked → the one-vendor text on `block_bom_one_vendor`, no card posted.
-- [ ] **A BOM is carried.** BOM `order.xlsx` + box ticked + one quote → card metadata `attachments` == `[{"role": "bom", "id": ..., "name": "order.xlsx"}, {"role": "quote", ...}]`; card text contains `BOM attached: order.xlsx`; `files_upload_v2` called for both into the card's thread; `upload_draft_bom` is not called (spy on `lifecycle.upload_draft_bom`).
-- [ ] **Help text.** `blocks.get_help_message()` and `build_app_home_view()` contain `Attach a BOM spreadsheet and quote PDFs in the purchase form` and no longer contain `Drop quote files or confirmation receipts`. Any existing test asserting the old bullet is updated in place.
+- [x] **The fields.** `build_stage2_view(meta)` has `block_bom` (file_input, `filetypes == ["xlsx", "csv"]`, `max_files == 1`, optional) and `block_bom_one_vendor` (checkboxes, one option `one_vendor`, optional); neither appears with `is_edit` true.
+- [x] **The rules, directly.** `bom.attachment_errors([{"id": "F"}], True, "1 | x | | 5 | |")` == the not-both error on `block_bom`; `([{"id": "F"}], False, "")` == the one-vendor error on `block_bom_one_vendor`; `([{"id": "F"}], True, "")` == `{}`; `([], False, "")` == `{}`.
+- [x] **The rules, through the form.** Submitting Screen 2 with a BOM and pasted items → `ack` called with `response_action="errors"` and exactly that text on `block_bom`, no card posted; with a BOM and the box unticked → the one-vendor text on `block_bom_one_vendor`, no card posted.
+- [x] **A BOM is carried.** BOM `order.xlsx` + box ticked + one quote → card metadata `attachments` == `[{"role": "bom", "id": ..., "name": "order.xlsx"}, {"role": "quote", ...}]`; card text contains `BOM attached: order.xlsx`; `files_upload_v2` called for both into the card's thread; `upload_draft_bom` is not called (spy on `lifecycle.upload_draft_bom`).
+- [x] **Help text.** `blocks.get_help_message()` and `build_app_home_view()` contain `Attach a BOM spreadsheet and quote PDFs in the purchase form` and no longer contain `Drop quote files or confirmation receipts`. Any existing test asserting the old bullet is updated in place.
 
 **Tests may fake:** the Slack client, `slack_io.download_file`. **Must be real:** `bom.attachment_errors`, `blocks`, the submit handler, `lifecycle._process_interview_completion`.
 
@@ -72,3 +72,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+Landed (2026-10-05): `blocks.bom_inputs()` on Screen 2 (not edit), pure `bom.attachment_errors`, `handle_stage2_submit` validates then prepends the `bom` attachment before quotes, `📎 BOM attached: <name>` on the card text and blocks, help bullet replaced. All in `tests/test_82_bom_on_new_purchase.py` (fields, rules, form, carried + no `upload_draft_bom`, help text). Mutation check: disabling the one-vendor rule turns tests red. Note: the shared failure warning for a file that fails to fetch still says "drop it in the thread with `@Purchasing quote`", which is slightly off for a BOM; not in this ticket's scope.

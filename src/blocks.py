@@ -18,6 +18,7 @@ Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step butt
 Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned with note, delivered) with no buttons (ADR 0010 Decision 3).
 Ticket 74: build_dm_card_blocks carries the buyer picker in approved state with pointer in block_id (ADR 0011 Decision 2).
 Ticket 75: _BUTTON_LIST updates help text to teach that any buyer can pick/move the buyer from the card until Processed (ADR 0011 Decision 1).
+Ticket 82: Adds bom_inputs (optional BOM file + one-vendor tick box on Screen 2, omitted when is_edit=True) and updates _BUTTON_LIST to teach attaching a BOM in the form (ADR 0012 Decisions 1-4).
 Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
 
 Imports:
@@ -53,7 +54,7 @@ _BUTTON_LIST = (
     "• Click the action buttons on the request message: *Approve* (approvers) or *Decline* (approvers and buyers), "
     "*Mark Processed*, *Mark Confirmed*, and *Mark Delivered* (the assigned buyer or an admin).\n"
     "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
-    "• Drop quote files or confirmation receipts directly into the thread to attach them.\n\n"
+    "• Attach a BOM spreadsheet and quote PDFs in the purchase form, or drop quotes into the thread with `@Purchasing quote`.\n\n"
     "*Approving:* reply in the request thread with `@Purchasing approved` and `@`-mention "
     "the grad student who will handle it —\n"
     "```\n"
@@ -469,6 +470,10 @@ def build_request_blocks(
     if items and bom.needs_bom(items):
         summary_lines.append(f"📋 {len(items)} line items (BOM attached in thread)")
 
+    for a in attachments or []:
+        if a.get("role") == "bom":
+            summary_lines.append(f"📎 BOM attached: {a.get('name') or 'BOM'}")
+
     quote_count = sum(1 for a in (attachments or []) if a.get("role") == "quote")
     if quote_count > 0:
         summary_lines.append(f"📎 Quotes: {quote_count}")
@@ -812,6 +817,53 @@ def line_items_input(
     return block
 
 
+def bom_inputs() -> list[dict]:
+    """Build the two optional blocks for attaching the requester's own BOM spreadsheet.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 82 / ADR 0012 Decisions 1-4: a requester may attach their own BOM (.xlsx/.csv)
+    instead of pasting line items. The bot carries it and never opens it, so the form
+    cannot check that the sheet is one vendor; the tick box is the requester's word for
+    it (one EPIF per vendor). Both blocks are always shown because a Slack form cannot
+    reveal a block when a file is picked. The rules live in bom.attachment_errors.
+    """
+    return [
+        {
+            "type": "input",
+            "block_id": "block_bom",
+            "optional": True,
+            "element": {
+                "type": "file_input",
+                "action_id": "bom",
+                "filetypes": ["xlsx", "csv"],
+                "max_files": 1,
+            },
+            "label": {"type": "plain_text", "text": "BOM spreadsheet (optional)"},
+            "hint": {
+                "type": "plain_text",
+                "text": "Your own BOM, sent to purchasing as-is. The Total Price above is the amount.",
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "block_bom_one_vendor",
+            "optional": True,
+            "element": {
+                "type": "checkboxes",
+                "action_id": "bom_one_vendor",
+                "options": [
+                    {
+                        "text": {"type": "plain_text", "text": "Every item in this BOM comes from one vendor"},
+                        "value": "one_vendor",
+                    }
+                ],
+            },
+            "label": {"type": "plain_text", "text": "Required if you attach a BOM"},
+        },
+    ]
+
+
 def quotes_input(action_id: str = "quotes") -> dict:
     """Build an optional file_input block for vendor quotes in PDF format.
 
@@ -1152,7 +1204,7 @@ def build_stage2_view(meta: dict) -> dict:
             initial_value=meta.get("line_items") or None,
             max_length=getattr(config, "MAX_LINE_ITEMS_LEN", 1500),
         ),
-        *([] if is_edit else [quotes_input()]),
+        *([] if is_edit else [quotes_input(), *bom_inputs()]),
         {
             "type": "input",
             "block_id": "block_vendor_contact_name",
