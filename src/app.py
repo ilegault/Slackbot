@@ -1396,6 +1396,7 @@ def _today() -> date:
 
 
 @app.action(config.ACTION_SET_EXPECTED_DELIVERY)
+@app.action(config.ACTION_NUDGE_NOT_YET)
 def handle_set_expected_delivery_action(ack, body, respond, client):
     """Open the expected-delivery form from a Confirmed card (Ticket 91 / ADR 0013 decision 5).
 
@@ -1404,6 +1405,7 @@ def handle_set_expected_delivery_action(ack, body, respond, client):
     The button sits on both the thread card and the DM card; its value is only a pointer, so the
     thread card is read for the true state (the button value is the store). Allowed: the assigned
     buyer, the requester, an admin or an approver, i.e. the same predicate as Mark Delivered.
+    Ticket 92: the delivered nudge card's "Not yet" button opens the same form, same checks.
     """
     ack()
     user_id = body.get("user", {}).get("id")

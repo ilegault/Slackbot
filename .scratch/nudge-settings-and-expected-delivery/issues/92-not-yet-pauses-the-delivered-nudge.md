@@ -1,6 +1,6 @@
 # 92: "Not yet" on the nudge card; delivered nudges pause until the expected date
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -40,10 +40,10 @@ weeks.
 New test file `tests/test_92_not_yet_and_pause.py`. Confirmed 2026-10-05 (serial `"46300"`),
 `every` 10.
 
-- [ ] **`delivered_due` table.** No expected: 2026-10-19 true, 2026-10-16 false. Expected 2026-11-16 (Mon): 2026-10-19 false, 2026-11-13 false, 2026-11-16 true, 2026-11-17 false, 2026-11-30 (10 working days later) true. Expected 2026-11-14 (Sat): 2026-11-16 true, 2026-11-14 false.
-- [ ] **The button.** `build_nudge_card_blocks("active", ...)` has buttons `nudge_delivered` and `nudge_not_yet`; pressing `nudge_not_yet` as the requester → `views_open` with `callback_id == "expected_delivery_submit"`.
-- [ ] **The run pauses and resumes.** With the entry's `expected_delivery = "2026-11-16"`: `run_nudges` on 2026-10-19 → no post; on 2026-11-16 → one nudge card whose text contains `was expected Nov 16`.
-- [ ] **Pushing it back pauses again.** After a 2026-11-16 nudge, setting `expected_delivery = "2026-12-07"` → `run_nudges` on 2026-11-30 → no post.
+- [x] **`delivered_due` table.** No expected: 2026-10-19 true, 2026-10-16 false. Expected 2026-11-16 (Mon): 2026-10-19 false, 2026-11-13 false, 2026-11-16 true, 2026-11-17 false, 2026-11-30 (10 working days later) true. Expected 2026-11-14 (Sat): 2026-11-16 true, 2026-11-14 false.
+- [x] **The button.** `build_nudge_card_blocks("active", ...)` has buttons `nudge_delivered` and `nudge_not_yet`; pressing `nudge_not_yet` as the requester → `views_open` with `callback_id == "expected_delivery_submit"`.
+- [x] **The run pauses and resumes.** With the entry's `expected_delivery = "2026-11-16"`: `run_nudges` on 2026-10-19 → no post; on 2026-11-16 → one nudge card whose text contains `was expected Nov 16`.
+- [x] **Pushing it back pauses again.** After a 2026-11-16 nudge, setting `expected_delivery = "2026-12-07"` → `run_nudges` on 2026-11-30 → no post.
 
 **Tests may fake:** the Slack client, `log_writer.get_row_info`. **Must be real:** `nudge.delivered_due`, `run_nudges`, `store` and `nudge_settings` on temp files, `blocks.build_nudge_card_blocks`.
 
@@ -60,3 +60,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+2026-10-05: Added `nudge.delivered_due` (pure), `ACTION_NUDGE_NOT_YET`, the second "Not yet — set expected date" button and `expected` parameter on `build_nudge_card_blocks`, and registered the ticket-91 opener for the new action. `_delivered_nudge` now reads the card before judging the schedule (entry `expected_delivery`, falling back to the card payload's). All four criteria are covered by `tests/test_92_not_yet_and_pause.py`. Two assertions in `tests/test_90_delivered_nudge.py` changed from `["nudge_delivered"]` to `["nudge_delivered", "nudge_not_yet"]` because the active card now legitimately has two buttons; same strictness.

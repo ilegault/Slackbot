@@ -850,6 +850,7 @@ def build_nudge_card_blocks(
     thread_ts: str,
     card_ts: str,
     note: str | None = None,
+    expected: str | None = None,
 ) -> list:
     """The delivered nudge's small card (ADR 0013 decision 4, Ticket 90).
 
@@ -861,9 +862,16 @@ def build_nudge_card_blocks(
     store. `active` carries the button; `replaced`, `delivered` and `closed` keep the section,
     add a context line with `note` and carry no actions, so a stale card cannot be pressed.
     `n` may be None when the age is unknown (a click on an old card); the age is then left out.
+    Ticket 92: `active` also carries "Not yet — set expected date" (same pointer value), which
+    opens the expected-delivery form; when `expected` (an ISO date) is known the sentence says
+    "was expected <Mon D>" instead of how long ago it was confirmed.
     """
     age = f" {n} working days ago" if n is not None else ""
-    text = f"⏰ {mentions} — *{item}* was confirmed{age}. Has this been delivered?"
+    if expected:
+        text = f"⏰ {mentions} — *{item}* was expected {format_short_date(expected)}. Has this been delivered?"
+    else:
+        text = f"⏰ {mentions} — *{item}* was confirmed{age}. Has this been delivered?"
+    pointer = json.dumps({"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts})
     blocks: list = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if state == "active":
         blocks.append({
@@ -873,7 +881,12 @@ def build_nudge_card_blocks(
                 "text": {"type": "plain_text", "text": "Delivered", "emoji": True},
                 "style": "primary",
                 "action_id": config.ACTION_NUDGE_DELIVERED,
-                "value": json.dumps({"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}),
+                "value": pointer,
+            }, {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Not yet — set expected date", "emoji": True},
+                "action_id": config.ACTION_NUDGE_NOT_YET,
+                "value": pointer,
             }],
         })
     elif note:

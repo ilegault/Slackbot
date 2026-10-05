@@ -14,6 +14,10 @@ reply. Date Processed is read as the raw cell text, so parse_sheet_date accepts 
 serials (what the bot writes) and typed dates; an unparseable one skips the entry with a
 warning. The processed nudge still skips any entry with a Date Processed.
 
+Ticket 92: an expected delivery date (the request log's, else the card payload's) pauses the
+delivered nudge until that date, then it repeats every N working days from it (delivered_due);
+the nudge card gains "Not yet - set expected date", which opens the ticket-91 form.
+
 Ticket 90 adds the delivered nudge: once Date Confirmed is present (and Date Delivered is
 not) and the thread card is still `confirmed`, every N working days from Date Confirmed
 the buyer and the requester are asked "Has this been delivered?" on a nudge card (thread
@@ -98,6 +102,26 @@ def working_days_between(start: date, end: date) -> int:
 def is_due(n: int, every: int) -> bool:
     """True on working day n when a nudge repeating every `every` days is due."""
     return n >= every and n % every == 0
+
+
+def delivered_due(today: date, confirmed: date, expected: Optional[date], every: int) -> bool:
+    """Is the delivered nudge due today? (ADR 0013 decision 5, Ticket 92). Pure.
+
+    Without an expected date, every `every` working days from Date Confirmed. With one, the
+    nudge is quiet until that date (a weekend date moves to the Monday after), fires on it,
+    then repeats every `every` working days from it, so a six-week order is not nagged
+    every two weeks.
+    """
+    if expected is None:
+        return is_due(working_days_between(confirmed, today), every)
+    first = expected
+    while first.weekday() >= 5:
+        first += timedelta(days=1)
+    if today < first:
+        return False
+    if today == first:
+        return True
+    return is_due(working_days_between(first, today), every)
 
 
 def parse_sheet_date(value) -> Optional[date]:
@@ -298,13 +322,21 @@ def _delivered_nudge(client, req_id, entry, info, cfg, today) -> bool:
                     info.get("date_confirmed"), req_id)
         return False
     n = working_days_between(confirmed_on, today)
-    if not is_due(n, cfg["every"]):
-        return False
+    # The request log's expected_delivery wins; the card payload's is the fallback (ticket 92),
+    # so the card is read before the schedule can be judged.
+    expected_iso = entry.get("expected_delivery")
     card = slack_io.get_card_by_ts(client, channel, thread_ts, card_ts)
     if not card:
         log.warning("Card not found for request [%s] (%s, %s, %s)", req_id, channel, thread_ts, card_ts)
         return False
     req_data, _history, card_state = card
+    if not expected_iso and isinstance(req_data, dict):
+        expected_iso = req_data.get("expected_delivery")
+    expected_on = parse_sheet_date(expected_iso) if expected_iso else None
+    if expected_iso and expected_on is None:
+        log.warning("Unreadable expected delivery %r for request [%s]; ignoring it", expected_iso, req_id)
+    if not delivered_due(today, confirmed_on, expected_on, cfg["every"]):
+        return False
     if card_state != "confirmed":
         return False
     if not isinstance(req_data, dict):
@@ -320,7 +352,9 @@ def _delivered_nudge(client, req_id, entry, info, cfg, today) -> bool:
         client, entry.get("nudge_cards") or [], "replaced", mentions, item, n,
         channel, thread_ts, card_ts, note="Replaced by a newer reminder.")
 
-    active = blocks.build_nudge_card_blocks("active", mentions, item, n, channel, thread_ts, card_ts)
+    active = blocks.build_nudge_card_blocks(
+        "active", mentions, item, n, channel, thread_ts, card_ts,
+        expected=expected_on.isoformat() if expected_on else None)
     text = active[0]["text"]["text"]
     posted: list[list[str]] = []
     if cfg["channel"]:
