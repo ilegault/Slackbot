@@ -1413,7 +1413,9 @@ def handle_req_delivered_action(ack, body, respond, client):
         slack_io.deny(respond, text_rules.format_stage_unassigned())
         return
 
-    if not admin.can_update_request(user_id, assignee_id):
+    if not admin.can_update_request(
+        user_id, assignee_id, stage="delivered", requester_id=req_data.get("user_id")
+    ):
         log.warning("Unauthorized user %s (not assignee %s, admin or approver) clicked req_delivered", user_id, assignee_id)
         slack_io.deny(respond, text_rules.format_stage_denial(assignee_id))
         return
@@ -1493,7 +1495,13 @@ def handle_dm_stage_action(ack, body, respond, client):
         slack_io.deny(respond, text_rules.format_stage_unassigned())
         return
 
-    if not admin.can_update_request(user_id, assignee_id):
+    is_delivered = action_id == config.ACTION_DM_REQ_DELIVERED
+    if not admin.can_update_request(
+        user_id,
+        assignee_id,
+        stage="delivered" if is_delivered else None,
+        requester_id=req_data.get("user_id") if is_delivered else None,
+    ):
         log.warning(
             "Unauthorized user %s (not assignee %s, admin or approver) clicked %s in DM",
             user_id,

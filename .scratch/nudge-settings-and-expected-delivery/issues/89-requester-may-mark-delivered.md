@@ -1,6 +1,6 @@
 # 89: Requester may mark Delivered
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -36,10 +36,10 @@ New test file `tests/test_89_requester_marks_delivered.py`, fake-client setup as
 `tests/test_66_stage_permissions.py` (a confirmed card assigned to buyer `U_B`, requester `U_R`
 registered in a temp roster, `U_X` registered but no role).
 
-- [ ] **The predicate.** `can_update_request("U_R", "U_B", stage="delivered", requester_id="U_R")` is true; with `stage="confirmed"` false; `("U_X", "U_B", stage="delivered", requester_id="U_R")` false; `("U_R", None, stage="delivered", requester_id="U_R")` false; the two-argument calls behave exactly as before.
-- [ ] **Requester presses Mark Delivered on the thread card.** `U_R` clicking `req_delivered` → the card's `chat_update` carries the delivered blocks (no `actions` block) and no denial is sent.
-- [ ] **Requester refused the other stages.** `U_R` clicking `req_processed` on an approved card and `req_confirmed` on a processed card → `respond` receives `text_rules.format_stage_denial("U_B")` text; no `chat_update`.
-- [ ] **Stranger still refused.** `U_X` clicking `req_delivered` → the denial text; no `chat_update`.
+- [x] **The predicate.** `can_update_request("U_R", "U_B", stage="delivered", requester_id="U_R")` is true; with `stage="confirmed"` false; `("U_X", "U_B", stage="delivered", requester_id="U_R")` false; `("U_R", None, stage="delivered", requester_id="U_R")` false; the two-argument calls behave exactly as before.
+- [x] **Requester presses Mark Delivered on the thread card.** `U_R` clicking `req_delivered` → the card's `chat_update` carries the delivered blocks (no `actions` block) and no denial is sent.
+- [x] **Requester refused the other stages.** `U_R` clicking `req_processed` on an approved card and `req_confirmed` on a processed card → `respond` receives `text_rules.format_stage_denial("U_B")` text; no `chat_update`.
+- [x] **Stranger still refused.** `U_X` clicking `req_delivered` → the denial text; no `chat_update`.
 
 **Tests may fake:** the Slack client. **Must be real:** `admin.can_update_request`, the two action handlers, `lifecycle.handle_delivery`, the roster on a temp file.
 
@@ -56,3 +56,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+Summary (2026-10-05): `admin.can_update_request` gained keyword-only `stage` / `requester_id`; the requester is authorised only for `stage="delivered"`. `handle_req_delivered_action` and `handle_dm_stage_action` (delivered action only) pass them. All four criteria covered by `tests/test_89_requester_marks_delivered.py` (plus a DM-card case). Gate green: ruff, tests-first, type_gate (ratchet 95, unchanged), pytest 610 passed.
