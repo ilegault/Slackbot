@@ -1,6 +1,6 @@
 # 88: Confirmed nudge
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -44,11 +44,11 @@ New test file `tests/test_88_confirmed_nudge.py`; temp log and settings; `get_ro
 monkeypatched to return Date Processed as the serial string for Monday 2026-10-05 (`"46300"`)
 and empty Date Confirmed; the fake thread card is in state `processed`.
 
-- [ ] **`parse_sheet_date`.** `"46300"` → 2026-10-05; `46300` → 2026-10-05; `"2026-10-05"` → 2026-10-05; `"10/5/2026"` and `"10/5/26"` → 2026-10-05; `""`, `None`, `"soon"` → `None`.
-- [ ] **Day 5 DM, day 4 nothing.** 2026-10-09 (day 4) → no post. 2026-10-12 (day 5) → one DM to the buyer whose blocks contain `processed 5 working days ago` and a `Mark Confirmed` button; the old DM card is updated to `Replaced by the reminder below`; no `reply_broadcast`.
-- [ ] **Channel option.** Settings `confirmed.channel` true, `dm` false → day 5: one post with `reply_broadcast=True` containing `<@buyer>` and `isn't marked Confirmed yet`, no DM.
-- [ ] **Stops.** A Date Confirmed present → nothing; `confirmed.enabled` false → nothing; Date Processed `"soon"` → nothing and no exception; the processed nudge never fires for this entry.
-- [ ] **No regressions.** `tests/test_78_nudge_assigned.py` and `tests/test_87_nudge_settings.py` pass unchanged after the `_repost_dm_card` extraction.
+- [x] **`parse_sheet_date`.** `"46300"` → 2026-10-05; `46300` → 2026-10-05; `"2026-10-05"` → 2026-10-05; `"10/5/2026"` and `"10/5/26"` → 2026-10-05; `""`, `None`, `"soon"` → `None`.
+- [x] **Day 5 DM, day 4 nothing.** 2026-10-09 (day 4) → no post. 2026-10-12 (day 5) → one DM to the buyer whose blocks contain `processed 5 working days ago` and a `Mark Confirmed` button; the old DM card is updated to `Replaced by the reminder below`; no `reply_broadcast`.
+- [x] **Channel option.** Settings `confirmed.channel` true, `dm` false → day 5: one post with `reply_broadcast=True` containing `<@buyer>` and `isn't marked Confirmed yet`, no DM.
+- [x] **Stops.** A Date Confirmed present → nothing; `confirmed.enabled` false → nothing; Date Processed `"soon"` → nothing and no exception; the processed nudge never fires for this entry.
+- [x] **No regressions.** `tests/test_78_nudge_assigned.py` and `tests/test_87_nudge_settings.py` pass unchanged after the `_repost_dm_card` extraction.
 
 **Tests may fake:** the Slack client, `log_writer.get_row_info`. **Must be real:** `nudge`, `nudge_settings` and `store` on temp files, `blocks`, `lifecycle.sync_dm_card`.
 
@@ -65,3 +65,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+2026-10-05: Added parse_sheet_date, _repost_dm_card (shared with the processed nudge) and _confirmed_nudge in src/nudge.py; run_nudges hands Date-Processed entries to the confirmed nudge. tests/test_88_confirmed_nudge.py covers all five criteria; tests 78 and 87 pass unchanged. Processed-disabled no longer returns early from run_nudges (it only skips the processed branch) so the confirmed nudge still runs.
