@@ -48,6 +48,7 @@ import os
 import sys
 import time
 import traceback
+from datetime import date, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 
 from slack_bolt import App
@@ -1357,6 +1358,89 @@ def handle_edit_submit(ack, body, client, view):
         user_id=user_id,
         card_payload=card_payload,
         meta=meta,
+    )
+
+
+def _today() -> date:
+    """Today's date; the single place the expected-delivery handlers read the clock (tests patch it)."""
+    return datetime.now().date()
+
+
+@app.action(config.ACTION_SET_EXPECTED_DELIVERY)
+def handle_set_expected_delivery_action(ack, body, respond, client):
+    """Open the expected-delivery form from a Confirmed card (Ticket 91 / ADR 0013 decision 5).
+
+    WHY THIS EXISTS:
+    ----------------
+    The button sits on both the thread card and the DM card; its value is only a pointer, so the
+    thread card is read for the true state (the button value is the store). Allowed: the assigned
+    buyer, the requester, an admin or an approver, i.e. the same predicate as Mark Delivered.
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    try:
+        pointer = json.loads(action.get("value") or "{}")
+    except Exception:
+        pointer = {}
+    thread_channel = pointer.get("thread_channel") or body.get("channel", {}).get("id")
+    msg_ts = body.get("message", {}).get("ts")
+    thread_ts = pointer.get("thread_ts") or body.get("container", {}).get("thread_ts") or msg_ts
+    card_ts = pointer.get("card_ts") or msg_ts
+
+    card_info = slack_io.get_card_by_ts(client, channel=thread_channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        slack_io.deny(respond, "⚠️ I can't find the request card in the thread any more, so nothing was changed.")
+        return
+    req_data, _history, _state = card_info
+    assignee_id = req_data.get("assignee_id")
+    if not assignee_id:
+        slack_io.deny(respond, text_rules.format_stage_unassigned())
+        return
+    if not admin.can_update_request(
+        user_id, assignee_id, stage="delivered", requester_id=req_data.get("user_id")
+    ):
+        log.warning("Unauthorized user %s clicked set_expected_delivery on request with buyer %s", user_id, assignee_id)
+        slack_io.deny(respond, text_rules.format_stage_denial(assignee_id))
+        return
+
+    initial = req_data.get("expected_delivery") or (_today() + timedelta(days=14)).isoformat()
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view=blocks.build_expected_delivery_view(thread_channel, thread_ts, card_ts, initial),
+    )
+    log.info("Opened expected-delivery form for card %s (user %s)", card_ts, user_id)
+
+
+@app.view(config.EXPECTED_DELIVERY_CALLBACK_ID)
+def handle_expected_delivery_submission(ack, body, client, view):
+    """Record the expected delivery date on both cards, the request log and the thread (Ticket 91)."""
+    user_id = body.get("user", {}).get("id")
+    meta = json.loads(view.get("private_metadata") or "{}")
+    thread_channel = meta.get("thread_channel")
+    thread_ts = meta.get("thread_ts")
+    card_ts = meta.get("card_ts")
+    chosen = (
+        view.get("state", {}).get("values", {})
+        .get("block_expected_delivery", {}).get("expected_delivery", {}).get("selected_date")
+    )
+    try:
+        chosen_date = date.fromisoformat(chosen)
+    except (TypeError, ValueError):
+        ack(response_action="errors", errors={"block_expected_delivery": "Pick a date."})
+        return
+    if chosen_date < _today():
+        ack(response_action="errors", errors={"block_expected_delivery": "Pick today or a later date."})
+        return
+    ack()
+
+    lifecycle.handle_set_expected_delivery(
+        client=client,
+        channel=thread_channel,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        user_id=user_id,
+        chosen_date=chosen_date,
     )
 
 

@@ -571,7 +571,7 @@ def test_build_request_blocks_buttons_per_state():
         assert button_elements[0].get("action_id") == primary_id, f"state={state}: primary button"
         assert button_elements[1].get("action_id") == secondary_id, f"state={state}: secondary button"
 
-    # processed/confirmed get only the primary button (cancel not allowed after processed)
+    # processed/confirmed get only the primary button (cancel not allowed after processed), plus at confirmed the optional expected-delivery button
     one_button_states = {
         "processed": "req_confirmed",
         "confirmed": "req_delivered",
@@ -581,8 +581,10 @@ def test_build_request_blocks_buttons_per_state():
         action_blocks = [b for b in blocks_list if b.get("type") == "actions"]
         assert len(action_blocks) == 1, f"state={state}: expected 1 actions block"
         elements = action_blocks[0].get("elements", [])
-        assert len(elements) == 1, f"state={state}: expected 1 button"
-        assert elements[0].get("action_id") == expected_action
+        # Ticket 91: a Confirmed card also carries the optional, unstyled 'Set expected delivery'.
+        extra = ["set_expected_delivery"] if state == "confirmed" else []
+        assert [e.get("action_id") for e in elements] == [expected_action] + extra, f"state={state}"
+        assert elements[0].get("style") == "primary"
 
     # delivered/declined/cancelled -> 0 buttons
     for terminal_state in ("delivered", "declined", "cancelled"):

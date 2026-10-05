@@ -1,6 +1,6 @@
 # 91: Set expected delivery from a Confirmed card
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -53,11 +53,11 @@ request log so ticket 92 can pause nudges until then. It is never required.
 New test file `tests/test_91_expected_delivery.py`; fake client returning a `confirmed` thread
 card (buyer `U_B`, requester `U_R`); temp log and roster; `app._today` monkeypatched to 2026-10-05.
 
-- [ ] **The button.** `build_request_blocks("confirmed", req)` and `build_dm_card_blocks("confirmed", ...)` each contain a button with `action_id == "set_expected_delivery"` whose `value` parses to the three pointer keys only; `build_request_blocks("processed", req)` has no such button.
-- [ ] **Opening the form.** `U_B` clicking it → `views_open` with `callback_id == "expected_delivery_submit"` and `initial_date == "2026-10-19"`; `U_X` (no role, not the requester) → the denial text and no `views_open`.
-- [ ] **Past dates refused.** Submitting `2026-10-04` → `ack(response_action="errors", errors={"block_expected_delivery": "Pick today or a later date."})`, no `chat_update`.
-- [ ] **A valid date lands everywhere.** `U_R` submitting `2026-11-16` → the thread card's `chat_update` blocks contain `Expected delivery:* Nov 16` and its button value's `request.expected_delivery == "2026-11-16"`; the DM card is updated with the same line; the request log entry has `expected_delivery == "2026-11-16"` and a new history line; one thread post `📦 Expected delivery Nov 16 — I'll check back then.`
-- [ ] **Changing it.** Submitting `2026-11-30` afterwards → the cards show `Nov 30`, the log holds `2026-11-30`, and a second thread line is posted.
+- [x] **The button.** `build_request_blocks("confirmed", req)` and `build_dm_card_blocks("confirmed", ...)` each contain a button with `action_id == "set_expected_delivery"` whose `value` parses to the three pointer keys only; `build_request_blocks("processed", req)` has no such button.
+- [x] **Opening the form.** `U_B` clicking it → `views_open` with `callback_id == "expected_delivery_submit"` and `initial_date == "2026-10-19"`; `U_X` (no role, not the requester) → the denial text and no `views_open`.
+- [x] **Past dates refused.** Submitting `2026-10-04` → `ack(response_action="errors", errors={"block_expected_delivery": "Pick today or a later date."})`, no `chat_update`.
+- [x] **A valid date lands everywhere.** `U_R` submitting `2026-11-16` → the thread card's `chat_update` blocks contain `Expected delivery:* Nov 16` and its button value's `request.expected_delivery == "2026-11-16"`; the DM card is updated with the same line; the request log entry has `expected_delivery == "2026-11-16"` and a new history line; one thread post `📦 Expected delivery Nov 16 — I'll check back then.`
+- [x] **Changing it.** Submitting `2026-11-30` afterwards → the cards show `Nov 30`, the log holds `2026-11-30`, and a second thread line is posted.
 
 **Tests may fake:** the Slack client, `app._today`. **Must be real:** the builders, both handlers, `admin.can_update_request`, `lifecycle.sync_dm_card`, `store` on the temp file.
 
@@ -74,3 +74,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+Done (2026-10-05). Button on both Confirmed cards (pointer only), form handler with `app._today()` default +14 days and role check via `admin.can_update_request(stage="delivered")`, past dates refused, and the card/DM/request-log/thread update lives in `lifecycle.handle_set_expected_delivery` (chat_update may not live in app.py, test 13). The `Mon D` formatter is `blocks.format_short_date` (importing text_rules into blocks would add a type-gate ratchet error). Log entry matched by card, falling back to thread. `build_request_blocks` gained optional `thread_channel`/`card_ts` so the Confirmed card's pointer is complete; the click handler falls back to the click's channel/message otherwise. All criteria covered by `tests/test_91_expected_delivery.py`. Updated `test_build_request_blocks_buttons_per_state`, which asserted exactly one button at Confirmed; the ticket now requires a second (unstyled) one, and the test still pins the primary button first and styled.

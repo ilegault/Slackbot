@@ -339,6 +339,8 @@ ACTION_REQ_ASSIGN_SELECT = "req_assign_select"
 ACTION_OPEN_ROSTER_SET_NAME = "open_roster_set_name"
 ACTION_REQ_ITEMS = "req_items"
 ACTION_REQ_EDIT = "req_edit"
+ACTION_SET_EXPECTED_DELIVERY = "set_expected_delivery"  # ADR 0013 decision 5 / Ticket 91
+EXPECTED_DELIVERY_CALLBACK_ID = "expected_delivery_submit"
 
 # Action IDs for DM card buttons (Ticket 67 / ADR 0010)
 ACTION_DM_REQ_PROCESSED = "dm_req_processed"
