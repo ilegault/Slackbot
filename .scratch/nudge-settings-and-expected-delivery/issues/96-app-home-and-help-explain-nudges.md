@@ -1,6 +1,6 @@
 # 96: App Home and help explain nudges
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -40,10 +40,10 @@ text also says the requester can mark Delivered.
 
 New test file `tests/test_96_nudges_explained.py`; temp `nudge_settings.SETTINGS_PATH`.
 
-- [ ] **Defaults rendered.** `nudge_summary_text(DEFAULTS)` contains `*Approved* — off`, `*Processed* — every 3 working days after approval until processed, by DM to the buyer`, `*Confirmed* — every 5 working days`, and `*Delivered* — every 10 working days after confirmation until delivered, in the channel`.
-- [ ] **Both, and singular.** `processed = {"enabled": true, "every": 1, "dm": true, "channel": true}` → `every 1 working day after approval until processed, by DM to the buyer and in the channel`.
-- [ ] **Live on App Home and in help.** With a settings file setting `delivered.every` to 15, `build_app_home_view("U_X")` contains a header `⏰ Nudges` and the text `every 15 working days after confirmation`; `get_help_message()` contains the same `nudge_summary_text` output verbatim.
-- [ ] **Requester and Delivered.** App Home and help text contain `*Mark Delivered* (also the requester)` and `The requester can mark this too.` Existing App Home/help tests that assert the old wording are updated in place.
+- [x] **Defaults rendered.** `nudge_summary_text(DEFAULTS)` contains `*Approved* — off`, `*Processed* — every 3 working days after approval until processed, by DM to the buyer`, `*Confirmed* — every 5 working days`, and `*Delivered* — every 10 working days after confirmation until delivered, in the channel`.
+- [x] **Both, and singular.** `processed = {"enabled": true, "every": 1, "dm": true, "channel": true}` → `every 1 working day after approval until processed, by DM to the buyer and in the channel`.
+- [x] **Live on App Home and in help.** With a settings file setting `delivered.every` to 15, `build_app_home_view("U_X")` contains a header `⏰ Nudges` and the text `every 15 working days after confirmation`; `get_help_message()` contains the same `nudge_summary_text` output verbatim.
+- [x] **Requester and Delivered.** App Home and help text contain `*Mark Delivered* (also the requester)` and `The requester can mark this too.` Existing App Home/help tests that assert the old wording are updated in place.
 
 **Tests may fake:** nothing. **Must be real:** `blocks`, `nudge_settings` on the temp file, the roster on a temp file.
 
@@ -60,3 +60,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+2026-10-05: Added `blocks.nudge_summary_text`, a Nudges header/section on App Home after Request Stages, and the same text in `get_help_message`; `_BUTTON_LIST` and the Delivered stage line now say the requester can mark Delivered. All four criteria are covered by `tests/test_96_nudges_explained.py` (plus an ordering test). No existing tests asserted the old wording. Gate green locally; new tests verified failing on base src.
