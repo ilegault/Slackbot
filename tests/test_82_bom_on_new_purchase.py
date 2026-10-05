@@ -64,9 +64,9 @@ def test_screen2_has_bom_fields_when_not_edit():
     assert box["label"]["text"] == "Required if you attach a BOM"
 
 
-def test_screen2_edit_carries_bom_fields_too():
-    # Ticket 86 supersedes the "Edit does not yet" assertion: Edit now carries the BOM
-    # fields as well, so a new BOM can replace the old one.
+def test_screen2_omits_bom_fields_when_edit():
+    # Name kept from ticket 82; the assertion is reversed by ticket 86: Edit now carries
+    # the BOM fields as well, so a new BOM can replace the old one.
     new_blk = _blk_map(_sample_stage1_meta())
     assert "block_bom" in new_blk
     assert "block_bom_one_vendor" in new_blk

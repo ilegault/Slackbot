@@ -151,10 +151,11 @@ def test_screen2_renders_quotes_field_when_not_edit():
     assert "@Purchasing quote" in hint
 
 
-def test_screen2_edit_view_has_quotes_field_for_appending():
-    """Superseded by ticket 86 (ADR 0012 decision 6): Edit now takes late quotes, so the
-    edit view carries the same block_quotes file field (and block_bom) as Screen 2.
-    The old assertion (no block_quotes on edit) described the pre-86 form."""
+def test_screen2_omits_quotes_field_when_is_edit():
+    """Name kept from ticket 81; the assertion is reversed by ticket 86 (ADR 0012 decision 6).
+
+    Edit now takes late quotes, so the edit view carries the same block_quotes file field
+    (and block_bom) as Screen 2. The pre-86 form had no block_quotes on edit."""
     meta = _sample_stage1_meta(is_edit=True)
     view = blocks.build_stage2_view(meta)
     blk_map = {b.get("block_id"): b for b in view.get("blocks", [])}
