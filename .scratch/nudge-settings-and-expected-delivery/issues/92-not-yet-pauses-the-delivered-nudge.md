@@ -1,6 +1,6 @@
 # 92: "Not yet" on the nudge card; delivered nudges pause until the expected date
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
