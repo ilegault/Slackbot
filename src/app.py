@@ -63,6 +63,7 @@ try:
         interview,
         lifecycle,
         nudge,
+        nudge_settings,
         ops,
         path_validator,
         queue_worker,
@@ -80,6 +81,7 @@ except ImportError:
     import interview
     import lifecycle
     import nudge  # type: ignore[no-redef]
+    import nudge_settings  # type: ignore[no-redef]
     import ops
     import path_validator
     import queue_worker
@@ -1709,6 +1711,61 @@ def handle_open_roster_set_name_action(ack, body, client):
         log.info("Opened roster-set-name modal from App Home button for user %s", user_id)
     except Exception as e:
         log.error("Failed to open /roster-set-name modal from button: %s", e)
+
+
+@app.action(config.ACTION_OPEN_NUDGE_SETTINGS)
+def handle_open_nudge_settings_action(ack, body, client):
+    """Open the nudge settings form for an admin; refuse everyone else (ticket 95)."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    if not roster.is_admin(user_id):
+        slack_io.tell(client, user_id, "🔒 Only admins can change nudge settings.")
+        return
+    settings = nudge_settings.load(alert_callback=lambda m: slack_io.alert_admins(client, m))
+    try:
+        client.views_open(trigger_id=body.get("trigger_id"), view=blocks.build_nudge_settings_view(settings))
+        log.info("Opened nudge settings form for admin %s", user_id)
+    except Exception as e:
+        log.error("Failed to open nudge settings form: %s", e)
+
+
+@app.view(config.NUDGE_SETTINGS_CALLBACK_ID)
+def handle_nudge_settings_submit(ack, body, client, view):
+    """Validate and save nudge settings from the admin form (ticket 95, ADR 0013 decision 3)."""
+    user_id = body.get("user", {}).get("id")
+    if not roster.is_admin(user_id):
+        ack(response_action="errors", errors={"block_approved_enabled": "Only admins can change nudge settings."})
+        return
+    values = view.get("state", {}).get("values", {})
+    parsed: dict = {}
+    for s in nudge_settings.STAGES:
+        enabled = values.get(f"block_{s}_enabled", {}).get("enabled", {}).get("selected_options") or []
+        send = {o.get("value") for o in (values.get(f"block_{s}_send", {}).get("send", {}).get("selected_options") or [])}
+        raw = values.get(f"block_{s}_every", {}).get("every", {}).get("value")
+        try:
+            every = int(str(raw).strip())
+        except (TypeError, ValueError):
+            every = 0
+        parsed[s] = {"enabled": bool(enabled), "every": every, "dm": "dm" in send, "channel": "channel" in send}
+    errors = nudge_settings.validate(parsed)
+    if errors:
+        ack(response_action="errors", errors={f"block_{k}": v for k, v in errors.items()})
+        return
+    ack()
+    nudge_settings.save(parsed)
+    log.info("Nudge settings saved by admin %s", user_id)
+    try:
+        client.views_publish(user_id=user_id, view=blocks.build_app_home_view(user_id=user_id))
+    except Exception as e:
+        log.warning("Failed to republish App Home to %s: %s", user_id, e)
+    if config.ADMIN_ALERT_CHANNEL:
+        try:
+            client.chat_postMessage(
+                channel=config.ADMIN_ALERT_CHANNEL,
+                text=f"⚙️ <@{user_id}> changed the nudge settings.",
+            )
+        except Exception as e:
+            log.error("Failed to post nudge settings change to admin channel: %s", e)
 
 
 # --- Dispatcher Helpers -------------------------------------------------------
