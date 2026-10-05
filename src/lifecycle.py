@@ -1933,6 +1933,25 @@ def handle_set_expected_delivery(client, channel: str, thread_ts: str, card_ts: 
     return True
 
 
+def update_nudge_cards(
+    client, cards, state: str, mentions: str, item: str, n, thread_channel: str,
+    thread_ts: str, card_ts: str, note: str | None = None,
+) -> None:
+    """Re-render each delivered-nudge card (channel, ts) in `cards` in `state` (Ticket 90).
+
+    The one place nudge cards are edited: retiring an old card (`replaced`), closing a stale
+    click (`closed`) and finishing after Delivered (`delivered`) all come through here, so
+    src/app.py never calls chat_update. A failed edit is logged and does not stop the rest.
+    """
+    rendered = blocks.build_nudge_card_blocks(
+        state, mentions, item, n, thread_channel, thread_ts, card_ts, note=note)
+    for card_channel, card_msg_ts in cards:
+        try:
+            client.chat_update(channel=card_channel, ts=card_msg_ts, text="⏰ Delivery reminder", blocks=rendered)
+        except Exception as err:
+            log.warning("Could not update nudge card (%s, %s): %s", card_channel, card_msg_ts, err)
+
+
 def handle_delivery(
     client, say, channel: str, thread_ts: str, user_id: str, event_ts: str, text: str,
     card_ts: str | None = None, req_data: dict | None = None, history: list | None = None,

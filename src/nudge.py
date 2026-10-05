@@ -14,6 +14,13 @@ reply. Date Processed is read as the raw cell text, so parse_sheet_date accepts 
 serials (what the bot writes) and typed dates; an unparseable one skips the entry with a
 warning. The processed nudge still skips any entry with a Date Processed.
 
+Ticket 90 adds the delivered nudge: once Date Confirmed is present (and Date Delivered is
+not) and the thread card is still `confirmed`, every N working days from Date Confirmed
+the buyer and the requester are asked "Has this been delivered?" on a nudge card (thread
+reply broadcast to the channel and/or DM to both). Posting one first retires every earlier
+nudge card listed in the entry's `nudge_cards`, so only one is live. The card's Delivered
+button is a view over lifecycle.handle_delivery (app.handle_nudge_delivered_action).
+
 Per ADR 0011 Decision 4 (amended by ADR 0013 decisions 2-3) & Tickets 78, 79, 80 & 87:
 - Weekdays at 9:00 Central, check every logged request not yet Processed.
 - The schedule is no longer hardcoded: nudge_settings.json (loaded once per run)
@@ -270,6 +277,70 @@ def _confirmed_nudge(client, req_id, entry, info, cfg, today) -> bool:
     return True
 
 
+def _delivered_nudge(client, req_id, entry, info, cfg, today) -> bool:
+    """Delivered nudge (ADR 0013 decisions 1, 2, 4): confirmed, not yet delivered.
+
+    Posts the nudge card to the thread (broadcast) and/or by DM to the buyer and the
+    requester, and retires every earlier nudge card first so only one is ever live. Returns
+    True if a nudge went out.
+    """
+    if not cfg["enabled"] or info.get("date_delivered"):
+        return False
+    buyer_id = entry.get("buyer_id")
+    channel = entry.get("channel")
+    thread_ts = entry.get("thread_ts")
+    card_ts = entry.get("card_ts")
+    if not (buyer_id and channel and thread_ts and card_ts):
+        return False
+    confirmed_on = parse_sheet_date(info.get("date_confirmed"))
+    if confirmed_on is None:
+        log.warning("Unreadable Date Confirmed %r for request [%s]; skipping delivered nudge",
+                    info.get("date_confirmed"), req_id)
+        return False
+    n = working_days_between(confirmed_on, today)
+    if not is_due(n, cfg["every"]):
+        return False
+    card = slack_io.get_card_by_ts(client, channel, thread_ts, card_ts)
+    if not card:
+        log.warning("Card not found for request [%s] (%s, %s, %s)", req_id, channel, thread_ts, card_ts)
+        return False
+    req_data, _history, card_state = card
+    if card_state != "confirmed":
+        return False
+    if not isinstance(req_data, dict):
+        req_data = {}
+
+    requester_id = entry.get("requester_id") or req_data.get("user_id")
+    mentions = f"<@{buyer_id}>"
+    if requester_id and requester_id != buyer_id:
+        mentions += f" <@{requester_id}>"
+    item = _item_of(req_data)
+
+    lifecycle.update_nudge_cards(
+        client, entry.get("nudge_cards") or [], "replaced", mentions, item, n,
+        channel, thread_ts, card_ts, note="Replaced by a newer reminder.")
+
+    active = blocks.build_nudge_card_blocks("active", mentions, item, n, channel, thread_ts, card_ts)
+    text = active[0]["text"]["text"]
+    posted: list[list[str]] = []
+    if cfg["channel"]:
+        resp = client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts, reply_broadcast=True, blocks=active, text=text)
+        posted.append([channel, _resp_get(resp, "ts")])
+    if cfg["dm"]:
+        for target in dict.fromkeys(t for t in (buyer_id, requester_id) if t):
+            resp = client.chat_postMessage(channel=target, blocks=active, text=text)
+            posted.append([_resp_get(resp, "channel") or target, _resp_get(resp, "ts")])
+    store.update(req_id, last_nudged=today.isoformat(), nudge_cards=posted)
+    log.info("Delivered-nudged request [%s] (day %d): %d card(s) posted", req_id, n, len(posted))
+    return True
+
+
+def _resp_get(resp, key):
+    data = resp.data if hasattr(resp, "data") and isinstance(resp.data, dict) else resp
+    return data.get(key) if hasattr(data, "get") else None
+
+
 def _permalink(client, channel: str, card_ts: str) -> Optional[str]:
     """The card's permalink, or None when Slack will not give one."""
     try:
@@ -381,8 +452,13 @@ def run_nudges(client, today: date) -> list[str]:
                     log.warning("Could not read row info for row %s of request [%s]: %s", r, req_id, row_err)
 
             if has_date_processed:
-                # Processed already: the confirmed nudge takes over (ticket 88)
-                if _confirmed_nudge(client, req_id, entry, first_info or {}, settings["confirmed"], today):
+                # Processed already: the confirmed nudge takes over (ticket 88), and once
+                # Date Confirmed is present the delivered nudge does (ticket 90).
+                info = first_info or {}
+                if info.get("date_confirmed"):
+                    if _delivered_nudge(client, req_id, entry, info, settings["delivered"], today):
+                        nudged_ids.append(req_id)
+                elif _confirmed_nudge(client, req_id, entry, info, settings["confirmed"], today):
                     nudged_ids.append(req_id)
                 continue
 
