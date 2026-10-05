@@ -1,6 +1,6 @@
 # 85: Add items takes files on PDF-born cards
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
