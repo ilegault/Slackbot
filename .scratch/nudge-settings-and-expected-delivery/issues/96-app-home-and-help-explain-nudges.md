@@ -1,6 +1,6 @@
 # 96: App Home and help explain nudges
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
