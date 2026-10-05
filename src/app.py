@@ -70,6 +70,7 @@ try:
         queue_worker,
         roster,
         slack_io,
+        store,
         text_rules,
         validators,
     )
@@ -88,6 +89,7 @@ except ImportError:
     import queue_worker
     import roster
     import slack_io
+    import store  # type: ignore[no-redef]
     import text_rules
     import validators
 
@@ -1715,6 +1717,77 @@ def handle_dm_stage_action(ack, body, respond, client):
             req_data=req_data,
             history=history,
         )
+
+
+@app.action(config.ACTION_NUDGE_DELIVERED)
+def handle_nudge_delivered_action(ack, body, respond, client):
+    """Delivered button on the delivered nudge card (Ticket 90 / ADR 0013 decision 4).
+
+    WHY THIS EXISTS:
+    ----------------
+    The nudge card is a view, not a new lifecycle operation: pressing Delivered runs
+    lifecycle.handle_delivery, the one implementation Mark Delivered uses, with the thread
+    card's payload (the button value is only a pointer). Afterwards every nudge card in the
+    request log entry is retired to a Delivered state. If the thread card is no longer
+    `confirmed` the clicked card is closed with `Already <state>.` and nothing is written.
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    try:
+        pointer = json.loads(action.get("value") or "{}")
+    except Exception:
+        pointer = {}
+    thread_channel = pointer.get("thread_channel")
+    thread_ts = pointer.get("thread_ts")
+    card_ts = pointer.get("card_ts")
+    clicked_channel = body.get("channel", {}).get("id")
+    clicked_ts = body.get("message", {}).get("ts")
+
+    card_info = slack_io.get_card_by_ts(client, channel=thread_channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        slack_io.deny(respond, "⚠️ I can't find the request card in the thread any more, so nothing was changed.")
+        return
+    req_data, history, current_state = card_info
+    req_id = store.find_id_by_card(thread_channel, card_ts)
+    entry = store.get(req_id) if req_id else None
+    entry = entry or {}
+    assignee_id = req_data.get("assignee_id")
+    requester_id = req_data.get("user_id") or entry.get("requester_id")
+    mentions = " ".join(f"<@{u}>" for u in dict.fromkeys(
+        u for u in (entry.get("buyer_id") or assignee_id, requester_id) if u))
+    item = (req_data.get("parsed") or {}).get("item_description") if isinstance(req_data.get("parsed"), dict) else None
+    item = item or req_data.get("item_description") or "Item"
+
+    if current_state != "confirmed":
+        if clicked_channel and clicked_ts:
+            lifecycle.update_nudge_cards(
+                client, [(clicked_channel, clicked_ts)], "closed", mentions, item, None,
+                thread_channel, thread_ts, card_ts, note=f"Already {current_state}.")
+        return
+
+    if not assignee_id:
+        slack_io.deny(respond, text_rules.format_stage_unassigned())
+        return
+    if not admin.can_update_request(user_id, assignee_id, stage="delivered", requester_id=requester_id):
+        log.warning("Unauthorized user %s clicked nudge_delivered on request with buyer %s", user_id, assignee_id)
+        slack_io.deny(respond, text_rules.format_stage_denial(assignee_id))
+        return
+    if not slack_io.resolve_requester(client, user_id):
+        slack_io.deny(respond, "🔒 You must be registered in the lab roster to update requests. Use `/roster-set-name` first.")
+        return
+
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=thread_channel, text=text, thread_ts=thread_ts, **kw)
+
+    lifecycle.handle_delivery(
+        client=client, say=say, channel=thread_channel, thread_ts=thread_ts, user_id=user_id,
+        event_ts=card_ts, text="", card_ts=card_ts, req_data=req_data, history=history,
+    )
+    lifecycle.update_nudge_cards(
+        client, entry.get("nudge_cards") or [], "delivered", mentions, item, None,
+        thread_channel, thread_ts, card_ts, note=f"✅ Delivered by <@{user_id}>")
+    log.info("Delivered via nudge card by %s for request %s", user_id, req_id)
 
 
 @app.action(config.ACTION_DM_REQ_ASSIGN_SELECT)

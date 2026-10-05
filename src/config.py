@@ -341,6 +341,7 @@ ACTION_OPEN_NUDGE_SETTINGS = "open_nudge_settings"
 NUDGE_SETTINGS_CALLBACK_ID = "nudge_settings_submit"
 ACTION_REQ_ITEMS = "req_items"
 ACTION_REQ_EDIT = "req_edit"
+ACTION_NUDGE_DELIVERED = "nudge_delivered"  # ADR 0013 decision 4 / Ticket 90: the nudge card's Delivered button
 ACTION_SET_EXPECTED_DELIVERY = "set_expected_delivery"  # ADR 0013 decision 5 / Ticket 91
 EXPECTED_DELIVERY_CALLBACK_ID = "expected_delivery_submit"
 
