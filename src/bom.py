@@ -301,23 +301,38 @@ def describe_changes(old_request: Dict[str, Any], new_request: Dict[str, Any]) -
     return fragments
 
 
-def bom_filename(row: Optional[int], vendor: str) -> str:
-    """Generate standardized BOM filename.
-
-    Draft: DRAFT_{slug}_BOM.xlsx
-    Approved: NNNN_{slug}_BOM.xlsx (zero-padded to 4 digits)
-    """
+def _vendor_slug(vendor: str) -> str:
+    """Filename-safe vendor slug shared by bom_filename and quote_filename."""
     v_clean = (vendor or "").strip()
     v_slug = re.sub(r"\s+", "-", v_clean)
     v_slug = re.sub(r"[^A-Za-z0-9\-]", "", v_slug)
     v_slug = re.sub(r"-+", "-", v_slug).strip("-")
     v_slug = v_slug[:40].rstrip("-")
-    if not v_slug:
-        v_slug = "Vendor"
+    return v_slug or "Vendor"
 
+
+def bom_filename(row: Optional[int], vendor: str, ext: str = "xlsx") -> str:
+    """Generate standardized BOM filename.
+
+    Draft: DRAFT_{slug}_BOM.xlsx
+    Approved: NNNN_{slug}_BOM.xlsx (zero-padded to 4 digits)
+    ext: the suffix, for an attached BOM filed byte-for-byte under its own extension
+    (ADR 0012 decision 5); the made BOM is always xlsx.
+    """
+    v_slug = _vendor_slug(vendor)
+    ext = re.sub(r"[^a-z0-9]", "", (ext or "xlsx").lower().lstrip(".")) or "xlsx"
     if row is None:
-        return f"DRAFT_{v_slug}_BOM.xlsx"
-    return f"{int(row):04d}_{v_slug}_BOM.xlsx"
+        return f"DRAFT_{v_slug}_BOM.{ext}"
+    return f"{int(row):04d}_{v_slug}_BOM.{ext}"
+
+
+def quote_filename(row: int, vendor: str, k: int) -> str:
+    """Archived quote name NNNN_{slug}_Quote_{k}.pdf, k counted from 1 in attachment order.
+
+    After approval the card carries only a quote_count (button values are size-capped), so
+    every later reader derives the names from row + vendor + k with this function.
+    """
+    return f"{int(row):04d}_{_vendor_slug(vendor)}_Quote_{int(k)}.pdf"
 
 
 def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> bytes:
