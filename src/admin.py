@@ -71,7 +71,13 @@ def is_approved_reviewer(user_id: Optional[str]) -> bool:
     return user_id in getattr(config, "APPROVER_SLACK_USER_IDS", set())
 
 
-def can_update_request(user_id: Optional[str], assignee_id: Optional[str]) -> bool:
+def can_update_request(
+    user_id: Optional[str],
+    assignee_id: Optional[str],
+    *,
+    stage: Optional[str] = None,
+    requester_id: Optional[str] = None,
+) -> bool:
     """Check if user_id is authorized to update a stage request (Mark Processed, Confirmed, Delivered).
 
     WHY THIS EXISTS:
@@ -81,11 +87,19 @@ def can_update_request(user_id: Optional[str], assignee_id: Optional[str]) -> bo
     check with three different refusal texts, and the approver was refused.
     One permission predicate covers all three stages and the DM card: the assigned buyer,
     any admin, or any approver. An unassigned request returns False.
+
+    Ticket 89 / ADR 0013 Decision 6: the requester is usually the person who sees the
+    package arrive, so when ``stage == "delivered"`` the request's own requester is also
+    authorised. Only Delivered: Mark Processed and Mark Confirmed stay with the buyer,
+    admins and approvers. The unassigned rule still comes first, and an empty user never
+    matches an empty requester_id.
     """
     if not assignee_id:
         return False
     if not user_id:
         return False
+    if stage == "delivered" and requester_id and user_id == requester_id:
+        return True
     return (
         user_id == assignee_id
         or is_admin_user(user_id)
