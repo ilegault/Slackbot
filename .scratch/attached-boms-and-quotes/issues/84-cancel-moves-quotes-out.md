@@ -1,6 +1,6 @@
 # 84: Cancel moves quotes out
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
