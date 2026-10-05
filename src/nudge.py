@@ -24,6 +24,8 @@ Per ADR 0011 Decision 4 (amended by ADR 0013 decisions 2-3) & Tickets 78, 79, 80
 - The date is passed as an explicit argument to run_nudges(client, today: date)
   rather than reading the system clock, allowing the schedule to be tested honestly
   without waiting days.
+- Skips entries with no approved_at (ADR 0013 decision 7: the log now also holds posted,
+  declined and superseded cards; this nudge covers approved requests only).
 - Skips Saturday/Sunday, cancelled requests, requests already nudged today, and
   requests where any row in the workbook already has Date Processed filled in.
 - Each request entry is processed in its own try/except block so one failure
@@ -103,6 +105,11 @@ def run_nudges(client, today: date) -> list[str]:
     for req_id, entry in store_data.items():
         try:
             if entry.get("cancelled"):
+                continue
+
+            # ADR 0013 decision 7: the log also holds posted cards nobody has approved
+            # (and declined / superseded ones). This nudge covers approved requests only.
+            if not entry.get("approved_at"):
                 continue
 
             if entry.get("last_nudged") == today.isoformat():

@@ -12,6 +12,11 @@ Per ADR 0011:
   find open requests on its own for reminders (the nudge).
 - It never holds a stage; stage comes from the Purchasing Log workbook.
 - Finished (delivered or cancelled) requests remain in the log as history.
+- Per ADR 0013 decision 7 an entry is created when its card is POSTED, not at
+  approval, so the log also holds unapproved requests (posted_at set, no
+  approved_at; declined / superseded flagged). Anything reading it must not assume
+  every entry was approved. Entries are matched by card (find_id_by_card), since a
+  batch thread holds several cards.
 - Write failures never block Slack actions; they log at ERROR and alert admins.
 """
 import json
@@ -161,6 +166,20 @@ def find_id_by_thread(channel: str, thread_ts: str) -> Optional[str]:
     store = load_store()
     for req_id, record in store.items():
         if record.get("channel") == channel and record.get("thread_ts") == thread_ts:
+            return req_id
+    return None
+
+
+def find_id_by_card(channel: str, card_ts: str) -> Optional[str]:
+    """Find the request_id whose card is the message `card_ts` in `channel`.
+
+    WHY THIS EXISTS:
+        One thread can hold several posted cards (a batch), so a thread does not
+        identify a request; the card does (ADR 0013 decision 7).
+    """
+    store = load_store()
+    for req_id, record in store.items():
+        if record.get("channel") == channel and record.get("card_ts") == card_ts:
             return req_id
     return None
 
