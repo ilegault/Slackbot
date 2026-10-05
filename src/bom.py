@@ -224,6 +224,59 @@ def attachment_errors(
     return {}
 
 
+def merge_attachments(
+    current: List[Dict[str, Any]],
+    kept_quote_ids: List[str],
+    new_bom: List[Dict[str, Any]],
+    new_quotes: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Return the attachment list a posted card holds after an edit.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 86 / ADR 0012 Decision 6: Slack cannot pre-fill a file field, so an empty BOM
+    field means "keep the current BOM" and the current quotes come back as ticked
+    checkboxes. The BOM is the new one if given, else the current one; the quotes are the
+    current ones still ticked (original order) followed by the new ones. Pure, so Edit and
+    Edit items share one rule and the final state can be validated before anything is written.
+    """
+    merged: List[Dict[str, Any]] = []
+    if new_bom:
+        merged.append(dict(new_bom[0]))
+    else:
+        old_bom = next((a for a in current if a.get("role") == "bom"), None)
+        if old_bom:
+            merged.append(dict(old_bom))
+    kept = set(kept_quote_ids)
+    merged.extend(dict(a) for a in current if a.get("role") == "quote" and a.get("id") in kept)
+    merged.extend(dict(a) for a in new_quotes)
+    return merged
+
+
+def describe_attachment_changes(old: List[Dict[str, Any]], new: List[Dict[str, Any]]) -> List[str]:
+    """Return thread-line fragments naming attachment changes between two lists.
+
+    Ticket 86 / ADR 0012 Decision 6: ``removed quote <name>``, ``added quote <name>``,
+    ``replaced BOM with <name>`` or ``attached BOM <name>``. Files are matched by Slack id,
+    so an unchanged list gives [].
+    """
+    fragments: List[str] = []
+    old_ids = {a.get("id") for a in old}
+    new_ids = {a.get("id") for a in new}
+    for a in old:
+        if a.get("role") == "quote" and a.get("id") not in new_ids:
+            fragments.append(f"removed quote {a.get('name') or 'quote'}")
+    for a in new:
+        if a.get("role") == "quote" and a.get("id") not in old_ids:
+            fragments.append(f"added quote {a.get('name') or 'quote'}")
+    old_bom = next((a for a in old if a.get("role") == "bom"), None)
+    new_bom = next((a for a in new if a.get("role") == "bom"), None)
+    if new_bom and (not old_bom or old_bom.get("id") != new_bom.get("id")):
+        verb = "replaced BOM with" if old_bom else "attached BOM"
+        fragments.append(f"{verb} {new_bom.get('name') or 'BOM'}")
+    return fragments
+
+
 def needs_bom(items: List[Dict[str, Any]]) -> bool:
     """Return True if request has two or more line items."""
     return len(items) >= 2

@@ -111,7 +111,9 @@ def test_files_only_updates_card_uploads_and_keeps_items(downloads):
     assert client.files_upload_v2.call_count == 3
     lines = [c[1]["text"] for c in client.chat_postMessage.call_args_list if c[1].get("thread_ts") == "1000.1000"]
     edit = [t for t in lines if "attached BOM" in t]
-    assert len(edit) == 1 and "added 2 quote(s)" in edit[0]
+    # Ticket 86 names each quote instead of counting them.
+    assert len(edit) == 1
+    assert "added quote a.pdf" in edit[0] and "added quote b.pdf" in edit[0]
 
 
 def test_new_bom_replaces_old_and_quotes_append(downloads):
@@ -120,7 +122,8 @@ def test_new_bom_replaces_old_and_quotes_append(downloads):
     client = _client(card)
     _submit(client, _view("", [{"id": "F_BOM", "name": "new.xlsx"}], one_vendor=True, quote_files=[{"id": "Q1", "name": "a.pdf"}]))
     ids = [a["id"] for a in client.chat_update.call_args[1]["metadata"]["event_payload"]["attachments"]]
-    assert ids == ["QOLD", "F_BOM", "Q1"]
+    # Ticket 86: merge_attachments lists the BOM first, then the kept and new quotes.
+    assert ids == ["F_BOM", "QOLD", "Q1"]
 
 
 def test_approval_archives_added_files(temp_workbook, dirs, sync_queue, downloads):

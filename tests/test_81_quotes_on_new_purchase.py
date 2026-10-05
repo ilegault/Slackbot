@@ -151,13 +151,17 @@ def test_screen2_renders_quotes_field_when_not_edit():
     assert "@Purchasing quote" in hint
 
 
-def test_screen2_omits_quotes_field_when_is_edit():
-    """AC: with meta['is_edit'] = True there is no block_quotes block."""
+def test_screen2_edit_view_has_quotes_field_for_appending():
+    """Superseded by ticket 86 (ADR 0012 decision 6): Edit now takes late quotes, so the
+    edit view carries the same block_quotes file field (and block_bom) as Screen 2.
+    The old assertion (no block_quotes on edit) described the pre-86 form."""
     meta = _sample_stage1_meta(is_edit=True)
     view = blocks.build_stage2_view(meta)
     blk_map = {b.get("block_id"): b for b in view.get("blocks", [])}
 
-    assert "block_quotes" not in blk_map, "block_quotes must NOT be present when is_edit is True"
+    assert blk_map["block_quotes"]["element"]["type"] == "file_input"
+    assert blk_map["block_quotes"]["element"]["action_id"] == "quotes"
+    assert "block_bom" in blk_map
 
 
 # ---------------------------------------------------------------------------

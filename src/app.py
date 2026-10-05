@@ -714,6 +714,40 @@ def handle_stage3_submit(ack, body, client, view):
     lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=stage3)
 
 
+def _merged_attachments(values: dict, current: list[dict]) -> tuple[list[dict], list[dict], bool, list[dict]]:
+    """Read the edit forms' file fields and merge them onto the card's current attachments.
+
+    Returns (merged, new_bom_files, one_vendor_ticked, new_quote_files). Ticket 86 / ADR 0012
+    decision 6: an empty BOM field keeps the current BOM; the keep-quotes checkboxes say which
+    current quotes survive. A card with no quotes has no checkboxes, so nothing is removed.
+    """
+    new_bom = [{"role": "bom", **f} for f in text_rules.extract_modal_files(values, "block_bom", "bom")]
+    new_quotes = [{"role": "quote", **f} for f in text_rules.extract_modal_files(values, "block_quotes", "quotes")]
+    one_vendor_ticked = any(
+        o.get("value") == "one_vendor"
+        for o in (
+            values.get("block_bom_one_vendor", {}).get("bom_one_vendor", {}).get("selected_options")
+            or []
+        )
+    )
+    keep_block = values.get("block_keep_quotes", {}).get("keep_quotes")
+    if keep_block is None:
+        kept_ids = [a["id"] for a in current if a.get("role") == "quote"]
+    else:
+        kept_ids = [o.get("value") for o in (keep_block.get("selected_options") or [])]
+    return bom.merge_attachments(current, kept_ids, new_bom, new_quotes), new_bom, one_vendor_ticked, new_quotes
+
+
+def _final_attachment_errors(merged: list[dict], new_bom: list[dict], one_vendor_ticked: bool, raw_text: str) -> dict:
+    """Validate the final attachment state with bom.attachment_errors.
+
+    A BOM kept from before was confirmed one-vendor when it was attached, so only a new BOM
+    needs the box ticked; a BOM present after the merge (new or kept) cannot sit beside items.
+    """
+    final_bom = [a for a in merged if a.get("role") == "bom"]
+    return bom.attachment_errors(final_bom, one_vendor_ticked or not new_bom, raw_text)
+
+
 @app.view(config.ITEMS_CALLBACK_ID)
 def handle_items_modal_submit(ack, body, client, view):
     """Handle submission of line items modal."""
@@ -725,20 +759,22 @@ def handle_items_modal_submit(ack, body, client, view):
     user_id = body.get("user", {}).get("id")
 
     raw_text = text_rules._extract_modal_field(values, "block_line_items", "action_line_items") or ""
-    raw_bom_files = text_rules.extract_modal_files(values, "block_bom", "bom")
-    raw_quote_files = text_rules.extract_modal_files(values, "block_quotes", "quotes")
-    one_vendor_ticked = any(
-        o.get("value") == "one_vendor"
-        for o in (
-            values.get("block_bom_one_vendor", {}).get("bom_one_vendor", {}).get("selected_options")
-            or []
-        )
-    )
 
-    if not raw_text.strip() and not raw_bom_files and not raw_quote_files:
+    card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+    if not card_payload:
+        ack(response_action="errors", errors={"block_line_items": "Could not find request details for this card."})
+        return
+
+    # Ticket 86: merge the file fields onto what the card already carries, then validate the
+    # FINAL state (a kept BOM counts) so a pasted list cannot sit beside an old BOM.
+    current_attachments = list(card_payload.get("attachments") or [])
+    merged, new_bom, one_vendor_ticked, _new_quotes = _merged_attachments(values, current_attachments)
+    attachment_changes = bom.describe_attachment_changes(current_attachments, merged)
+
+    if not raw_text.strip() and not attachment_changes:
         ack(response_action="errors", errors={"block_line_items": "Add line items, a BOM or quotes."})
         return
-    bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked, raw_text)
+    bom_errors = _final_attachment_errors(merged, new_bom, one_vendor_ticked, raw_text)
     if bom_errors:
         ack(response_action="errors", errors=bom_errors)
         return
@@ -750,14 +786,6 @@ def handle_items_modal_submit(ack, body, client, view):
         if parse_errors:
             ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
             return
-    attachments = [{"role": "bom", **f} for f in raw_bom_files] + [
-        {"role": "quote", **f} for f in raw_quote_files
-    ]
-
-    card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
-    if not card_payload:
-        ack(response_action="errors", errors={"block_line_items": "Could not find request details for this card."})
-        return
 
     card_state = card_payload.get("state", "posted")
     if card_state != "posted":
@@ -783,7 +811,7 @@ def handle_items_modal_submit(ack, body, client, view):
         items=items,
         shipping=shipping,
         user_id=user_id,
-        attachments=attachments or None,
+        attachments=merged,
     )
 
 
@@ -1177,6 +1205,7 @@ def handle_req_items_action(ack, body, respond, client):
         card_ts=card_ts,
         items=items,
         shipping=shipping,
+        quotes=[a for a in (card_payload.get("attachments") or []) if a.get("role") == "quote"],
     )
     try:
         client.views_open(trigger_id=body["trigger_id"], view=view)
@@ -1252,6 +1281,8 @@ def handle_req_edit_action(ack, body, respond, client):
         "asset_id": parsed.get("asset_id", "") or "",
         "name_of_system": parsed.get("name_of_system", "") or "",
         "line_items": bom.format_line_items(items, shipping) if items else "",
+        # Ticket 86: feeds the keep-quotes checkboxes; build_stage2_view keeps it out of private_metadata.
+        "quotes": [a for a in (card_payload.get("attachments") or []) if a.get("role") == "quote"],
     }
 
     view = blocks.build_stage2_view(meta)
@@ -1373,6 +1404,14 @@ def handle_edit_submit(ack, body, client, view):
         ack(response_action="errors", errors={"block_item_description": "This request was approved while you were editing — nothing was changed."})
         return
 
+    # Ticket 86: validate the final attachment state (kept BOM + pasted items is refused).
+    current_attachments = list(card_payload.get("attachments") or [])
+    merged, new_bom, one_vendor_ticked, _new_quotes = _merged_attachments(values, current_attachments)
+    bom_errors = _final_attachment_errors(merged, new_bom, one_vendor_ticked, raw_line_items)
+    if bom_errors:
+        ack(response_action="errors", errors=bom_errors)
+        return
+
     ack()
 
     lifecycle.handle_request_edit(
@@ -1387,6 +1426,7 @@ def handle_edit_submit(ack, body, client, view):
         user_id=user_id,
         card_payload=card_payload,
         meta=meta,
+        attachments=merged,
     )
 
 

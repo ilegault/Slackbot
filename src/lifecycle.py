@@ -2795,9 +2795,11 @@ def handle_items_update(
     Draft BOM is uploaded to thread via files_upload_v2 and NEVER saved to BOMS_DIR (only approval archives).
 
     Ticket 85 / ADR 0012: Add items may also carry an attached BOM and quotes. They are
-    appended to the card payload's `attachments` (a new BOM replaces an earlier one), written
-    in the same chat_update as the items and re-posted to the thread; ticket 83 archives them
-    at approval. items=None means the paste box was blank: the card's existing items are left
+    carried on the card payload's `attachments`, written in the same chat_update as the items;
+    ticket 83 archives them at approval. Ticket 86 (ADR 0012 decision 6): `attachments` is the
+    card's final list as merged by bom.merge_attachments (a new BOM replaces the old, unticked
+    quotes are dropped), None meaning untouched; only files new to the card are re-posted to
+    the thread and bom.describe_attachment_changes names every change on the edit line. items=None means the paste box was blank: the card's existing items are left
     exactly as they are and no draft BOM is rebuilt.
     """
     card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
@@ -2824,18 +2826,18 @@ def handle_items_update(
 
     change_fragments = bom.describe_changes(card_payload, new_payload) if items_given else []
 
-    new_boms = [a for a in (attachments or []) if a.get("role") == "bom"]
-    new_quotes = [a for a in (attachments or []) if a.get("role") == "quote"]
-    if attachments:
-        kept = [
-            a for a in (card_payload.get("attachments") or [])
-            if not (new_boms and a.get("role") == "bom")
-        ]
-        new_payload["attachments"] = kept + list(attachments)
-    for a in new_boms:
-        change_fragments.append(f"attached BOM {a.get('name') or 'BOM'}")
-    if new_quotes:
-        change_fragments.append(f"added {len(new_quotes)} quote(s)")
+    # Ticket 86: `attachments` is the card's FINAL attachment list (None = untouched).
+    # Only files not already on the card are re-posted to the thread.
+    current_attachments = list(card_payload.get("attachments") or [])
+    new_files: list[dict] = []
+    if attachments is not None:
+        change_fragments.extend(bom.describe_attachment_changes(current_attachments, attachments))
+        current_ids = {a.get("id") for a in current_attachments}
+        new_files = [a for a in attachments if a.get("id") not in current_ids]
+        if attachments:
+            new_payload["attachments"] = list(attachments)
+        else:
+            new_payload.pop("attachments", None)
     if not change_fragments:
         return True
 
@@ -2870,12 +2872,12 @@ def handle_items_update(
     except Exception as e:
         log.warning("Failed to post edit notice to thread %s: %s", thread_ts, e)
 
-    if attachments:
+    if new_files:
         post_attachments_to_thread(
             client=client,
             channel=channel,
             thread_ts=thread_ts,
-            attachments=attachments,
+            attachments=new_files,
             requester_id=user_id,
         )
 
@@ -2904,6 +2906,7 @@ def handle_request_edit(
     user_id: str,
     card_payload: dict,
     meta: dict,
+    attachments: list[dict] | None = None,
 ) -> None:
     """Update a modal-born posted card with edited values (Ticket 32, ADR 0006 decision 8).
 
@@ -2917,6 +2920,8 @@ def handle_request_edit(
     3. Writes the updated blocks + metadata to the card via chat_update.
     4. Posts one thread line naming every changed field, appended to history.
     5. Re-posts the draft BOM when line items changed and needs_bom is True.
+    6. Ticket 86: stores the merged attachment list on the card, re-posts only the new
+       files, and names removed/added/replaced files on the thread line.
 
     Vendor and route come from the original card (via meta), not from the edit form,
     because vendor is not editable: to change vendor, Decline and resubmit.
@@ -2944,6 +2949,14 @@ def handle_request_edit(
     new_compare = {**new_parsed_stored, "items": items, "shipping": float(shipping or 0.0)}
 
     fragments = bom.describe_changes(old_compare, new_compare)
+    # Ticket 86: `attachments` is the final merged list (None = untouched). A file change
+    # counts as a change; only files new to the card are re-posted to the thread.
+    current_attachments = list(card_payload.get("attachments") or [])
+    new_files: list[dict] = []
+    if attachments is not None:
+        fragments.extend(bom.describe_attachment_changes(current_attachments, attachments))
+        current_ids = {a.get("id") for a in current_attachments}
+        new_files = [a for a in attachments if a.get("id") not in current_ids]
     if not fragments:
         return  # Nothing changed — no thread post, no history update
 
@@ -2958,6 +2971,11 @@ def handle_request_edit(
     new_payload["history"] = history
     new_payload["items"] = items
     new_payload["shipping"] = float(shipping or 0.0)
+    if attachments is not None:
+        if attachments:
+            new_payload["attachments"] = list(attachments)
+        else:
+            new_payload.pop("attachments", None)
 
     new_blocks = blocks.build_request_blocks("posted", new_payload, history=history, items=items)
 
@@ -2981,6 +2999,15 @@ def handle_request_edit(
         client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=edit_line)
     except Exception as e:
         log.warning("Failed to post edit line to thread %s: %s", thread_ts, e)
+
+    if new_files:
+        post_attachments_to_thread(
+            client=client,
+            channel=channel,
+            thread_ts=thread_ts,
+            attachments=new_files,
+            requester_id=user_id,
+        )
 
     # Re-post draft BOM when items changed and there are enough items for a BOM
     items_changed = any(f.startswith("items") for f in fragments)
