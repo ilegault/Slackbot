@@ -10,6 +10,10 @@ Ticket 65:
 Adds `format_card_failure_alert`: formats an alert for the admin alert channel
 when a purchase request card cannot be posted, updated, or an EPIF drop fails.
 
+Ticket 81 / ADR 0012:
+Adds `extract_modal_files`: extracts file descriptors (id and truncated name)
+from a file_input element in modal view submission state.
+
 Imports:
     - config (only)
 May NOT import:
@@ -478,5 +482,33 @@ def format_card_failure_alert(
         lines.append(f"• *File:* {file_name}")
     lines.append(f"• *Error:* {error}")
     return "\n".join(lines)
+
+
+def extract_modal_files(values: dict, block_id: str, action_id: str) -> list[dict]:
+    """Extract uploaded file descriptors from a Slack modal view submission.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 81 / ADR 0012 Decision 1:
+    Extracts file id and truncated name (up to 80 chars) from a file_input element in
+    view values. Returns an empty list if the block, action, or files key is absent.
+    """
+    if not isinstance(values, dict):
+        return []
+    block = values.get(block_id)
+    if not isinstance(block, dict):
+        return []
+    action = block.get(action_id)
+    if not isinstance(action, dict):
+        return []
+    files = action.get("files")
+    if not isinstance(files, list):
+        return []
+    result = []
+    for f in files:
+        if isinstance(f, dict) and "id" in f:
+            name = str(f.get("name", ""))[:80]
+            result.append({"id": f["id"], "name": name})
+    return result
 
 
