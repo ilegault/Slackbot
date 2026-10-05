@@ -19,10 +19,11 @@ Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned w
 Ticket 74: build_dm_card_blocks carries the buyer picker in approved state with pointer in block_id (ADR 0011 Decision 2).
 Ticket 75: _BUTTON_LIST updates help text to teach that any buyer can pick/move the buyer from the card until Processed (ADR 0011 Decision 1).
 Ticket 82: Adds bom_inputs (optional BOM file + one-vendor tick box on Screen 2, omitted when is_edit=True) and updates _BUTTON_LIST to teach attaching a BOM in the form (ADR 0012 Decisions 1-4).
+Ticket 96: Adds nudge_summary_text (built from nudge_settings.load()) rendered under a Nudges header on App Home and inside get_help_message, so the words always match what the bot does (ADR 0013 decisions 3, 6); the stage text says the requester can mark Delivered.
 Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
 
 Imports:
-    - bom, config, interview, roster, text_rules
+    - bom, config, interview, nudge_settings, roster, text_rules
 May NOT import:
     - Slack SDK / Bolt (holds no client, makes no API calls)
     - storage writers (log_writer, queue_worker)
@@ -32,11 +33,12 @@ import json
 from datetime import datetime
 
 try:
-    from . import bom, config, interview, roster
+    from . import bom, config, interview, nudge_settings, roster
 except ImportError:
     import bom
     import config
     import interview
+    import nudge_settings  # type: ignore[no-redef]
     import roster
 
 # ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ _INTERFACE_RULE = (
 
 _BUTTON_LIST = (
     "• Click the action buttons on the request message: *Approve* (approvers) or *Decline* (approvers and buyers), "
-    "*Mark Processed*, *Mark Confirmed*, and *Mark Delivered* (the assigned buyer or an admin).\n"
+    "*Mark Processed* and *Mark Confirmed* (the assigned buyer or an admin), *Mark Delivered* (also the requester).\n"
     "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
     "• Attach a BOM spreadsheet and quote PDFs in the purchase form, or drop quotes into the thread with `@Purchasing quote`.\n\n"
     "*Approving:* reply in the request thread with `@Purchasing approved` and `@`-mention "
@@ -70,9 +72,41 @@ _STAGE_DEFINITIONS = (
     "• *Approved* — Charlie has agreed to spend the money; the row is written to the purchasing log.\n"
     "• *Processed* — The request has gone to the purchasing team (Workday / ShopUW).\n"
     "• *Confirmed* — The order is confirmed by the vendor.\n"
-    "• *Delivered* — The package is in the lab.\n\n"
+    "• *Delivered* — The package is in the lab. The requester can mark this too.\n\n"
     "_Assigned isn't a stage — it's who is handling the order._"
 )
+
+_NUDGE_STAGES = (
+    ("approved", "Approved", "a card waits for approval", "the approvers"),
+    ("processed", "Processed", "after approval until processed", "the buyer"),
+    ("confirmed", "Confirmed", "after processing until confirmed", "the buyer"),
+    ("delivered", "Delivered", "after confirmation until delivered", "the buyer and the requester"),
+)
+
+
+def nudge_summary_text(settings: dict) -> str:
+    """One line per stage describing the live nudge schedule (ADR 0013 decision 6)."""
+    lines = []
+    for key, label, when, who in _NUDGE_STAGES:
+        s = settings[key]
+        if not s.get("enabled"):
+            lines.append(f"• *{label}* — off")
+            continue
+        n = s["every"]
+        unit = "working day" if n == 1 else "working days"
+        parts = []
+        if s.get("dm"):
+            parts.append(f"by DM to {who}")
+        if s.get("channel"):
+            parts.append("in the channel")
+        how = " and ".join(parts)
+        line = f"• *{label}* — every {n} {unit} {when}, {how}"
+        if key == "delivered":
+            line += ", with a Delivered button. Set an expected delivery date to pause it until then."
+        lines.append(line)
+    lines.append("_Working days are Monday–Friday. Checked weekdays at 9:00._")
+    return "\n".join(lines)
+
 
 _ADMIN_COMMANDS = (
     "• `@Purchasing health` / `@Purchasing status` — View system health, host uptime, and storage status.\n"
@@ -235,6 +269,15 @@ def build_app_home_view(user_id: str | None = None) -> dict:
             {"type": "divider"},
             {
                 "type": "header",
+                "text": {"type": "plain_text", "text": "⏰ Nudges", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": nudge_summary_text(nudge_settings.load())},
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
                 "text": {"type": "plain_text", "text": "⚙️ Admin Operations", "emoji": True},
             },
             {
@@ -297,6 +340,8 @@ def get_help_message() -> str:
         + _BUTTON_LIST + "\n\n"
         "*📋 Request Stages:*\n"
         + _STAGE_DEFINITIONS + "\n\n"
+        "*⏰ Nudges:*\n"
+        + nudge_summary_text(nudge_settings.load()) + "\n\n"
         "*⚙️ Admins (`@Purchasing <command>`):*\n"
         + _ADMIN_COMMANDS
     )
