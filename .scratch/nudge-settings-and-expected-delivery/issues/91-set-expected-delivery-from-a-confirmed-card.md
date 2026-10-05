@@ -1,6 +1,6 @@
 # 91: Set expected delivery from a Confirmed card
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
