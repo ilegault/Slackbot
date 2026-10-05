@@ -1,6 +1,6 @@
 # 90: Delivered nudge and the nudge card
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
