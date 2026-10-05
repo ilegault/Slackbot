@@ -31,6 +31,14 @@ Per Ticket 27:
   post edit notices, and upload draft BOM spreadsheets when needs_bom is True.
 - Records source='epif' on dropped EPIF cards.
 
+Per Ticket 83 / ADR 0012 decision 5:
+- finalize_purchase_request files an attached BOM byte-for-byte (never opened, no made BOM
+  built for it, Notes 'BOM: <name> (attached)') and numbered quotes via bom.quote_filename;
+  the approved card then carries quote_count instead of the attachment list. A file that
+  will not download is skipped with an admin alert; approval never fails over it.
+- _send_assignee_dm uploads the archived quotes to the buyer beside the BOM; handle_assign
+  rebuilds their paths from quote_count + row + vendor.
+
 Per Ticket 82 / ADR 0012 Decisions 1-4:
 - An attachment with role 'bom' (the requester's own sheet, carried never read) adds a
   '📎 BOM attached: <name>' summary line and is posted to the thread like a quote; no
@@ -249,6 +257,7 @@ def _send_assignee_dm(
     card_ts: str | None = None,
     request: dict | None = None,
     state: str | None = None,
+    quote_paths: list[str] | None = None,
 ) -> tuple[str, str] | None:
     """Send the email-draft DM to the assigned buyer, optionally attaching the archived BOM,
     and post the linked DM card with the next-step button.
@@ -259,6 +268,7 @@ def _send_assignee_dm(
     Called by finalize_purchase_request (at approval) and handle_assign (at post-approval assignment).
     Per ADR 0006 decision 6 and spec decision 4: the archived BOM is attached to this DM
     so the buyer forwards one EPIF and one sheet instead of pasting links.
+    Ticket 83 / ADR 0012 decision 5: archived vendor quotes ride along the same way as the BOM.
     A failed BOM upload is logged and alerted to admin but never reverses the approval
     (same spirit as ADR 0004 decision 2 — the money decision already happened).
     Per ADR 0010 decisions 2 & 3 & Ticket 67:
@@ -299,6 +309,8 @@ def _send_assignee_dm(
             dm_text += f"\n\n📄 The filled EPIF *{epif_fname}* is attached."
         if bom_fname:
             dm_text += f"\n\n📊 The BOM spreadsheet *{bom_fname}* is attached."
+        if quote_paths:
+            dm_text += f"\n\n📎 {len(quote_paths)} vendor quote(s) attached."
     try:
         slack_io.tell(client, assignee_id, dm_text)
     except Exception as e:
@@ -311,6 +323,9 @@ def _send_assignee_dm(
             files_to_upload.append((epif_path, epif_fname))
         if bom_path and bom_fname and os.path.exists(bom_path):
             files_to_upload.append((bom_path, bom_fname))
+        for qpath in quote_paths or []:
+            if qpath and os.path.exists(qpath):
+                files_to_upload.append((qpath, os.path.basename(qpath)))
 
         if files_to_upload:
             try:
@@ -479,6 +494,30 @@ def sync_dm_card(
         return False
 
 
+def _fetch_attachment(client, attachment: dict, row_num) -> bytes | None:
+    """Fetch one attached file's bytes from Slack at approval; None (and an admin alert) on failure.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 83 / ADR 0012 decision 5: the money decision has already happened by the time files
+    are filed, so a file that will not download never fails the approval. It is skipped, and
+    never silently: the admin channel is told which file and which log row.
+    """
+    fname = attachment.get("name") or "attachment"
+    try:
+        info = client.files_info(file=attachment.get("id"))
+        file_obj = info.get("file", info) if isinstance(info, dict) else info["file"]
+        return slack_io.download_file(file_obj)
+    except Exception as e:
+        log.warning("Could not fetch attachment '%s' for row %s: %s", fname, row_num, e)
+        slack_io.alert_admins(
+            client,
+            f"⚠️ Couldn't fetch attached file `{fname}` for row {row_num}; it was not archived. "
+            f"Approval went ahead. ({e})",
+        )
+        return None
+
+
 def finalize_purchase_request(
     client, say, channel: str, thread_ts: str, event_ts: str,
     parsed: dict, requester: str | None, notify_target: str | None,
@@ -492,6 +531,7 @@ def finalize_purchase_request(
     card_ts: str | None = None,
     items: list[dict] | None = None,
     shipping: float = 0.0,
+    attachments: list[dict] | None = None,
 ):
     """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF/BOM if present, and notify."""
     display_file = file_name or "Purchase Request"
@@ -535,6 +575,7 @@ def finalize_purchase_request(
         saved_epif_path = None
         bom_fname = None
         saved_bom_path = None
+        saved_quote_paths: list[str] = []
         try:
             route = interview.get_request_route(parsed, has_file=bool(pdf_bytes))
             if pdf_bytes and file_name:
@@ -568,8 +609,21 @@ def finalize_purchase_request(
                     # Reraise so blank_row executes as this is an all-or-nothing step
                     raise
 
-            if items and bom.needs_bom(items):
-                vendor = parsed.get("vendor") or "Vendor"
+            vendor = parsed.get("vendor") or "Vendor"
+            attached_boms = [a for a in (attachments or []) if a.get("role") == "bom"]
+            attached_quotes = [a for a in (attachments or []) if a.get("role") == "quote"]
+
+            if attached_boms:
+                # ADR 0012 decision 5: an attached BOM is filed byte-for-byte, never opened,
+                # and no made BOM is built for the same request.
+                a = attached_boms[0]
+                content = _fetch_attachment(client, a, row_num)
+                if content is not None:
+                    ext = os.path.splitext(a.get("name") or "")[1].lstrip(".").lower() or "xlsx"
+                    bom_fname = bom.bom_filename(row_num, vendor, ext=ext)
+                    saved_bom_path = log_writer.save_bom(content, bom_fname)
+                    log_writer.update_row(row_num, {config.COLUMN_NOTES: f"BOM: {bom_fname} (attached)"})
+            elif items and bom.needs_bom(items):
                 bom_fname = bom.bom_filename(row_num, vendor)
                 req_for_bom = dict(parsed)
                 if requester and not req_for_bom.get("requester"):
@@ -578,6 +632,14 @@ def finalize_purchase_request(
                 saved_bom_path = log_writer.save_bom(xlsx_bytes, bom_fname)
                 notes_text = f"BOM: {bom_fname} ({len(items)} items)"
                 log_writer.update_row(row_num, {config.COLUMN_NOTES: notes_text})
+
+            for k, a in enumerate(attached_quotes, start=1):
+                content = _fetch_attachment(client, a, row_num)
+                if content is None:
+                    continue
+                saved_quote_paths.append(
+                    log_writer.save_quote(content, bom.quote_filename(row_num, vendor, k))
+                )
         except Exception:
             # All-or-nothing: blank the row just written before re-raising so no orphan row remains
             try:
@@ -589,18 +651,24 @@ def finalize_purchase_request(
                     os.remove(saved_bom_path)
                 except Exception:
                     pass
+            for qp in saved_quote_paths:
+                try:
+                    os.remove(qp)
+                except Exception:
+                    pass
             raise
 
+        # Result shape grows only as needed: (row, epif), (+bom name, path), (+quote paths).
+        if saved_quote_paths:
+            return row_num, saved_epif_path, bom_fname, saved_bom_path, saved_quote_paths
         if bom_fname and saved_bom_path:
             return row_num, saved_epif_path, bom_fname, saved_bom_path
         return row_num, saved_epif_path
 
     def on_success(result):
-        if len(result) == 4:
-            row, saved_path, bom_fname, saved_bom_path = result
-        else:
-            row, saved_path = result
-            bom_fname, saved_bom_path = None, None
+        row, saved_path = result[0], result[1]
+        bom_fname, saved_bom_path = (result[2], result[3]) if len(result) >= 4 else (None, None)
+        saved_quote_paths = list(result[4]) if len(result) >= 5 else []
         log.info("✅ Successfully logged order to Row %d (saved PDF: %s, saved BOM: %s)", row, saved_path, saved_bom_path)
 
         try:
@@ -711,6 +779,12 @@ def finalize_purchase_request(
             req_payload["epif_file"] = os.path.basename(saved_path.replace("\\", "/"))
         if bom_fname:
             req_payload["bom_file"] = bom_fname
+        # After approval the card carries a count, not the attachment list (button values are
+        # size-capped); archived names are derived with bom.quote_filename.
+        req_payload.pop("attachments", None)
+        quote_total = sum(1 for a in (attachments or []) if a.get("role") == "quote")
+        if quote_total:
+            req_payload["quote_count"] = quote_total
         if requester and not req_payload.get("requester"):
             req_payload["requester"] = requester
 
@@ -851,6 +925,7 @@ def finalize_purchase_request(
                 row=row,
                 bom_path=saved_bom_path,
                 bom_fname=bom_fname,
+                quote_paths=saved_quote_paths,
                 epif_path=saved_path,
                 epif_fname=saved_name,
                 route=route,
@@ -916,6 +991,7 @@ def handle_epif_processing(
     card_ts: str | None = None,
     items: list[dict] | None = None,
     shipping: float = 0.0,
+    attachments: list[dict] | None = None,
 ):
     """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving.
 
@@ -933,10 +1009,14 @@ def handle_epif_processing(
             if items is None and "items" in card_payload:
                 items = card_payload.get("items")
                 shipping = float(card_payload.get("shipping") or 0.0)
+            if attachments is None and card_payload.get("attachments"):
+                attachments = card_payload.get("attachments")
     elif posted_payload:
         if items is None and "items" in posted_payload:
             items = posted_payload.get("items")
             shipping = float(posted_payload.get("shipping") or 0.0)
+        if attachments is None and posted_payload.get("attachments"):
+            attachments = posted_payload.get("attachments")
 
     if direct_file:
         file_obj, poster = direct_file, direct_poster
@@ -954,6 +1034,8 @@ def handle_epif_processing(
                 if card_pl and "items" in card_pl:
                     items = card_pl.get("items")
                     shipping = float(card_pl.get("shipping") or 0.0)
+                if card_pl and attachments is None and card_pl.get("attachments"):
+                    attachments = card_pl.get("attachments")
 
         requester = slack_io.resolve_requester(client, poster)
         file_name = file_obj.get("name", "EPIF.pdf")
@@ -994,6 +1076,7 @@ def handle_epif_processing(
             card_ts=card_ts,
             items=items,
             shipping=shipping,
+            attachments=attachments,
         )
         return
 
@@ -1038,6 +1121,7 @@ def handle_epif_processing(
             card_ts=card_ts,
             items=items,
             shipping=shipping,
+            attachments=attachments,
         )
         return
 
@@ -1047,6 +1131,8 @@ def handle_epif_processing(
         if items is None and "items" in parsed_req:
             items = parsed_req.get("items")
             shipping = float(parsed_req.get("shipping") or 0.0)
+        if attachments is None and parsed_req.get("attachments"):
+            attachments = parsed_req.get("attachments")
 
         if not card_ts:
             _, found_ts, _, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
@@ -1074,6 +1160,7 @@ def handle_epif_processing(
             card_ts=card_ts,
             items=items,
             shipping=shipping,
+            attachments=attachments,
         )
         return
 
@@ -1407,6 +1494,13 @@ def handle_assign(
             draft_data[k] = v
     bom_fname = req_data.get("bom_file")
     bom_path = os.path.join(config.BOMS_DIR, bom_fname) if bom_fname else None
+    quote_paths: list[str] = []
+    if req_data.get("quote_count") and row:
+        quote_vendor = draft_data.get("vendor") or "Vendor"
+        quote_paths = [
+            os.path.join(config.QUOTES_DIR, bom.quote_filename(row, quote_vendor, k))
+            for k in range(1, int(req_data["quote_count"]) + 1)
+        ]
     email_draft = text_rules.generate_email_draft(draft_data, target_name, bom_filename=bom_fname)
     item_desc = draft_data.get("item_description") or "supplies"
     epif_fname = req_data.get("epif_file")
@@ -1450,6 +1544,7 @@ def handle_assign(
         row=row,
         bom_path=bom_path,
         bom_fname=bom_fname,
+        quote_paths=quote_paths,
         epif_path=epif_path,
         epif_fname=epif_fname,
         route=route,
@@ -1722,7 +1817,9 @@ def handle_confirmation(
         target_hist.append(f"Confirmed by {actor_name} on {now_str}")
 
         if target_card_ts:
-            next_blocks = blocks.build_request_blocks("confirmed", target_req, history=target_hist)
+            next_blocks = blocks.build_request_blocks(
+                "confirmed", target_req, history=target_hist, thread_channel=channel, card_ts=target_card_ts
+            )
             try:
                 client.chat_update(
                     channel=channel,
@@ -1772,6 +1869,68 @@ def handle_confirmation(
         failure_callback=on_failure,
         client=client,
     )
+
+
+def handle_set_expected_delivery(client, channel: str, thread_ts: str, card_ts: str, user_id: str, chosen_date) -> bool:
+    """Record an expected delivery date on a Confirmed card (Ticket 91 / ADR 0013 decision 5).
+
+    WHY THIS EXISTS:
+    ----------------
+    The date has to land in four places that must never disagree: the thread card (its button
+    value is the store), the buyer's DM card, the request log (so ticket 92 can pause the
+    delivered nudge until then), and a thread line. The form handler in app.py only validates and
+    delegates; the card is re-read here so a stale form cannot overwrite newer card state.
+    The date is optional and never touches the workbook. Returns False when the card is gone
+    (admins are alerted); a request-log failure alerts but never blocks the card update.
+    """
+    card_info = slack_io.get_card_by_ts(client, channel=channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        log.warning("Card %s not found in thread %s for expected delivery", card_ts, thread_ts)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                "set the expected delivery date", channel, thread_ts, None, "card not found"
+            ),
+        )
+        return False
+    req_data, history, _state = card_info
+    req_data = dict(req_data)
+    history = list(history)
+    short = blocks.format_short_date(chosen_date.isoformat())
+    actor = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    history.append(f"Expected delivery set to {short} by {actor} on {datetime.now().strftime('%m/%d/%y %H:%M')}")
+    req_data["expected_delivery"] = chosen_date.isoformat()
+
+    client.chat_update(
+        channel=channel,
+        ts=card_ts,
+        text="🛒 Purchase Request (Confirmed)",
+        blocks=blocks.build_request_blocks(
+            "confirmed", req_data, history=history, thread_channel=channel, card_ts=card_ts
+        ),
+    )
+    sync_dm_card(
+        client=client,
+        request=req_data,
+        state="confirmed",
+        channel=channel,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        history=history,
+    )
+    req_id = _request_log(client, store.find_id_by_card, channel, card_ts) or _request_log(
+        client, store.find_id_by_thread, channel, thread_ts
+    )
+    if req_id:
+        _request_log(client, store.update, req_id, expected_delivery=chosen_date.isoformat())
+        _request_log(client, store.append_history, req_id, history[-1])
+    client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=f"📦 Expected delivery {short} — I'll check back then.",
+    )
+    log.info("Expected delivery for card %s set to %s by %s", card_ts, chosen_date.isoformat(), user_id)
+    return True
 
 
 def handle_delivery(

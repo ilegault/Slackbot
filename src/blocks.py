@@ -19,24 +19,26 @@ Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned w
 Ticket 74: build_dm_card_blocks carries the buyer picker in approved state with pointer in block_id (ADR 0011 Decision 2).
 Ticket 75: _BUTTON_LIST updates help text to teach that any buyer can pick/move the buyer from the card until Processed (ADR 0011 Decision 1).
 Ticket 82: Adds bom_inputs (optional BOM file + one-vendor tick box on Screen 2, omitted when is_edit=True) and updates _BUTTON_LIST to teach attaching a BOM in the form (ADR 0012 Decisions 1-4).
+Ticket 96: Adds nudge_summary_text (built from nudge_settings.load()) rendered under a Nudges header on App Home and inside get_help_message, so the words always match what the bot does (ADR 0013 decisions 3, 6); the stage text says the requester can mark Delivered.
 Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
 
 Imports:
-    - bom, config, interview, roster, text_rules
+    - bom, config, interview, nudge_settings, roster, text_rules
 May NOT import:
     - Slack SDK / Bolt (holds no client, makes no API calls)
     - storage writers (log_writer, queue_worker)
     - lifecycle/ops handlers
 """
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 try:
-    from . import bom, config, interview, roster
+    from . import bom, config, interview, nudge_settings, roster
 except ImportError:
     import bom
     import config
     import interview
+    import nudge_settings  # type: ignore[no-redef]
     import roster
 
 # ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ _INTERFACE_RULE = (
 
 _BUTTON_LIST = (
     "• Click the action buttons on the request message: *Approve* (approvers) or *Decline* (approvers and buyers), "
-    "*Mark Processed*, *Mark Confirmed*, and *Mark Delivered* (the assigned buyer or an admin).\n"
+    "*Mark Processed* and *Mark Confirmed* (the assigned buyer or an admin), *Mark Delivered* (also the requester).\n"
     "• Approvers and admins may also *Cancel* an approved request before it is processed.\n"
     "• Attach a BOM spreadsheet and quote PDFs in the purchase form, or drop quotes into the thread with `@Purchasing quote`.\n\n"
     "*Approving:* reply in the request thread with `@Purchasing approved` and `@`-mention "
@@ -70,9 +72,41 @@ _STAGE_DEFINITIONS = (
     "• *Approved* — Charlie has agreed to spend the money; the row is written to the purchasing log.\n"
     "• *Processed* — The request has gone to the purchasing team (Workday / ShopUW).\n"
     "• *Confirmed* — The order is confirmed by the vendor.\n"
-    "• *Delivered* — The package is in the lab.\n\n"
+    "• *Delivered* — The package is in the lab. The requester can mark this too.\n\n"
     "_Assigned isn't a stage — it's who is handling the order._"
 )
+
+_NUDGE_STAGES = (
+    ("approved", "Approved", "a card waits for approval", "the approvers"),
+    ("processed", "Processed", "after approval until processed", "the buyer"),
+    ("confirmed", "Confirmed", "after processing until confirmed", "the buyer"),
+    ("delivered", "Delivered", "after confirmation until delivered", "the buyer and the requester"),
+)
+
+
+def nudge_summary_text(settings: dict) -> str:
+    """One line per stage describing the live nudge schedule (ADR 0013 decision 6)."""
+    lines = []
+    for key, label, when, who in _NUDGE_STAGES:
+        s = settings[key]
+        if not s.get("enabled"):
+            lines.append(f"• *{label}* — off")
+            continue
+        n = s["every"]
+        unit = "working day" if n == 1 else "working days"
+        parts = []
+        if s.get("dm"):
+            parts.append(f"by DM to {who}")
+        if s.get("channel"):
+            parts.append("in the channel")
+        how = " and ".join(parts)
+        line = f"• *{label}* — every {n} {unit} {when}, {how}"
+        if key == "delivered":
+            line += ", with a Delivered button. Set an expected delivery date to pause it until then."
+        lines.append(line)
+    lines.append("_Working days are Monday–Friday. Checked weekdays at 9:00._")
+    return "\n".join(lines)
+
 
 _ADMIN_COMMANDS = (
     "• `@Purchasing health` / `@Purchasing status` — View system health, host uptime, and storage status.\n"
@@ -175,6 +209,22 @@ def build_app_home_view(user_id: str | None = None) -> dict:
         "accessory": profile_button,
     }
 
+    # Ticket 95: only admins get the nudge-settings button (same check as the Roles line).
+    nudge_settings_blocks: list = []
+    if "Admin" in roles:
+        nudge_settings_blocks = [
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Edit nudge settings", "emoji": True},
+                        "action_id": config.ACTION_OPEN_NUDGE_SETTINGS,
+                    }
+                ],
+            }
+        ]
+
     return {
         "type": "home",
         "blocks": [
@@ -235,12 +285,22 @@ def build_app_home_view(user_id: str | None = None) -> dict:
             {"type": "divider"},
             {
                 "type": "header",
+                "text": {"type": "plain_text", "text": "⏰ Nudges", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": nudge_summary_text(nudge_settings.load())},
+            },
+            {"type": "divider"},
+            {
+                "type": "header",
                 "text": {"type": "plain_text", "text": "⚙️ Admin Operations", "emoji": True},
             },
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": _ADMIN_COMMANDS},
             },
+            *nudge_settings_blocks,
             {"type": "divider"},
             {
                 "type": "header",
@@ -281,6 +341,61 @@ def build_app_home_view(user_id: str | None = None) -> dict:
     }
 
 
+def build_nudge_settings_view(settings: dict) -> dict:
+    """Modal for an admin to edit the four per-stage nudges (ticket 95, ADR 0013).
+
+    Pre-filled from `settings` (the nudge_settings shape). Block ids are
+    block_<stage>_enabled|every|send; app.py maps nudge_settings.validate keys
+    onto them. Pure: holds no Slack client.
+    """
+    stages = ("approved", "processed", "confirmed", "delivered")
+    out: list = []
+    for s in stages:
+        cur = settings.get(s) or {}
+        on_opt = {"text": {"type": "plain_text", "text": "On"}, "value": "on"}
+        dm_opt = {"text": {"type": "plain_text", "text": "DM"}, "value": "dm"}
+        ch_opt = {
+            "text": {"type": "plain_text", "text": "Channel (thread reply also sent to the channel)"},
+            "value": "channel",
+        }
+        enabled_el: dict = {"type": "checkboxes", "action_id": "enabled", "options": [on_opt]}
+        if cur.get("enabled"):
+            enabled_el["initial_options"] = [on_opt]
+        send_el: dict = {"type": "checkboxes", "action_id": "send", "options": [dm_opt, ch_opt]}
+        initial = [o for o, k in ((dm_opt, "dm"), (ch_opt, "channel")) if cur.get(k)]
+        if initial:
+            send_el["initial_options"] = initial
+        out.append({
+            "type": "header",
+            "text": {"type": "plain_text", "text": f"{s.capitalize()} nudge"},
+        })
+        out.append({
+            "type": "input", "optional": True, "block_id": f"block_{s}_enabled",
+            "label": {"type": "plain_text", "text": "Nudge"}, "element": enabled_el,
+        })
+        out.append({
+            "type": "input", "block_id": f"block_{s}_every",
+            "label": {"type": "plain_text", "text": "Every N working days"},
+            "element": {
+                "type": "number_input", "action_id": "every",
+                "is_decimal_allowed": False, "min_value": "1",
+                "initial_value": str(cur.get("every", 1)),
+            },
+        })
+        out.append({
+            "type": "input", "optional": True, "block_id": f"block_{s}_send",
+            "label": {"type": "plain_text", "text": "Send by"}, "element": send_el,
+        })
+    return {
+        "type": "modal",
+        "callback_id": config.NUDGE_SETTINGS_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Nudge settings"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": out,
+    }
+
+
 def get_help_message() -> str:
     """Command guide rendered by /purchasing-help.
 
@@ -297,6 +412,8 @@ def get_help_message() -> str:
         + _BUTTON_LIST + "\n\n"
         "*📋 Request Stages:*\n"
         + _STAGE_DEFINITIONS + "\n\n"
+        "*⏰ Nudges:*\n"
+        + nudge_summary_text(nudge_settings.load()) + "\n\n"
         "*⚙️ Admins (`@Purchasing <command>`):*\n"
         + _ADMIN_COMMANDS
     )
@@ -406,8 +523,14 @@ def build_request_blocks(
     requester: str | None = None,
     items: list[dict] | None = None,
     attachments: list[dict] | None = None,
+    thread_channel: str | None = None,
+    card_ts: str | None = None,
 ) -> list:
     """Generate Block Kit blocks for a purchase request at a given lifecycle state.
+
+    ``thread_channel`` / ``card_ts`` fill the pointer on a Confirmed card's optional
+    'Set expected delivery' button (Ticket 91); when omitted the button still renders and the
+    click handler falls back to the channel and message the click came from.
 
     States: posted -> approved -> processed -> confirmed -> delivered
     Terminal states with no buttons: declined, cancelled, delivered, superseded.
@@ -466,6 +589,10 @@ def build_request_blocks(
         summary_lines.append(f"• *Buyer:* {assignee}")
     elif state != "posted":
         summary_lines.append("• *Buyer:* ⚠️ _Unassigned_")
+
+    expected_delivery = request.get("expected_delivery")
+    if expected_delivery:
+        summary_lines.append(f"• *Expected delivery:* {format_short_date(expected_delivery)}")
 
     if items and bom.needs_bom(items):
         summary_lines.append(f"📋 {len(items)} line items (BOM attached in thread)")
@@ -603,6 +730,11 @@ def build_request_blocks(
                 "value": btn_value,
             }
         ]
+        if state == "confirmed":
+            # ADR 0013 decision 5: optional ship date; the value is a pointer, never the request.
+            elements.append(_expected_delivery_button(
+                thread_channel, request.get("thread_ts"), card_ts
+            ))
         if state in secondary_buttons:
             sec_label, sec_action_id = secondary_buttons[state]
             elements.append({
@@ -657,6 +789,58 @@ def build_request_blocks(
     return blocks
 
 
+def format_short_date(iso_date: str) -> str:
+    """Render an ISO date as ``Mon D`` (``2026-11-16`` -> ``Nov 16``).
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 91 / ADR 0013 decision 5: the expected-delivery date is shown on both cards and in a
+    thread line. ``strftime('%-d')`` is not portable (the dev venv is Windows), so the day is
+    formatted by hand. An unparseable value is returned unchanged rather than raising on a card.
+    """
+    try:
+        d = date.fromisoformat(str(iso_date)[:10])
+    except ValueError:
+        return str(iso_date)
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def _expected_delivery_button(thread_channel, thread_ts, card_ts) -> dict:
+    """The optional 'Set expected delivery' button on a Confirmed card (ADR 0013 decision 5)."""
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Set expected delivery", "emoji": True},
+        "action_id": config.ACTION_SET_EXPECTED_DELIVERY,
+        "value": json.dumps({"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}),
+    }
+
+
+def build_expected_delivery_view(thread_channel: str, thread_ts: str, card_ts: str, initial_date: str) -> dict:
+    """Modal with one date picker for the expected delivery date (ADR 0013 decision 5)."""
+    return {
+        "type": "modal",
+        "callback_id": config.EXPECTED_DELIVERY_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Expected delivery"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(
+            {"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}
+        ),
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "block_expected_delivery",
+                "label": {"type": "plain_text", "text": "When does the vendor expect to deliver?"},
+                "element": {
+                    "type": "datepicker",
+                    "action_id": "expected_delivery",
+                    "initial_date": initial_date,
+                },
+            }
+        ],
+    }
+
+
 def build_dm_card_blocks(
     state: str,
     request: dict,
@@ -702,6 +886,9 @@ def build_dm_card_blocks(
     if thread_link:
         lines.append(f"<{thread_link}|Open the request thread>")
 
+    if request.get("expected_delivery") and state not in ("cancelled", "reassigned", "replaced", "delivered"):
+        lines.append(f"*Expected delivery:* {format_short_date(request['expected_delivery'])}")
+
     if state == "cancelled":
         lines.append("🚫 Cancelled")
     elif state == "reassigned":
@@ -745,6 +932,8 @@ def build_dm_card_blocks(
                 "value": btn_value,
             }
         ]
+        if state == "confirmed":
+            elements.append(_expected_delivery_button(thread_channel, thread_ts, card_ts))
         if state == "approved":
             # ADR 0011 decision 2 / Ticket 74: DM card carries buyer picker while approved.
             # Slack does not allow value on users_select, so the pointer is in block_id.

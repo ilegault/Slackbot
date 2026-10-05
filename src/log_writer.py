@@ -498,12 +498,14 @@ def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
     clean_name = os.path.basename(filename).strip() if filename else "BOM.xlsx"
     if not clean_name:
         clean_name = "BOM.xlsx"
-    if not clean_name.lower().endswith(".xlsx"):
+    # An attached BOM keeps its own extension (ticket 83, ADR 0012 decision 5): only a bare
+    # name with no extension gets the made-BOM default.
+    if not os.path.splitext(clean_name)[1]:
         clean_name += ".xlsx"
 
     dest_path = os.path.join(directory, clean_name)
 
-    handle, temp_path = tempfile.mkstemp(suffix=".xlsx", dir=directory)
+    handle, temp_path = tempfile.mkstemp(suffix=os.path.splitext(clean_name)[1], dir=directory)
     try:
         with os.fdopen(handle, "wb") as f:
             f.write(file_bytes)

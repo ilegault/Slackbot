@@ -33,6 +33,10 @@ Per ADR 0011 Decision 4 (amended by ADR 0013 decisions 2-3) & Tickets 78, 79, 80
   without waiting days.
 - Skips entries with no approved_at (ADR 0013 decision 7: the log now also holds posted,
   declined and superseded cards; this nudge covers approved requests only).
+- The approved nudge (ticket 94, ships off) is the one stage that acts on exactly those
+  unapproved entries: _nudge_approved reminds the approvers every N working days from
+  posting while the thread card is still `posted`, and stops on approval, decline or
+  supersede. It runs even when the processed nudge is disabled.
 - Skips Saturday/Sunday, cancelled requests, requests already nudged today, and
   requests where any row in the workbook already has Date Processed filled in.
 - Each request entry is processed in its own try/except block so one failure
@@ -266,6 +270,69 @@ def _confirmed_nudge(client, req_id, entry, info, cfg, today) -> bool:
     return True
 
 
+def _permalink(client, channel: str, card_ts: str) -> Optional[str]:
+    """The card's permalink, or None when Slack will not give one."""
+    try:
+        resp = client.chat_getPermalink(channel=channel, message_ts=card_ts)
+        data = resp.data if hasattr(resp, "data") and isinstance(resp.data, dict) else resp
+        return data.get("permalink")
+    except Exception as err:
+        log.warning("Could not get permalink for card (%s, %s): %s", channel, card_ts, err)
+        return None
+
+
+def _nudge_approved(client, today: date, store_data: dict, cfg: dict) -> list[str]:
+    """The approved nudge (ADR 0013 decision 1): remind approvers about a posted card.
+
+    Applies to entries with posted_at and no approved_at that are not declined,
+    superseded or cancelled, counting working days from posting. The thread card must
+    still be in state `posted`: a card approved by keyword before the log caught up is
+    skipped. `dm` goes to each approver with a permalink and no buttons; `channel` is a
+    thread reply also sent to the channel mentioning every approver.
+    """
+    nudged: list[str] = []
+    for req_id, entry in store_data.items():
+        try:
+            if not entry.get("posted_at") or entry.get("approved_at"):
+                continue
+            if entry.get("declined") or entry.get("superseded") or entry.get("cancelled"):
+                continue
+            if entry.get("last_nudged") == today.isoformat():
+                continue
+            n = working_days_between(date.fromisoformat(entry["posted_at"][:10]), today)
+            if not is_due(n, cfg["every"]):
+                continue
+            channel, thread_ts, card_ts = entry.get("channel"), entry.get("thread_ts"), entry.get("card_ts")
+            if not channel or not thread_ts or not card_ts:
+                continue
+            card = slack_io.get_card_by_ts(client, channel, thread_ts, card_ts)
+            if not card or card[2] != "posted":
+                continue
+            req_data = card[0] if isinstance(card[0], dict) else {}
+            parsed = req_data.get("parsed")
+            item = (parsed.get("item_description") if isinstance(parsed, dict) else None) \
+                or req_data.get("item_description") or "Item"
+            approvers = roster.get_approvers()
+            if cfg["dm"]:
+                link = _permalink(client, channel, card_ts)
+                text = (f"⏰ *{item}* from {entry.get('requester') or 'a requester'} has been waiting "
+                        f"for approval for {n} working days: {link or ''}").strip()
+                for approver_id in approvers:
+                    client.chat_postMessage(channel=approver_id, text=text)
+            if cfg["channel"]:
+                mentions = " ".join(f"<@{a}>" for a in approvers)
+                client.chat_postMessage(
+                    channel=channel, thread_ts=thread_ts, reply_broadcast=True,
+                    text=f"⏰ {mentions} — this request has been waiting for approval for {n} working days.",
+                )
+            store.update(req_id, last_nudged=today.isoformat())
+            nudged.append(req_id)
+            log.info("Nudged approvers about unapproved request [%s] (day %d)", req_id, n)
+        except Exception as e:
+            log.error("Failed to approved-nudge request [%s]: %s", req_id, e)
+    return nudged
+
+
 def run_nudges(client, today: date) -> list[str]:
     """Execute one day's nudging for assigned and unassigned requests.
 
@@ -278,11 +345,13 @@ def run_nudges(client, today: date) -> list[str]:
 
     store_data = store.load_store(alert_callback=lambda msg: slack_io.alert_admins(client, msg))
     settings = nudge_settings.load(alert_callback=lambda msg: slack_io.alert_admins(client, msg))
+    nudged_ids: list[str] = []
+    if settings["approved"]["enabled"]:
+        nudged_ids.extend(_nudge_approved(client, today, store_data, settings["approved"]))
     processed_cfg = settings["processed"]
     every = processed_cfg["every"]
     want_dm = processed_cfg["dm"]
     want_channel = processed_cfg["channel"]
-    nudged_ids: list[str] = []
 
     for req_id, entry in store_data.items():
         try:
