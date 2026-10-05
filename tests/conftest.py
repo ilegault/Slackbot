@@ -12,7 +12,7 @@ directory so tests running in parallel do not collide on the real requests.json 
 """
 import pytest
 
-from src import store
+from src import nudge_settings, store
 
 
 @pytest.fixture(autouse=True)
@@ -21,3 +21,11 @@ def isolate_store_path(tmp_path, monkeypatch):
     store_file = str(tmp_path / "requests.json")
     monkeypatch.setattr(store, "STORE_PATH", store_file)
     yield store_file
+
+
+@pytest.fixture(autouse=True)
+def isolate_nudge_settings_path(tmp_path, monkeypatch):
+    """Isolate nudge_settings.SETTINGS_PATH so no test reads the real nudge_settings.json."""
+    settings_file = str(tmp_path / "nudge_settings.json")
+    monkeypatch.setattr(nudge_settings, "SETTINGS_PATH", settings_file)
+    yield settings_file
