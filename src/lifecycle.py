@@ -2726,9 +2726,10 @@ def handle_items_update(
     channel: str,
     thread_ts: str,
     card_ts: str,
-    items: list[dict],
+    items: list[dict] | None,
     shipping: float,
     user_id: str,
+    attachments: list[dict] | None = None,
 ) -> bool:
     """Save updated line items to card metadata, update card blocks, post edit notice, and upload draft BOM.
 
@@ -2739,6 +2740,12 @@ def handle_items_update(
     and Edit (Ticket 32).
     ADR 0006 decision 5: items are stored in message metadata, never button value.
     Draft BOM is uploaded to thread via files_upload_v2 and NEVER saved to BOMS_DIR (only approval archives).
+
+    Ticket 85 / ADR 0012: Add items may also carry an attached BOM and quotes. They are
+    appended to the card payload's `attachments` (a new BOM replaces an earlier one), written
+    in the same chat_update as the items and re-posted to the thread; ticket 83 archives them
+    at approval. items=None means the paste box was blank: the card's existing items are left
+    exactly as they are and no draft BOM is rebuilt.
     """
     card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
     if not card_payload:
@@ -2752,12 +2759,30 @@ def handle_items_update(
         return False
 
     new_payload = dict(card_payload)
-    new_payload["items"] = items
-    new_payload["shipping"] = float(shipping or 0.0)
+    items_given = items is not None
+    if items_given:
+        new_payload["items"] = items
+        new_payload["shipping"] = float(shipping or 0.0)
+    else:
+        items = list(card_payload.get("items") or [])
+        shipping = float(card_payload.get("shipping") or 0.0)
     if "source" not in new_payload:
         new_payload["source"] = "epif"
 
-    change_fragments = bom.describe_changes(card_payload, new_payload)
+    change_fragments = bom.describe_changes(card_payload, new_payload) if items_given else []
+
+    new_boms = [a for a in (attachments or []) if a.get("role") == "bom"]
+    new_quotes = [a for a in (attachments or []) if a.get("role") == "quote"]
+    if attachments:
+        kept = [
+            a for a in (card_payload.get("attachments") or [])
+            if not (new_boms and a.get("role") == "bom")
+        ]
+        new_payload["attachments"] = kept + list(attachments)
+    for a in new_boms:
+        change_fragments.append(f"attached BOM {a.get('name') or 'BOM'}")
+    if new_quotes:
+        change_fragments.append(f"added {len(new_quotes)} quote(s)")
     if not change_fragments:
         return True
 
@@ -2792,14 +2817,24 @@ def handle_items_update(
     except Exception as e:
         log.warning("Failed to post edit notice to thread %s: %s", thread_ts, e)
 
-    upload_draft_bom(
-        client=client,
-        channel=channel,
-        thread_ts=thread_ts,
-        parsed=new_payload.get("parsed") or {},
-        items=items,
-        shipping=shipping,
-    )
+    if attachments:
+        post_attachments_to_thread(
+            client=client,
+            channel=channel,
+            thread_ts=thread_ts,
+            attachments=attachments,
+            requester_id=user_id,
+        )
+
+    if items is not None and items_given:
+        upload_draft_bom(
+            client=client,
+            channel=channel,
+            thread_ts=thread_ts,
+            parsed=new_payload.get("parsed") or {},
+            items=items,
+            shipping=shipping,
+        )
 
     return True
 

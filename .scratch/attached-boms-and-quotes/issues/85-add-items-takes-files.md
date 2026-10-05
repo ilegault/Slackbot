@@ -1,6 +1,6 @@
 # 85: Add items takes files on PDF-born cards
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -39,11 +39,11 @@ New test file `tests/test_85_add_items_files.py`, driving `app.handle_items_moda
 fake client whose `conversations_replies` returns a posted EPIF-born card, as
 `tests/test_27_line_items_epif_path.py` does.
 
-- [ ] **The form.** `build_items_view(...)` contains `block_line_items` with `optional` true, `block_bom`, `block_bom_one_vendor` and `block_quotes`.
-- [ ] **Empty is refused.** Submitting with nothing → `ack(response_action="errors", errors={"block_line_items": "Add line items, a BOM or quotes."})`, no `chat_update`.
-- [ ] **Same rules.** BOM + pasted items → the not-both error on `block_bom`; BOM + box unticked → the one-vendor error on `block_bom_one_vendor`.
-- [ ] **Files only.** BOM (box ticked) + two quotes, items blank → the card's `chat_update` metadata `attachments` has the BOM and both quotes; three `files_upload_v2` calls into the thread; one thread line containing `attached BOM` and `added 2 quote(s)`; the card's existing `items` are unchanged.
-- [ ] **Approval archives them.** Approving that card (entry point as in ticket 83's test) writes `<row>_<Vendor>_BOM.xlsx` and `_Quote_1.pdf`, `_Quote_2.pdf` into the temp folders.
+- [x] **The form.** `build_items_view(...)` contains `block_line_items` with `optional` true, `block_bom`, `block_bom_one_vendor` and `block_quotes`.
+- [x] **Empty is refused.** Submitting with nothing → `ack(response_action="errors", errors={"block_line_items": "Add line items, a BOM or quotes."})`, no `chat_update`.
+- [x] **Same rules.** BOM + pasted items → the not-both error on `block_bom`; BOM + box unticked → the one-vendor error on `block_bom_one_vendor`.
+- [x] **Files only.** BOM (box ticked) + two quotes, items blank → the card's `chat_update` metadata `attachments` has the BOM and both quotes; three `files_upload_v2` calls into the thread; one thread line containing `attached BOM` and `added 2 quote(s)`; the card's existing `items` are unchanged.
+- [x] **Approval archives them.** Approving that card (entry point as in ticket 83's test) writes `<row>_<Vendor>_BOM.xlsx` and `_Quote_1.pdf`, `_Quote_2.pdf` into the temp folders.
 
 **Tests may fake:** the Slack client, `slack_io.download_file`, the lock queue. **Must be real:** `build_items_view`, `handle_items_modal_submit`, `bom.attachment_errors`, `handle_items_update`, the archive writes into temp folders.
 
@@ -60,3 +60,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+Done (2026-10-05). `build_items_view` box optional + `bom_inputs()` + `quotes_input()`; `handle_items_modal_submit` applies empty/`attachment_errors` rules and skips parse/total check on blank text; `handle_items_update(items=None, attachments=...)` merges attachments (new BOM replaces old), writes them in the same `chat_update`, re-posts files, adds `attached BOM`/`added N quote(s)` to the edit line. All five criteria covered by `tests/test_85_add_items_files.py`. Edited `tests/test_50_one_items_box.py`: it asserted the Add items box was NOT optional, which this ticket reverses on purpose; it now asserts `optional is True`.
