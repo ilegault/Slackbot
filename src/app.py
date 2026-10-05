@@ -36,6 +36,11 @@ Flow of operations:
        - "@Purchasing logs [n]" -> Tail bot logs (Admin only)
        - "@Purchasing update" -> Pull git updates & restart (Admin only)
        - "@Purchasing restart" -> Restart bot process (Admin only)
+
+    8. Background Services:
+       - Queue worker (lock-retry queue for Purchasing-Log.xlsx writes)
+       - Heartbeat monitor (dead-man's switch pings)
+       - Nudge scheduler (weekday 9:00 reminder for stalled orders)
 """
 import json
 import logging
@@ -57,6 +62,7 @@ try:
         heartbeat,
         interview,
         lifecycle,
+        nudge,
         ops,
         path_validator,
         queue_worker,
@@ -73,6 +79,7 @@ except ImportError:
     import heartbeat
     import interview
     import lifecycle
+    import nudge
     import ops
     import path_validator
     import queue_worker
@@ -2041,6 +2048,9 @@ def main():
 
     # 2. Start External Heartbeat Monitor (Dead-Man's Switch)
     heartbeat.start_heartbeat()
+
+    # 2b. Start Nudge Scheduler Thread (Ticket 80)
+    nudge.start_nudge_scheduler(app.client)
 
     # 3. Post Boot / Startup Alert to Admin Channel
     heartbeat.send_startup_alert(app.client)

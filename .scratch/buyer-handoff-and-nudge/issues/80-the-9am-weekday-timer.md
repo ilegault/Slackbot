@@ -1,6 +1,6 @@
 # 80: The 9:00 weekday timer
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -38,16 +38,16 @@ runs once at start-up. A restart never runs it twice in a day.
 New test file `tests/test_80_nudge_timer.py`. `monkeypatch.setattr(nudge, "NUDGE_RUN_PATH", tmp)`
 and monkeypatch `nudge.run_nudges` with a recorder (this ticket tests the timer, not the nudge).
 
-- [ ] **Before 9 and weekends don't run.** `run_if_due(client, datetime(2026,10,8,8,59))` and
+- [x] **Before 9 and weekends don't run.** `run_if_due(client, datetime(2026,10,8,8,59))` and
   `datetime(2026,10,10,10,0)` (Saturday) → `False`, recorder not called.
-- [ ] **9:00 runs once a day.** `datetime(2026,10,8,9,0)` → `True`, recorder called once with
+- [x] **9:00 runs once a day.** `datetime(2026,10,8,9,0)` → `True`, recorder called once with
   `date(2026,10,8)`; a second call at `datetime(2026,10,8,15,0)` → `False`, still one call; the
   temp file reads `{"last_run": "2026-10-08"}`.
-- [ ] **A late start catches up.** With the file saying `2026-10-07`, `datetime(2026,10,8,14,30)` →
+- [x] **A late start catches up.** With the file saying `2026-10-07`, `datetime(2026,10,8,14,30)` →
   `True`, called once.
-- [ ] **A missing or corrupt file counts as never run.** No file → runs; file containing `not json`
+- [x] **A missing or corrupt file counts as never run.** No file → runs; file containing `not json`
   → runs and the file is rewritten as valid JSON.
-- [ ] **`.gitignore` lists `nudge_run.json`**, and `app.main`'s source calls
+- [x] **`.gitignore` lists `nudge_run.json`**, and `app.main`'s source calls
   `nudge.start_nudge_scheduler` (assert on `inspect.getsource(app.main)`).
 
 **Tests may fake:** the Slack client, `nudge.run_nudges`. **Must be real:** `run_if_due` and its file
@@ -67,3 +67,16 @@ pytest -q --tb=short --durations=25
 ```
 
 ## Comments
+
+Completed on 2026-10-04:
+- Implemented `run_if_due(client, now: datetime) -> bool` and `NUDGE_RUN_PATH` in `src/nudge.py` with atomic write for `nudge_run.json`.
+- Implemented `start_nudge_scheduler(client, interval_seconds=60)` background daemon thread `NudgeSchedulerThread`.
+- Added `nudge.start_nudge_scheduler(app.client)` in `src/app.py` `main()` right after `heartbeat.start_heartbeat()`.
+- Added `nudge_run.json` to `.gitignore`.
+- Added full unit test suite `tests/test_80_nudge_timer.py` covering all acceptance criteria:
+  - `test_before_9_and_weekends_dont_run`: confirms run_if_due returns False and does not call recorder before 9:00 or on Saturday/Sunday.
+  - `test_9am_runs_once_a_day`: confirms 9:00 runs once, records last_run, and second call does not run.
+  - `test_late_start_catches_up`: confirms late start on weekday after 9:00 runs once.
+  - `test_missing_or_corrupt_file_counts_as_never_run`: confirms missing or corrupt JSON file runs and writes clean JSON.
+  - `test_gitignore_and_app_main_scheduler`: asserts .gitignore includes nudge_run.json and app.main calls start_nudge_scheduler.
+  - `test_start_nudge_scheduler_loop`: verifies daemon thread execution and loop handling.
