@@ -1,6 +1,6 @@
 # 82: BOM field on /new-purchase
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
