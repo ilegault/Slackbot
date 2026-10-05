@@ -1,6 +1,6 @@
 # 80: The 9:00 weekday timer
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
