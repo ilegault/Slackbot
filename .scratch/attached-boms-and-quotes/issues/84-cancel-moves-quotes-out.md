@@ -1,6 +1,6 @@
 # 84: Cancel moves quotes out
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -32,10 +32,10 @@ only proves that.
 New test file `tests/test_84_cancel_moves_quotes.py`, set up like `tests/test_31_cancel_moves_bom.py`
 (temp `QUOTES_DIR`, `BOMS_DIR`, temp workbook copy).
 
-- [ ] **Quotes move.** Cancelling an approved card with `quote_count: 3` and the three files present leaves `QUOTES_DIR` with no `_Quote_` files and `QUOTES_DIR/Cancelled/` with all three.
-- [ ] **A missing quote doesn't block the cancel.** Same with `_Quote_2.pdf` absent → quotes 1 and 3 moved, the row is blanked as in `tests/test_31_cancel_moves_bom.py`, no exception.
-- [ ] **No quotes, no change.** A card without `quote_count` cancels exactly as before; `QUOTES_DIR/Cancelled/` is not created.
-- [ ] **Attached CSV BOM moves.** A card with `bom_file` `<row>_<Vendor>_BOM.csv` → that file ends up in `BOMS_DIR/Cancelled/`.
+- [x] **Quotes move.** Cancelling an approved card with `quote_count: 3` and the three files present leaves `QUOTES_DIR` with no `_Quote_` files and `QUOTES_DIR/Cancelled/` with all three.
+- [x] **A missing quote doesn't block the cancel.** Same with `_Quote_2.pdf` absent → quotes 1 and 3 moved, the row is blanked as in `tests/test_31_cancel_moves_bom.py`, no exception.
+- [x] **No quotes, no change.** A card without `quote_count` cancels exactly as before; `QUOTES_DIR/Cancelled/` is not created.
+- [x] **Attached CSV BOM moves.** A card with `bom_file` `<row>_<Vendor>_BOM.csv` → that file ends up in `BOMS_DIR/Cancelled/`.
 
 **Tests may fake:** the Slack client. **Must be real:** `handle_cancel`, the file moves in the temp folders, `bom.quote_filename`.
 
@@ -52,3 +52,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+2026-10-05: Added `_move_quotes_to_cancelled` and the `quote_count` branch in `handle_cancel` (src/lifecycle.py), inside the same queued write task as the row blank. Names come from `bom.quote_filename(rows[0], vendor, k)`, vendor read from `req_data["parsed"]["vendor"]`. Tests in `tests/test_84_cancel_moves_quotes.py` cover each criterion; the CSV-BOM test also carries a quote so it fails on the base code. Gate green.

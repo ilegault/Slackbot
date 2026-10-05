@@ -2457,6 +2457,30 @@ def _move_bom_to_cancelled(bom_fname: str) -> None:
     log.info("Moved BOM %s to Cancelled/ on cancel", bom_fname)
 
 
+def _move_quotes_to_cancelled(names: list[str]) -> None:
+    """Move the named archived quotes from QUOTES_DIR into QUOTES_DIR/Cancelled/.
+
+    WHY THIS EXISTS:
+        ADR 0012 decision 5: the quotes follow the BOM out of the live folder on cancel,
+        so a recycled row number cannot collide with stale quotes. Same contract as
+        _move_bom_to_cancelled: a missing file is a warning and is skipped, so one quote
+        that never saved cannot stop the cancel or the other quotes (ticket 84).
+    """
+    for name in names:
+        src_path = os.path.join(config.QUOTES_DIR, name)
+        if not os.path.exists(src_path):
+            log.warning(
+                "Cancel: quote %s not found at %s; cancellation continues without moving it",
+                name,
+                src_path,
+            )
+            continue
+        cancelled_dir = os.path.join(config.QUOTES_DIR, "Cancelled")
+        os.makedirs(cancelled_dir, exist_ok=True)
+        shutil.move(src_path, os.path.join(cancelled_dir, name))
+        log.info("Moved quote %s to Cancelled/ on cancel", name)
+
+
 def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_id: str, req_data: dict, state: str, history: list):
     """Cancel an approved purchase request, blanking its Excel row(s).
 
@@ -2470,6 +2494,9 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
         row is blanked in a single queued write (ADR 0003 decision 7).
         At cancel, the archived BOM is moved to BOMS_DIR/Cancelled/ (ADR 0006
         decision 7, ticket 31), inside the same write task as the row blanking.
+        Archived quotes move the same way into QUOTES_DIR/Cancelled/ (ADR 0012
+        decision 5, ticket 84); their names are derived from the row and vendor with
+        bom.quote_filename because the card carries only a quote_count.
     """
     if state in _CANCEL_REFUSED_STATES:
         say(
@@ -2491,6 +2518,11 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
     rows = slack_io.find_all_rows_in_thread(client, channel, thread_ts)
     bom_fname = req_data.get("bom_file")
     epif_fname = req_data.get("epif_file")
+    quote_names: list[str] = []
+    quote_count = req_data.get("quote_count")
+    if rows and isinstance(quote_count, int) and quote_count > 0:
+        quote_vendor = req_data.get("parsed", req_data).get("vendor") or "Vendor"
+        quote_names = [bom.quote_filename(rows[0], quote_vendor, k) for k in range(1, quote_count + 1)]
 
     if rows:
         def write_action():
@@ -2498,6 +2530,8 @@ def handle_cancel(client, say, channel: str, thread_ts: str, msg_ts: str, user_i
                 log_writer.blank_row(row)
             if bom_fname:
                 _move_bom_to_cancelled(bom_fname)
+            if quote_names:
+                _move_quotes_to_cancelled(quote_names)
             if epif_fname:
                 _move_epif_to_cancelled(epif_fname)
             return rows
