@@ -1,6 +1,6 @@
 # 89: Requester may mark Delivered
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
