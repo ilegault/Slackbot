@@ -1,6 +1,6 @@
 # 98: The buyer picker lists only buyers
 
-**Status:** in-progress
+**Status:** done
 
 **Claimed-by:** box
 
@@ -79,11 +79,11 @@ New test file `tests/test_98_buyer_picker_lists_buyers.py`. Roster on a temp fil
 `U_BUYER_A` ("Alice"), `U_BUYER_B` ("Bob"), `U_BUYER_NONAME` (no requesters entry); approver
 `U_CHARLIE` ("Charlie H.") who is **not** a buyer; requester `U_REQ` ("Alex") who is not a buyer.
 
-- [ ] **Pure function.** `buyer_picker_options(["U_C", "U_A", "U_A", "U_X", "U_BLANK"], {"U_C": "carol", "U_A": "Alice", "U_BLANK": "  ", "U_Q": "Quinn"})` returns exactly the two options for Alice then carol (values `"U_A"`, `"U_C"`), in that order; `buyer_picker_options([], {...})` returns `[]`.
-- [ ] **Only buyers on all three cards.** With the temp roster, the picker element (found by `action_id`) on `build_request_blocks("posted", …)`, `build_request_blocks("approved", …)` and `build_dm_card_blocks("approved", …)` has `type == "static_select"`, and its option values are exactly `["U_BUYER_A", "U_BUYER_B", "U_BUYER_C"]` — `U_CHARLIE`, `U_REQ` and `U_BUYER_NONAME` absent. No element of type `users_select` appears anywhere in any of the three cards.
-- [ ] **Pre-selection.** With `assignee_id="U_BUYER_B"`, each of the three pickers has `initial_option["value"] == "U_BUYER_B"` and that dict equals the matching entry in `options`. With `assignee_id="U_GONE"` (not a buyer) and with no assignee, the picker has no `initial_option` key and keeps its placeholder text.
-- [ ] **No named buyers → no picker.** With a temp roster whose `buyers` is `[]`, none of the three cards contains an element with `action_id` `req_assign_select` / `dm_req_assign_select`, and the Approve button (posted) and Mark Processed button (approved, and DM card) are still present.
-- [ ] **Both payload shapes assign.** Calling `app.handle_req_assign_select_action` with a body built like `_make_picker_body` in `tests/test_72_any_buyer_moves_a_request.py` but whose action carries `{"selected_option": {"value": "U_BUYER_C", ...}}` and **no** `selected_user` → the thread card's `chat_update` carries `assignee_id == "U_BUYER_C"` in a button value, same as the existing `selected_user` case. And `_picked_buyer_id({"selected_user": "U_X"}) == "U_X"`, `_picked_buyer_id({}) is None`.
+- [x] **Pure function.** `buyer_picker_options(["U_C", "U_A", "U_A", "U_X", "U_BLANK"], {"U_C": "carol", "U_A": "Alice", "U_BLANK": "  ", "U_Q": "Quinn"})` returns exactly the two options for Alice then carol (values `"U_A"`, `"U_C"`), in that order; `buyer_picker_options([], {...})` returns `[]`.
+- [x] **Only buyers on all three cards.** With the temp roster, the picker element (found by `action_id`) on `build_request_blocks("posted", …)`, `build_request_blocks("approved", …)` and `build_dm_card_blocks("approved", …)` has `type == "static_select"`, and its option values are exactly `["U_BUYER_A", "U_BUYER_B", "U_BUYER_C"]` — `U_CHARLIE`, `U_REQ` and `U_BUYER_NONAME` absent. No element of type `users_select` appears anywhere in any of the three cards.
+- [x] **Pre-selection.** With `assignee_id="U_BUYER_B"`, each of the three pickers has `initial_option["value"] == "U_BUYER_B"` and that dict equals the matching entry in `options`. With `assignee_id="U_GONE"` (not a buyer) and with no assignee, the picker has no `initial_option` key and keeps its placeholder text.
+- [x] **No named buyers → no picker.** With a temp roster whose `buyers` is `[]`, none of the three cards contains an element with `action_id` `req_assign_select` / `dm_req_assign_select`, and the Approve button (posted) and Mark Processed button (approved, and DM card) are still present.
+- [x] **Both payload shapes assign.** Calling `app.handle_req_assign_select_action` with a body built like `_make_picker_body` in `tests/test_72_any_buyer_moves_a_request.py` but whose action carries `{"selected_option": {"value": "U_BUYER_C", ...}}` and **no** `selected_user` → the thread card's `chat_update` carries `assignee_id == "U_BUYER_C"` in a button value, same as the existing `selected_user` case. And `_picked_buyer_id({"selected_user": "U_X"}) == "U_X"`, `_picked_buyer_id({}) is None`.
 
 **Existing tests to rewrite in place, same function names, no test deleted:** every assertion
 on `type == "users_select"` or `initial_user` in `tests/test_17_buyer_picker.py`
@@ -124,4 +124,10 @@ pytest --tb=short -q -n auto --dist loadfile
 
 ## Comments
 
-No split: single vertical slice across blocks and app sharing clean_roster fixtures and test seam.
+### Completed — 2026-10-06
+- Implemented pure function `blocks.buyer_picker_options(buyer_ids, names)` returning sorted, deduplicated `static_select` options for buyers who have a non-empty roster name (covered by `test_pure_function_buyer_picker_options`).
+- Implemented helper `blocks._buyer_picker(action_id, placeholder, assignee_id)` reading live buyers and requesters from roster, omitting picker when no buyers are named, and setting `initial_option` only when `assignee_id` matches an option (covered by `test_only_buyers_on_all_three_cards`, `test_pre_selection`, `test_no_named_buyers_no_picker`).
+- Replaced `users_select` in `blocks.build_request_blocks` (posted & approved states) and `blocks.build_dm_card_blocks` (approved state) with `_buyer_picker` using existing placeholders and action IDs (covered by `test_only_buyers_on_all_three_cards`, `test_pre_selection`, `test_no_named_buyers_no_picker`).
+- Implemented module-level helper `app._picked_buyer_id(action)` resolving both new `selected_option` and legacy `selected_user` payloads; wired into `handle_req_assign_select_action` and `handle_dm_assign_select_action` (covered by `test_both_payload_shapes_assign`).
+- Updated existing tests in `tests/test_17_buyer_picker.py`, `tests/test_72_any_buyer_moves_a_request.py`, and `tests/test_74_dm_card_picker.py` to assert `static_select` and `initial_option` and check absence by `action_id`.
+- Full gate passed: ruff clean, check_tests_first clean, type_gate clean (0 hard errors, ratchet 95), 741 pytest tests passing.

@@ -125,9 +125,9 @@ def _make_picker_body(user_id: str, selected_user: str, req_data: dict, history:
     }
 
 
-def test_approved_card_has_picker():
-    """AC 1: build_request_blocks('approved') has a users_select picker with the right
-    action_id and initial_user; unassigned approved card has no initial_user and
+def test_approved_card_has_picker(clean_roster):
+    """AC 1: build_request_blocks('approved') has a static_select picker with the right
+    action_id and initial_option; unassigned approved card has no initial_option and
     placeholder 'Assign a buyer'; processed/confirmed/delivered have no picker.
     """
     req_with_buyer = {
@@ -138,28 +138,29 @@ def test_approved_card_has_picker():
         "assignee": "Alice",
     }
 
-    # Approved with assignee — picker present, action_id matches, initial_user set
+    # Approved with assignee — picker present, action_id matches, initial_option set
     blks = blocks.build_request_blocks("approved", req_with_buyer)
     all_elements = [e for b in blks if b.get("type") == "actions" for e in b.get("elements", [])]
-    pickers = [e for e in all_elements if e.get("type") == "users_select"]
+    pickers = [e for e in all_elements if e.get("action_id") == config.ACTION_REQ_ASSIGN_SELECT]
     assert len(pickers) == 1
-    assert pickers[0]["action_id"] == config.ACTION_REQ_ASSIGN_SELECT
-    assert pickers[0].get("initial_user") == "U_BUYER_A"
+    assert pickers[0]["type"] == "static_select"
+    assert pickers[0].get("initial_option", {}).get("value") == "U_BUYER_A"
 
-    # Approved without assignee — picker present, no initial_user, correct placeholder
+    # Approved without assignee — picker present, no initial_option, correct placeholder
     req_no_buyer = {"item_description": "Laser diode", "vendor": "Thorlabs", "total_price": 120.0}
     blks2 = blocks.build_request_blocks("approved", req_no_buyer)
     all_elements2 = [e for b in blks2 if b.get("type") == "actions" for e in b.get("elements", [])]
-    pickers2 = [e for e in all_elements2 if e.get("type") == "users_select"]
+    pickers2 = [e for e in all_elements2 if e.get("action_id") == config.ACTION_REQ_ASSIGN_SELECT]
     assert len(pickers2) == 1
-    assert "initial_user" not in pickers2[0]
+    assert pickers2[0]["type"] == "static_select"
+    assert "initial_option" not in pickers2[0]
     assert pickers2[0]["placeholder"]["text"] == "Assign a buyer"
 
     # No picker in processed, confirmed, delivered
     for state in ("processed", "confirmed", "delivered"):
         blks_s = blocks.build_request_blocks(state, req_with_buyer)
         all_el = [e for b in blks_s if b.get("type") == "actions" for e in b.get("elements", [])]
-        assert not any(e.get("type") == "users_select" for e in all_el), (
+        assert not any(e.get("action_id") == config.ACTION_REQ_ASSIGN_SELECT for e in all_el), (
             f"Unexpected picker in state={state}"
         )
 
