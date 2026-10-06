@@ -515,78 +515,20 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-10-05 18:40. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-10-06 04:53. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: attached BOMs and quotes (81–86), per-stage nudges and expected delivery (87–96)
+# Active work: the buyer picker lists only buyers (98)
 
-This is a **pointer**, not the work. The work is the two ticket sets below. A ticket never
-starts before every ticket in its `Blocked by:` line is `done`. The two sets are independent of
-each other.
+This is a **pointer**, not the work. The work is the ticket below.
 
-- Specs: `.scratch/attached-boms-and-quotes/spec.md` and
-  `.scratch/nudge-settings-and-expected-delivery/spec.md` (both `ready-for-agent`)
-- **Read before any ticket in the uploads set:** `docs/adr/0012-attached-boms-and-quotes-are-carried-not-read.md`
-- **Read before any ticket in the nudge set:** `docs/adr/0013-nudge-settings-per-stage-and-expected-delivery.md`
-  (amends ADR 0011 decisions 3–4 and ADR 0010 decision 4)
-- Also binding: `docs/adr/0006-…`, `docs/adr/0008-…`, `docs/adr/0010-…`, `docs/adr/0011-…`, `docs/adr/0001-tests-first-and-no-muted-failures.md`
-- Glossary: `CONTEXT.md` — **BOM** (made vs. attached), **Quote**, **Nudge** (rewritten),
-  **Nudge card**, **Expected delivery** (new); **The request log** (now starts at posting);
-  **DM card** (requester may press Delivered)
-- Tickets: `.scratch/attached-boms-and-quotes/issues/81…86`,
-  `.scratch/nudge-settings-and-expected-delivery/issues/87…97`
+- Ticket: `.scratch/buyer-picker-lists-buyers/issues/98-buyer-picker-lists-only-buyers.md` (`ready-for-agent`, no blockers)
+- **Read before starting:** `docs/adr/0014-the-buyer-picker-lists-only-buyers.md` (amends ADR 0005 decision 1 and ADR 0011 decision 2)
+- Also binding: `docs/adr/0001-tests-first-and-no-muted-failures.md`
+- Glossary: `CONTEXT.md` — **Buyer picker** (new), **Button** (updated)
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Next:** 81, 87, 89 and 93 are unblocked and independent. Start with **81** (the upload feature
-people asked for first) and **87** (every other nudge ticket builds on its settings file); 89 and
-93 can run in parallel. Still open from earlier sets: **71** (`ready-for-developer` — not for an
-agent); 49/50 are marked `in-progress` from an earlier run.
-
-## Dependency order
-
-```
-Uploads:  81 → 82 → 83 → 84
-                     83 → 85 → 86
-Nudges:   87 → 88 ─┐
-          89 ──────┴→ 90 ─┐
-          89 → 91 ────────┴→ 92
-          87 + 93 → 94
-          87 → 95
-          87 + 89 → 96
-97  ready-for-developer — deploy and try both features; blocked by 81–96. Not for an agent.
-```
-
-Edges in words: 82←81; 83←82; 84←83; 85←83; 86←85; 88←87; 90←88,89; 91←89; 92←90,91;
-94←87,93; 95←87; 96←87,89; 97←all.
-
-## Requirements that are not preferences
-
-- An attached BOM or quote is **never opened** by the bot: no total check, no parsing, no
-  re-layout. The archived BOM must be byte-identical to what was attached.
-- Attachments live in the card's Slack **metadata**, never in a button value (2 000-char cap).
-  After approval, quotes are a `quote_count`; names are derived with `bom.quote_filename`.
-- A file that fails to fetch is never silent: a thread line naming it **and** a DM to the
-  requester (at posting), or an admin alert (at approval). Approval never fails over a file.
-- The one-vendor and attach-or-paste rules live in one pure function, `bom.attachment_errors`,
-  used by all three forms.
-- `nudge.run_nudges` takes the date as an argument and never reads the clock; new pure helpers
-  (`is_due`, `parse_sheet_date`, `delivered_due`) carry the schedule so it can be tested
-  without waiting days. Form handlers read today only through `app._today()`.
-- Nudge settings live only in `nudge_settings.json` (gitignored) — not in `roster.json`, not in
-  `requests.json`. A missing file means defaults; a corrupt one means defaults plus an admin alert.
-- Request-log entries are matched by **card**, not thread — a thread can hold several posted cards.
-- The requester may press **Delivered only**; Mark Processed and Mark Confirmed stay as they are.
-- The nudge card is a view: its Delivered button runs the same delivery handler as Mark Delivered.
-- Tests drive the real handlers with a fake Slack client and real temp files; asserting a mock
-  was called is not a test.
-
-## What these sets deliberately do not do
-
-- No BOM template, header matching, or multi-vendor detection in a sheet.
-- No changing attachments after approval.
-- No snooze, "stop after", or escalation step for any nudge; no expected date for any stage but
-  delivered; no configurable run time; no holidays.
-- No workbook column for expected delivery or the buyer.
-- No backfill of requests posted or approved before the deploy.
+**Next:** 98. The earlier sets (81–86 uploads, 87–97 nudges) are all `done`. Still open from
+earlier sets: **71** (`ready-for-developer` — not for an agent).
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol

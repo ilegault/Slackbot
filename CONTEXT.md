@@ -238,10 +238,17 @@ button clicks carry `channel.id`, `container.message_ts` and
 
 **Button** — Approve, Mark Processed, Mark Confirmed, Mark Delivered, Decline,
 Cancel. Things with a target, rendered on the request message. **Assignment has
-two inputs**: a `users_select` picker on the posted card, and an `@`-mention in the
-approval text. Both resolve to one assignment function; if both are given, the
+two inputs**: the **buyer picker** on the posted, approved and DM cards, and an
+`@`-mention in the approval text. Both resolve to one assignment function; if both are given, the
 mention wins. ADR 0005 corrects ADR 0004's claim that a button cannot carry a
 person — it can, and the earlier reasoning was never checked.
+
+**Buyer picker** — the "Assign a buyer" dropdown on the posted card, the approved
+card and the DM card. Lists only buyers who have a roster name, by name, A–Z; filled from
+the roster each time the card is drawn, so a newly added buyer shows up the next time that
+card is redrawn. Pre-selects the current buyer if they are still listed. Left off the card
+when no buyer has a name. A Slack `static_select`, not a `users_select` — the latter lists
+the whole workspace and cannot be filtered (ADR 0014).
 
 **Keyword** — `@Purchasing <word>`. Two kinds: **admin ops** (`restart`, `logs`,
 `update`, `health`, `queue`, `promote-admin`, `add-approver`, `remove-approver`,
