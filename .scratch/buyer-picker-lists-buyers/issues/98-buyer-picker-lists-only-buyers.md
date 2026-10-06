@@ -1,6 +1,6 @@
 # 98: The buyer picker lists only buyers
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Claimed-by:** box
 
@@ -123,3 +123,5 @@ pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Comments
+
+No split: single vertical slice across blocks and app sharing clean_roster fixtures and test seam.
