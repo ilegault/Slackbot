@@ -5,7 +5,7 @@ WHY THIS EXISTS:
 Constructs Slack Block Kit dictionaries and view payloads for App Home, modals,
 and message cards. Pure presentation layer that takes dictionaries/metadata
 and returns list/dict Block Kit structures.
-ADR 0005: The posted card carries a buyer picker (users_select) in the same
+ADR 0005: The posted card carries a buyer picker (static_select of buyers, ADR 0014) in the same
 actions block as Approve and Decline, allowing approvers to pick a buyer directly
 without typing a mention.
 Ticket 22: App Home renders a live roster profile panel (build_app_home_view)
@@ -517,6 +517,58 @@ def build_dm_help_blocks() -> list[dict]:
     return blks
 
 
+def buyer_picker_options(buyer_ids: list[str], names: dict[str, str]) -> list[dict]:
+    """Build static_select options for buyers who have a non-empty roster name.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0014 decision 1: The buyer picker lists only buyers who have a roster name.
+    A buyer with no name cannot be assigned anyway, and offering non-buyers leads
+    to refusals. Duplicate IDs in buyer_ids are dropped, and options are sorted by
+    name.casefold(). Pure function with no I/O or Slack calls.
+    """
+    seen: set[str] = set()
+    options: list[dict] = []
+    for b_id in buyer_ids:
+        if b_id in seen:
+            continue
+        seen.add(b_id)
+        name = names.get(b_id)
+        if isinstance(name, str) and name.strip():
+            options.append({
+                "text": {"type": "plain_text", "text": name.strip()},
+                "value": b_id,
+            })
+    options.sort(key=lambda opt: opt["text"]["text"].casefold())
+    return options
+
+
+def _buyer_picker(action_id: str, placeholder: str, assignee_id: str | None) -> dict | None:
+    """Build a static_select buyer picker block element, or None if no buyers are named.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0014 decisions 1–4: Lists only buyers who have a roster name, reads the live
+    roster when the card is drawn, pre-selects the assignee if still in the options,
+    and returns None when no named buyers exist so cards are not rejected by Slack.
+    """
+    options = buyer_picker_options(roster.get_buyers(), roster.get_requesters())
+    if not options:
+        return None
+    picker: dict = {
+        "type": "static_select",
+        "action_id": action_id,
+        "placeholder": {"type": "plain_text", "text": placeholder},
+        "options": options,
+    }
+    if assignee_id:
+        for opt in options:
+            if opt["value"] == assignee_id:
+                picker["initial_option"] = opt
+                break
+    return picker
+
+
 def build_request_blocks(
     state: str,
     request: dict,
@@ -762,26 +814,24 @@ def build_request_blocks(
                     "action_id": config.ACTION_REQ_EDIT,
                     "value": btn_value,
                 })
-            picker_elem = {
-                "type": "users_select",
-                "action_id": config.ACTION_REQ_ASSIGN_SELECT,
-                "placeholder": {"type": "plain_text", "text": "Assign a buyer (optional)"},
-            }
-            if assignee_id:
-                picker_elem["initial_user"] = assignee_id
-            elements.append(picker_elem)
+            picker = _buyer_picker(
+                config.ACTION_REQ_ASSIGN_SELECT,
+                "Assign a buyer (optional)",
+                assignee_id,
+            )
+            if picker is not None:
+                elements.append(picker)
         elif state == "approved":
-            # ADR 0011 decision 2: buyer picker on the approved card lets any buyer move the
-            # request without a typed keyword.  Disappears at Processed so nobody can move a
+            # ADR 0011 decision 2 / ADR 0014: buyer picker on the approved card lets any buyer move
+            # the request without a typed keyword.  Disappears at Processed so nobody can move a
             # request that has already gone to purchasing.
-            picker_elem = {
-                "type": "users_select",
-                "action_id": config.ACTION_REQ_ASSIGN_SELECT,
-                "placeholder": {"type": "plain_text", "text": "Assign a buyer"},
-            }
-            if assignee_id:
-                picker_elem["initial_user"] = assignee_id
-            elements.append(picker_elem)
+            picker = _buyer_picker(
+                config.ACTION_REQ_ASSIGN_SELECT,
+                "Assign a buyer",
+                assignee_id,
+            )
+            if picker is not None:
+                elements.append(picker)
         blocks.append({
             "type": "actions",
             "elements": elements,
@@ -989,19 +1039,18 @@ def build_dm_card_blocks(
         if state == "confirmed":
             elements.append(_expected_delivery_button(thread_channel, thread_ts, card_ts))
         if state == "approved":
-            # ADR 0011 decision 2 / Ticket 74: DM card carries buyer picker while approved.
-            # Slack does not allow value on users_select, so the pointer is in block_id.
-            picker_elem = {
-                "type": "users_select",
-                "action_id": config.ACTION_DM_REQ_ASSIGN_SELECT,
-                "placeholder": {"type": "plain_text", "text": "Assign a buyer"},
-            }
+            # ADR 0011 decision 2 / Ticket 74 / ADR 0014: DM card carries buyer picker while approved.
+            # Pointer to the thread card remains in block_id.
             assignee_id = request.get("assignee_id")
             if not assignee_id and isinstance(parsed, dict):
                 assignee_id = parsed.get("assignee_id")
-            if assignee_id:
-                picker_elem["initial_user"] = assignee_id
-            elements.append(picker_elem)
+            picker = _buyer_picker(
+                config.ACTION_DM_REQ_ASSIGN_SELECT,
+                "Assign a buyer",
+                assignee_id,
+            )
+            if picker is not None:
+                elements.append(picker)
 
         actions_block = {
             "type": "actions",

@@ -123,9 +123,9 @@ def _make_dm_picker_body(
 # Criterion 1: The DM card has the picker only while approved
 # ---------------------------------------------------------------------------
 
-def test_dm_card_has_picker_only_while_approved():
-    """build_dm_card_blocks("approved", …) has a users_select with
-    action_id == "dm_req_assign_select" and initial_user equal to the assignee,
+def test_dm_card_has_picker_only_while_approved(clean_roster):
+    """build_dm_card_blocks("approved", …) has a static_select with
+    action_id == "dm_req_assign_select" and initial_option equal to the assignee,
     and its actions block's block_id parses as JSON with thread_ts and card_ts;
     for processed there is none.
     """
@@ -154,16 +154,16 @@ def test_dm_card_has_picker_only_while_approved():
     assert block_id_data.get("thread_ts") == "1000.0"
     assert block_id_data.get("card_ts") == "1000.1"
 
-    # Must contain users_select element
-    selects = [e for e in actions_blk.get("elements", []) if e.get("type") == "users_select"]
-    assert len(selects) == 1, "Approved DM card actions block must contain users_select"
-    picker = selects[0]
+    # Must contain picker element
     expected_action_id = getattr(config, "ACTION_DM_REQ_ASSIGN_SELECT", "dm_req_assign_select")
-    assert picker.get("action_id") == expected_action_id
-    assert picker.get("initial_user") == "U_BUYER"
+    selects = [e for e in actions_blk.get("elements", []) if e.get("action_id") == expected_action_id]
+    assert len(selects) == 1, "Approved DM card actions block must contain buyer picker"
+    picker = selects[0]
+    assert picker.get("type") == "static_select"
+    assert picker.get("initial_option", {}).get("value") == "U_BUYER"
     assert picker.get("placeholder", {}).get("text") == "Assign a buyer"
 
-    # For unassigned request, no initial_user
+    # For unassigned request, no initial_option
     req_unassigned = {
         "item_description": "Widget",
         "vendor": "Acme",
@@ -177,11 +177,12 @@ def test_dm_card_has_picker_only_while_approved():
         card_ts="1000.1",
     )
     unassigned_actions = [b for b in blks_unassigned if b.get("type") == "actions"][0]
-    unassigned_picker = [e for e in unassigned_actions.get("elements", []) if e.get("type") == "users_select"][0]
-    assert "initial_user" not in unassigned_picker
+    unassigned_picker = [e for e in unassigned_actions.get("elements", []) if e.get("action_id") == expected_action_id][0]
+    assert unassigned_picker.get("type") == "static_select"
+    assert "initial_option" not in unassigned_picker
     assert unassigned_picker.get("placeholder", {}).get("text") == "Assign a buyer"
 
-    # For processed: no users_select
+    # For processed: no buyer picker
     blks_proc = blocks.build_dm_card_blocks(
         state="processed",
         request=req_assigned,
@@ -191,7 +192,7 @@ def test_dm_card_has_picker_only_while_approved():
     )
     for b in blks_proc:
         for el in b.get("elements", []):
-            assert el.get("type") != "users_select", "processed state must not have a users_select picker"
+            assert el.get("action_id") != expected_action_id, "processed state must not have a buyer picker"
 
 
 # ---------------------------------------------------------------------------

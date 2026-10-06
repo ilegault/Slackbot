@@ -893,9 +893,24 @@ def handle_approve_new_vendor_action(ack, body, respond, client):
 
 # --- Lifecycle Interactive Action Handlers (T2) -------------------------------
 
+def _picked_buyer_id(action: dict) -> str | None:
+    """Extract selected buyer ID from a static_select or legacy users_select action payload.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0014 decision 5: cards drawn after ticket 98 use static_select and carry
+    action['selected_option']['value'], while cards already posted in Slack still
+    send action['selected_user'] until redrawn. Both shapes must resolve.
+    """
+    sel_opt = action.get("selected_option")
+    if isinstance(sel_opt, dict) and sel_opt.get("value"):
+        return sel_opt.get("value")
+    return action.get("selected_user")
+
+
 @app.action("req_assign_select")
 def handle_req_assign_select_action(ack, body, respond, client):
-    """Handle selecting a buyer from the users_select picker on the posted or approved card.
+    """Handle selecting a buyer from the buyer picker (static_select of buyers, ADR 0014) on the posted or approved card.
 
     WHY THIS EXISTS:
     ----------------
@@ -914,7 +929,7 @@ def handle_req_assign_select_action(ack, body, respond, client):
     thread_ts = body.get("container", {}).get("thread_ts") or msg_ts
 
     action = body.get("actions", [{}])[0]
-    selected_user = action.get("selected_user")
+    selected_user = _picked_buyer_id(action)
 
     # Recover the request payload from any button in the card whose value carries a "request"
     # key.  The posted card carries it in the sibling Approve button; the approved card has no
@@ -1834,7 +1849,7 @@ def handle_nudge_delivered_action(ack, body, respond, client):
 
 @app.action(config.ACTION_DM_REQ_ASSIGN_SELECT)
 def handle_dm_assign_select_action(ack, body, respond, client):
-    """Handle selecting a buyer from the users_select picker on the buyer's DM card (Ticket 74).
+    """Handle selecting a buyer from the buyer picker (static_select of buyers, ADR 0014) on the buyer's DM card (Ticket 74).
 
     WHY THIS EXISTS:
     ----------------
@@ -1847,7 +1862,7 @@ def handle_dm_assign_select_action(ack, body, respond, client):
     ack()
     user_id = body.get("user", {}).get("id")
     action = body.get("actions", [{}])[0]
-    selected_user = action.get("selected_user")
+    selected_user = _picked_buyer_id(action)
     val_data = action.get("block_id") or "{}"
     if isinstance(val_data, str):
         try:

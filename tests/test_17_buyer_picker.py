@@ -142,16 +142,18 @@ def test_build_request_blocks_posted_renders_users_select_and_approved_does_not(
 
     assert len(approve_btns) == 1, "Must contain req_approve button"
     assert len(picker_elems) == 1, "Must contain req_assign_select picker in same actions block"
-    assert picker_elems[0].get("type") == "users_select"
+    assert picker_elems[0].get("type") == "static_select"
     assert picker_elems[0].get("placeholder", {}).get("text") == "Assign a buyer (optional)"
 
-    # Approved state DOES carry the picker (ADR 0011 decision 2)
+    # Approved state DOES carry the picker (ADR 0011 decision 2, ADR 0014)
     approved_blks = blocks.build_request_blocks("approved", sample_req)
     approved_action_blocks = [b for b in approved_blks if b.get("type") == "actions"]
     assert len(approved_action_blocks) == 1
     approved_elems = approved_action_blocks[0].get("elements", [])
     approved_pickers = [e for e in approved_elems if e.get("action_id") == "req_assign_select"]
     assert len(approved_pickers) == 1, "Approved state must carry the buyer picker (ADR 0011 decision 2)"
+    assert approved_pickers[0].get("type") == "static_select"
+    assert approved_pickers[0].get("placeholder", {}).get("text") == "Assign a buyer"
 
 
 def test_users_select_initial_user_when_assignee_present():
@@ -164,7 +166,8 @@ def test_users_select_initial_user_when_assignee_present():
 
     action_blocks = [b for b in posted_blks if b.get("type") == "actions"]
     picker = [e for e in action_blocks[0]["elements"] if e.get("action_id") == "req_assign_select"][0]
-    assert picker.get("initial_user") == "U_DYLAN"
+    assert picker.get("type") == "static_select"
+    assert picker.get("initial_option", {}).get("value") == "U_DYLAN"
 
 
 # 2. Handler recovers request payload from sibling Approve button's value (no state file)
@@ -237,9 +240,10 @@ def test_selecting_buyer_rerenders_card_with_assignee_line_and_no_excel_write(mo
     assert val_data["request"]["assignee_id"] == "U_DYLAN"
     assert val_data["request"]["assignee"] == "Dylan"
 
-    # Verify picker maintains initial_user
+    # Verify picker maintains initial_option
     picker = [e for e in action_block["elements"] if e.get("action_id") == "req_assign_select"][0]
-    assert picker.get("initial_user") == "U_DYLAN"
+    assert picker.get("type") == "static_select"
+    assert picker.get("initial_option", {}).get("value") == "U_DYLAN"
 
 
 # 4. Picking a non-buyer leaves request unassigned, posts refusal, subsequent Approve writes row
