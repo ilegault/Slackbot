@@ -1,6 +1,6 @@
 # 97: Deploy and try uploads and nudges
 
-**Status:** ready-for-developer
+**Status:** done
 
 **Runner:** developer
 
@@ -18,11 +18,11 @@ then checks the two features in real Slack.
 
 ## Acceptance criteria
 
-- [ ] On the server, run `@Purchasing update` and confirm the bot restarts cleanly (health screen shows all storage paths OK).
-- [ ] In Slack's app settings, confirm the bot still has the `files:read` and `files:write` scopes (file fields need `files:read`).
-- [ ] Start `/new-purchase` with a real BOM `.xlsx` (one-vendor box ticked) and two quote PDFs: the card shows `BOM attached` and `Quotes: 2`, and the files appear in the thread.
-- [ ] Approve it with a buyer named: the BOM and quotes land in the BOMs and Quotes folders under the `NNNN_` names, and in the buyer's DM.
-- [ ] Open App Home as an admin: **Edit nudge settings** is there, the **Nudges** section matches the settings; set the delivered nudge's interval to the lab's choice (2–3 weeks) and decide whether to turn on the approved nudge.
+- [x] On the server, run `@Purchasing update` and confirm the bot restarts cleanly (health screen shows all storage paths OK).
+- [x] In Slack's app settings, confirm the bot still has the `files:read` and `files:write` scopes (file fields need `files:read`).
+- [x] Start `/new-purchase` with a real BOM `.xlsx` (one-vendor box ticked) and two quote PDFs: the card shows `BOM attached` and `Quotes: 2`, and the files appear in the thread.
+- [x] Approve it with a buyer named: the BOM and quotes land in the BOMs and Quotes folders under the `NNNN_` names, and in the buyer's DM.
+- [x] Open App Home as an admin: **Edit nudge settings** is there, the **Nudges** section matches the settings; set the delivered nudge's interval to the lab's choice (2–3 weeks) and decide whether to turn on the approved nudge.
 
 ## Comments
 
