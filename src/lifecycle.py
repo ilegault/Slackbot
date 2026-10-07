@@ -51,6 +51,13 @@ Per Ticket 81 / ADR 0012:
   and passes them to build_request_blocks.
 - Attachment download failures alert both the thread and the requester via DM.
 
+Per Ticket 102 / ADR 0015 decisions 3 and 6:
+- Dropping an EPIF in a thread posts no card (and therefore no buttons and no superseding).
+  It validates the EPIF and posts a thread reply "📄 EPIF read: *{item}* — {vendor}, {price}. Waiting for approval."
+  or a validation problems reply and DM to the uploader.
+  The card appears when an approver types @Purchasing approved.
+  The request-log entry is created at approval.
+
 Per Ticket 33:
 - handle_epif_drop supersedes any posted card in the same thread from the same
   requester and vendor before posting the new card (ADR 0006 decision 9).
@@ -1214,7 +1221,7 @@ def handle_epif_processing(
 
 
 def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, file_obj: dict, event_ts: str):
-    """Handle an EPIF PDF dropped into a channel thread: parse and post with Approve button."""
+    """Handle an EPIF PDF dropped into a channel thread: parse, validate, and reply."""
     file_name = file_obj.get("name", "EPIF.pdf")
     log.info("Processing EPIF drop '%s' from user %s in channel %s (thread: %s)", file_name, user_id, channel, thread_ts)
 
@@ -1263,111 +1270,42 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
 
     requester = slack_io.resolve_requester(client, user_id)
 
-    # Build the payload where the PDF is parsed (ticket 04 requirement)
-    req_payload = {
-        "parsed": {
-            **parsed,
-            "date_of_purchase": (
-                parsed["date_of_purchase"].isoformat()
-                if hasattr(parsed.get("date_of_purchase"), "isoformat")
-                else (parsed.get("date_of_purchase") or None)
-            ),
-            "payment_method": parsed.get("payment_method") or "EPIF",
-        },
-        "requester": requester,
-        "user_id": user_id,
-        "is_pending_name": False,
-        "thread_ts": thread_ts,
-        "source": "epif",
-    }
+    problems = validators.validate(parsed, requester_name=requester)
+    if not problems:
+        price = parsed.get("total_price")
+        if isinstance(price, (int, float)):
+            price_str = f"${price:,.2f}"
+        elif price:
+            price_str = str(price)
+            if not price_str.startswith("$"):
+                price_str = f"${price_str}"
+        else:
+            price_str = "$0.00"
 
-    # Supersede any posted card in this thread from the same requester and vendor
-    # before posting the new card (ADR 0006 decision 9).  Approved or later cards
-    # are never touched — a real purchase must not be hidden by a stray upload.
-    now_str = datetime.now().strftime("%m/%d/%y %H:%M")
-    vendor_for_scan = parsed.get("vendor", "").strip().lower()
-    stale_cards = slack_io.find_posted_cards_in_thread(
-        client, channel, thread_ts, user_id=user_id, vendor=vendor_for_scan,
-    )
-    for stale_ts, stale_req, stale_hist in stale_cards:
-        new_hist = list(stale_hist) + [f"Superseded by a newer EPIF on {now_str}"]
-        superseded_blks = blocks.build_request_blocks("superseded", stale_req, history=new_hist)
-        try:
-            client.chat_update(
-                channel=channel,
-                ts=stale_ts,
-                text="Purchase Request (Superseded)",
-                blocks=superseded_blks,
-            )
-            log.info("Superseded posted card at %s in %s (thread: %s)", stale_ts, channel, thread_ts)
-            _flag_card_entry(client, channel, stale_ts, new_hist[-1], superseded=True)
-        except Exception as e:
-            log.warning("Failed to supersede card at %s: %s", stale_ts, e)
-
-    req_blocks = blocks.build_request_blocks("posted", req_payload)
-
-    display_name = requester or f"<@{user_id}>"
-    price = parsed.get("total_price")
-    if isinstance(price, (int, float)):
-        price_str = f"${price:,.2f}"
-    elif price:
-        price_str = str(price)
-        if not price_str.startswith("$"):
-            price_str = f"${price_str}"
-    else:
-        price_str = "$0.00"
-
-    pay_method = req_payload["parsed"].get("payment_method") or "EPIF"
-
-    link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
-    summary_text = (
-        f"🛒 *New Purchase Request from {display_name}:*\n"
-        f"• *Item:* {parsed.get('item_description', '')}\n"
-        f"• *Total:* {price_str}\n"
-        f"• *Vendor:* {parsed.get('vendor', '')} ({pay_method})\n"
-        f"• *Category:* {parsed.get('category', '')}\n"
-        f"• *Project ID / Fund:* {parsed.get('project_id', '')} (Fund {parsed.get('fund', '')})\n"
-        f"• *Delivery Room:* {parsed.get('delivery_room', '')}\n"
-        f"• *Purpose:* {parsed.get('purpose', '')}"
-        f"{link_line}\n\n"
-        f"Use the buttons below to approve and track this request."
-    )
-
-    try:
-        post_resp = client.chat_postMessage(
+        item = parsed.get("item_description", "")
+        vendor = parsed.get("vendor", "")
+        reply_text = f"📄 EPIF read: *{item}* — {vendor}, {price_str}. Waiting for approval."
+        client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text=summary_text,
-            blocks=req_blocks,
-            metadata={
-                "event_type": "purchase_request",
-                "event_payload": req_payload,
-            },
+            text=reply_text,
         )
-        log.info(
-            "Posted purchase request card with Approve button for %s in %s (thread: %s)",
-            file_name, channel, thread_ts,
-        )
-        posted_ts = post_resp.get("ts") if hasattr(post_resp, "get") else None
-        _log_posted_card(
-            client, channel=channel, thread_ts=thread_ts,
-            card_ts=posted_ts if isinstance(posted_ts, str) else None,
-            requester=requester or f"<@{user_id}>", requester_id=user_id,
-        )
-        log.info("drop exit: card posted")
-    except Exception as e:
-        log.error("Failed to post purchase request card to channel %s: %s", channel, e)
-        slack_io.alert_admins(
-            client,
-            text_rules.format_card_failure_alert(
-                step="post the approval card",
-                channel=channel,
-                thread_ts=thread_ts,
-                file_name=file_name,
-                error=str(e),
-            ),
-        )
-        log.info("drop exit: card post failed")
+        log.info("drop exit: epif read reply posted")
+        return
+
+    lines = [f"📄 I read *{file_name}* but it can't be approved yet:"]
+    for problem in problems:
+        lines.append(f"  • {problem}")
+    problem_text = "\n".join(lines)
+
+    slack_io.log_rejection(user_id, file_name, problems, requester_name=requester)
+    client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=problem_text,
+    )
+    slack_io.tell(client, user_id, problem_text)
+    log.info("drop exit: validation failed")
 
 
 def handle_assign(

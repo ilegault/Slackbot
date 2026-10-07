@@ -1,6 +1,6 @@
 # 102: A dropped EPIF gets an "EPIF read" reply, not a card
 
-**Status:** in-progress
+**Status:** done
 
 **Claimed-by:** box
 
@@ -44,11 +44,11 @@ handling (the "epif"-in-name loud error and the silent ignore of other PDFs). Th
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_102_drop_reply_no_card.py`: dropping a valid EPIF (the real `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf` filled through `epif_filler.fill_epif`, or a faked `parse_epif` returning a valid dict) posts exactly one `chat_postMessage` with the exact `EPIF read` text and **no** `blocks` argument. `chat_update` is never called, and the request log (`store`) has no entry afterwards.
-- [ ] Dropping an EPIF whose parsed dict fails validation (e.g. blank vendor) posts the "can't be approved yet" reply with that problem's bullet, and DMs the uploader the same text. Assert the DM's `channel` is the uploader's id.
-- [ ] A thread with an older posted card from the same uploader and vendor: after a drop, `chat_update` is never called. The old card is left as it is.
-- [ ] End to end: drop an EPIF, then call the `@Purchasing approved` path (`handle_epif_processing` as the mention handler calls it). Exactly one card is posted, in the `approved` state, a row is written on the temp workbook, and the request log now has one entry with `approved_at` set. Use the `temp_workbook` and `sync_queue` fixtures.
-- [ ] `tests/test_onboarding_and_commands.py::test_pdf_request_walks_from_posted_to_delivered_with_excel_writes` is rewritten **in place, same name**: drop → keyword approve → processed → confirmed → delivered, with the same Excel assertions as today.
+- [x] New `tests/test_102_drop_reply_no_card.py`: dropping a valid EPIF (the real `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf` filled through `epif_filler.fill_epif`, or a faked `parse_epif` returning a valid dict) posts exactly one `chat_postMessage` with the exact `EPIF read` text and **no** `blocks` argument. `chat_update` is never called, and the request log (`store`) has no entry afterwards.
+- [x] Dropping an EPIF whose parsed dict fails validation (e.g. blank vendor) posts the "can't be approved yet" reply with that problem's bullet, and DMs the uploader the same text. Assert the DM's `channel` is the uploader's id.
+- [x] A thread with an older posted card from the same uploader and vendor: after a drop, `chat_update` is never called. The old card is left as it is.
+- [x] End to end: drop an EPIF, then call the `@Purchasing approved` path (`handle_epif_processing` as the mention handler calls it). Exactly one card is posted, in the `approved` state, a row is written on the temp workbook, and the request log now has one entry with `approved_at` set. Use the `temp_workbook` and `sync_queue` fixtures.
+- [x] `tests/test_onboarding_and_commands.py::test_pdf_request_walks_from_posted_to_delivered_with_excel_writes` is rewritten **in place, same name**: drop → keyword approve → processed → confirmed → delivered, with the same Excel assertions as today.
 
 May fake: the Slack client, downloads, `resolve_requester`. Must be real: `handle_epif_drop`, `validators.validate`, the store on its isolated temp path (`conftest.isolate_store_path`), the workbook write on a temp copy.
 
@@ -65,5 +65,10 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 
 ## Comments
 
-Progress (2026-10-07 12:53): Claimed ticket. Split decision: do not split (vertical slice across lifecycle and tests).
-Next: write tests in tests/test_102_drop_reply_no_card.py (test-first).
+Completed (2026-10-07): Implemented dropped EPIF reply instead of card per Ticket 102 and ADR 0015 / ADR 0010.
+- Criterion 1: dropping valid EPIF posts plain "📄 EPIF read: ..." text reply with no blocks, no chat_update, no store entry. Verified by `tests/test_102_drop_reply_no_card.py::test_valid_epif_drop_posts_reply_no_card_and_no_store_entry`.
+- Criterion 2: dropping invalid EPIF posts problem bullets in thread and DMs uploader. Verified by `tests/test_102_drop_reply_no_card.py::test_invalid_epif_drop_posts_problem_reply_and_dms_uploader`.
+- Criterion 3: older posted card in thread left untouched on drop, no chat_update. Verified by `tests/test_102_drop_reply_no_card.py::test_drop_leaves_older_posted_card_untouched_no_chat_update`.
+- Criterion 4: end-to-end drop followed by `@Purchasing approved` posts approved card, writes Excel row, records approved_at in request log. Verified by `tests/test_102_drop_reply_no_card.py::test_drop_then_keyword_approval_end_to_end`.
+- Criterion 5: `test_pdf_request_walks_from_posted_to_delivered_with_excel_writes` rewritten in-place (drop -> keyword approve -> processed -> confirmed -> delivered). Verified by `tests/test_onboarding_and_commands.py::test_pdf_request_walks_from_posted_to_delivered_with_excel_writes`.
+- Deleted 13 superseded tests across test suite.

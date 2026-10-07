@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 
 import openpyxl
 
-from src import app, blocks, config, lifecycle, slack_io
+from src import app, blocks, config, slack_io
 
 
 def _sample_epif_card_payload(
@@ -538,34 +538,6 @@ def test_reading_card_payload_multi_card_thread_returns_clicked_card_not_newest(
 # ---------------------------------------------------------------------------
 # 12. Dropped EPIF sets source='epif'
 # ---------------------------------------------------------------------------
-
-def test_dropped_epif_sets_source_epif(monkeypatch):
-    """Verify handle_epif_drop marks card metadata with source='epif'."""
-    client = MagicMock()
-    file_obj = {"name": "test.pdf", "url_private_download": "https://example.com/test.pdf"}
-
-    monkeypatch.setattr(lifecycle.slack_io, "download", lambda f: b"%PDF-1.4 dummy")
-    dummy_parsed = {
-        "item_description": "Widgets",
-        "total_price": 50.0,
-        "vendor": "Acme",
-        "payment_method": "EPIF",
-        "category": "Research/Lab Supplies (3105)",
-        "project_id": "PG000025831",
-        "fund": "133",
-        "delivery_room": "ERB 212",
-        "purpose": "Testing",
-        "date_of_purchase": None,
-    }
-    monkeypatch.setattr(lifecycle.epif_parser, "parse_epif", lambda content: dummy_parsed)
-    monkeypatch.setattr(lifecycle.slack_io, "resolve_requester", lambda c, uid: "Isaac")
-
-    say = MagicMock()
-    lifecycle.handle_epif_drop(client, say, "C_PURCHASING", "1000.1000", "U_ISAAC", file_obj, "1000.1000")
-
-    client.chat_postMessage.assert_called_once()
-    posted_meta = client.chat_postMessage.call_args[1]["metadata"]
-    assert posted_meta["event_payload"]["source"] == "epif"
 
 
 # ---------------------------------------------------------------------------
