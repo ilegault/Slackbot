@@ -431,8 +431,9 @@ def test_handle_epif_processing_resolution_order(monkeypatch):
     assert captured_build_rows[-1] == "Direct File Item"
     assert downloaded_files[-1] == "EPIF_direct.pdf"
 
-    # 2. PDF in thread beats posted_payload
-    monkeypatch.setattr(slack_io, "find_epif_in_thread", lambda cl, ch, ts: ({"name": "EPIF_thread.pdf"}, "U_REQ"))
+    # 2. posted_payload beats PDF in thread (Ticket 99 / ADR 0015)
+    find_epif_mock = MagicMock(return_value=({"name": "EPIF_thread.pdf"}, "U_REQ"))
+    monkeypatch.setattr(slack_io, "find_epif_in_thread", find_epif_mock)
     lifecycle.handle_epif_processing(
         client=client,
         say=say,
@@ -442,8 +443,8 @@ def test_handle_epif_processing_resolution_order(monkeypatch):
         event_ts="100.1",
         posted_payload=dummy_payload,
     )
-    assert captured_build_rows[-1] == "Direct File Item"  # parse_epif mock returns "Direct File Item"
-    assert downloaded_files[-1] == "EPIF_thread.pdf"
+    assert captured_build_rows[-1] == "Payload Item"
+    find_epif_mock.assert_not_called()
 
     # 3. posted_payload beats metadata lookup
     monkeypatch.setattr(slack_io, "find_epif_in_thread", lambda cl, ch, ts: (None, None))
@@ -528,3 +529,82 @@ def test_handle_req_approve_action_passes_posted_payload(monkeypatch):
     ack.assert_called_once()
     assert passed_args.get("approver") == "U_CHARLIE"
     assert passed_args.get("posted_payload") == req_data
+
+
+def test_epif_source_payload_approves_from_thread_pdf(monkeypatch):
+    """AC: A payload with source == 'epif' and a thread holding an EPIF still approves from the thread PDF."""
+    client = MagicMock()
+    say = MagicMock()
+
+    downloaded_files = []
+
+    def mock_download(file_obj):
+        downloaded_files.append(file_obj.get("name"))
+        return b"%PDF-1.4 sample content"
+
+    monkeypatch.setattr(slack_io, "download", mock_download)
+    monkeypatch.setattr(
+        epif_parser,
+        "parse_epif",
+        lambda pdf_bytes: {
+            "item_description": "Thread PDF Item",
+            "total_price": 75.0,
+            "vendor": "V_THREAD",
+            "category": "Research/Lab Supplies (3105)",
+            "category_error": None,
+            "project_id": "PG000025831",
+            "fund": "133",
+            "delivery_room": "ERB 212",
+            "purpose": "Test thread pdf",
+            "date_of_purchase": datetime.date(2026, 9, 17),
+            "payment_method": "P-card",
+            "vendor_contact_email": "orders@vthread.com",
+        },
+    )
+
+    captured_build_rows = []
+    monkeypatch.setattr(log_writer, "build_row", lambda p, r: captured_build_rows.append(p["item_description"]))
+    monkeypatch.setattr(log_writer, "append_row", lambda row, path=None: 1)
+    monkeypatch.setattr(log_writer, "save_epif", lambda b, f: f"EPIFs/{f}")
+    monkeypatch.setattr(slack_io, "find_card_in_thread", lambda *a, **kw: ({}, "100.0", [], "posted"))
+    monkeypatch.setattr(
+        queue_worker,
+        "submit_write_task",
+        lambda action_fn, channel, thread_ts, user_id, task_type, description, success_callback, failure_callback, client=None: success_callback(action_fn()),
+    )
+
+    legacy_epif_payload = {
+        "parsed": {
+            "item_description": "Payload Item",
+            "total_price": 50.0,
+            "vendor": "V2",
+            "category": "Research/Lab Supplies (3105)",
+            "category_error": None,
+            "project_id": "PG000025831",
+            "fund": "133",
+            "purpose": "Test payload",
+            "delivery_room": "ERB 212",
+            "date_of_purchase": "2026-09-17",
+            "payment_method": "P-card",
+            "vendor_contact_email": "orders@v2.com",
+        },
+        "requester": "Alex",
+        "source": "epif",
+    }
+
+    find_epif_mock = MagicMock(return_value=({"name": "EPIF_thread.pdf"}, "U_REQ"))
+    monkeypatch.setattr(slack_io, "find_epif_in_thread", find_epif_mock)
+
+    lifecycle.handle_epif_processing(
+        client=client,
+        say=say,
+        channel="C1",
+        thread_ts="100.0",
+        approver="U_CHARLIE",
+        event_ts="100.1",
+        posted_payload=legacy_epif_payload,
+    )
+    find_epif_mock.assert_called_once()
+    assert captured_build_rows[-1] == "Thread PDF Item"
+    assert downloaded_files[-1] == "EPIF_thread.pdf"
+
