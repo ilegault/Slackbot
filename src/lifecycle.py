@@ -20,8 +20,15 @@ Per Ticket 13:
 
 Per Ticket 14:
 - The Approve button uses posted_payload directly instead of re-reading Slack.
-  Resolution order in handle_epif_processing: direct_file -> PDF in thread -> posted_payload -> metadata lookup.
   Regex prose parsing is removed; the thread search is replaced by find_request_metadata_in_thread.
+
+Per Ticket 99 / ADR 0015:
+- The Approve button approves the card it is on without searching the thread for an EPIF.
+  When card_ts or posted_payload is given, find_epif_in_thread is not called and the request
+  comes from the card (Button Action Payload Path), avoiding false-positive parsing of attached
+  quotes as EPIFs.
+  Resolution order in handle_epif_processing: direct_file -> card/posted_payload (thread searched only for source == "epif") -> PDF in thread -> metadata lookup -> bare thread.
+
 
 Per Ticket 15:
 - PURCHASING_CHANNEL is read from config.py; silent fallback to ADMIN_ALERT_CHANNEL or DM is removed.
@@ -995,14 +1002,15 @@ def handle_epif_processing(
 ):
     """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving.
 
-    Per Ticket 14, resolution order is:
+    Per ADR 0015 / Ticket 99, resolution order is:
       1. direct_file
-      2. PDF attachment in thread
-      3. posted_payload (from Approve button value)
-      4. Slack metadata lookup via find_request_metadata_in_thread
-      5. Informational message that no request was found
+      2. card/posted_payload (thread searched only for source == "epif")
+      3. PDF in thread
+      4. metadata lookup via find_request_metadata_in_thread
+      5. bare thread
     """
     log.info("Processing EPIF/purchase request from approver/poster: %s in channel: %s", approver or direct_poster, channel)
+    card_payload = None
     if card_ts:
         card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
         if card_payload:
@@ -1011,7 +1019,9 @@ def handle_epif_processing(
                 shipping = float(card_payload.get("shipping") or 0.0)
             if attachments is None and card_payload.get("attachments"):
                 attachments = card_payload.get("attachments")
-    elif posted_payload:
+            if posted_payload is None:
+                posted_payload = card_payload
+    if posted_payload:
         if items is None and "items" in posted_payload:
             items = posted_payload.get("items")
             shipping = float(posted_payload.get("shipping") or 0.0)
@@ -1020,6 +1030,23 @@ def handle_epif_processing(
 
     if direct_file:
         file_obj, poster = direct_file, direct_poster
+    elif card_ts or posted_payload:
+        is_epif_source = False
+        if posted_payload and (
+            posted_payload.get("source") == "epif"
+            or (isinstance(posted_payload.get("parsed"), dict) and posted_payload["parsed"].get("source") == "epif")
+        ):
+            is_epif_source = True
+        elif card_payload and (
+            card_payload.get("source") == "epif"
+            or (isinstance(card_payload.get("parsed"), dict) and card_payload["parsed"].get("source") == "epif")
+        ):
+            is_epif_source = True
+
+        if is_epif_source:
+            file_obj, poster = slack_io.find_epif_in_thread(client, channel, thread_ts)
+        else:
+            file_obj, poster = None, None
     else:
         file_obj, poster = slack_io.find_epif_in_thread(client, channel, thread_ts)
 
