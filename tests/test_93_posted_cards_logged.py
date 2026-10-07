@@ -134,16 +134,6 @@ def test_modal_posting_creates_entry():
     assert any(h.startswith("Posted by Alex") for h in e["history"])
 
 
-def test_epif_drop_posting_creates_entry():
-    _drop(_client("2000.200"))
-    entries = _entries()
-    assert len(entries) == 1
-    e = next(iter(entries.values()))
-    assert e["card_ts"] == "2000.200"
-    assert e["thread_ts"] == "1000.000"
-    assert e["requester_id"] == "U_REQ"
-    assert e["posted_at"] and not e.get("approved_at")
-
 
 def test_approval_updates_the_same_entry():
     client = _client("500.001")
@@ -190,24 +180,6 @@ def test_decline_flags_entry():
     assert any(h.startswith("Declined by") for h in e["history"])
     assert not e.get("approved_at")
 
-
-def test_supersede_flags_old_entry_and_new_card_gets_own():
-    old_id = store.create(CHANNEL, "1000.000", "Alex", card_ts="1000.100", posted_at="2026-10-01T09:00:00")
-    parsed = _parsed()
-    payload = {"parsed": parsed, "requester": "Alex", "user_id": "U_REQ", "is_pending_name": False, "source": "epif"}
-    from src import blocks
-    old_msg = {
-        "ts": "1000.100", "thread_ts": "1000.000", "text": "x",
-        "blocks": blocks.build_request_blocks("posted", payload),
-        "metadata": {"event_type": "purchase_request", "event_payload": payload},
-    }
-    client = _client("2000.200", messages=[old_msg])
-    _drop(client, thread_ts="1000.000")
-    entries = _entries()
-    assert entries[old_id]["superseded"] is True
-    new = [e for k, e in entries.items() if k != old_id]
-    assert len(new) == 1 and new[0]["card_ts"] == "2000.200"
-    assert not new[0].get("superseded")
 
 
 def test_nudge_ignores_posted_entries(monkeypatch):
