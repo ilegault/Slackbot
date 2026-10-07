@@ -12,7 +12,7 @@ directory so tests running in parallel do not collide on the real requests.json 
 """
 import pytest
 
-from src import nudge_settings, store
+from src import nudge_settings, slack_io, store
 
 
 @pytest.fixture(autouse=True)
@@ -29,3 +29,10 @@ def isolate_nudge_settings_path(tmp_path, monkeypatch):
     settings_file = str(tmp_path / "nudge_settings.json")
     monkeypatch.setattr(nudge_settings, "SETTINGS_PATH", settings_file)
     yield settings_file
+
+
+@pytest.fixture(autouse=True)
+def reset_cached_bot_user_id(monkeypatch):
+    """Isolate slack_io._CACHED_BOT_USER_ID so bot user ID caching does not leak across tests."""
+    monkeypatch.setattr(slack_io, "_CACHED_BOT_USER_ID", None)
+    yield

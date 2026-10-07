@@ -44,6 +44,14 @@ Adds `get_card_by_ts(client, channel, thread_ts, card_ts)`: fetches a card messa
 thread by its timestamp and reads (request, history, state) from the actions button value,
 never from message metadata. Used by DM card stage actions to read thread state.
 
+Ticket 100 / ADR 0015 Decisions 2 and 4:
+Adds `bot_user_id(client)`: resolves and caches the bot's own Slack user ID.
+Adds `classify_thread_files(messages, bot_user_id, read_fields)`: purely classifies
+thread file attachments by role (epifs, boms, quotes, flattened_epifs).
+Updates `find_epif_in_thread(client, channel, thread_ts)` to use classify_thread_files,
+returning the newest real EPIF, or the newest flattened EPIF so the existing error can
+reach the uploader, or (None, None).
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -55,6 +63,7 @@ import logging
 import os
 import re
 from datetime import datetime
+from typing import Callable
 
 import requests
 
@@ -66,6 +75,30 @@ except ImportError:
     import roster
 
 log = logging.getLogger("p-bot")
+
+_CACHED_BOT_USER_ID: str | None = None
+
+
+def bot_user_id(client) -> str | None:
+    """Resolve and cache the bot's own Slack user ID.
+
+    WHY THIS EXISTS:
+    Ticket 100 / ADR 0015 Decision 4: Centralized bot user ID lookup cached across
+    calls so that find_epif_in_thread and classify_thread_files can reliably identify
+    and skip messages authored by the bot itself without repeated Slack auth_test calls.
+    """
+    global _CACHED_BOT_USER_ID
+    if _CACHED_BOT_USER_ID:
+        return _CACHED_BOT_USER_ID
+    if client:
+        try:
+            auth = client.auth_test()
+            if isinstance(auth, dict) and auth.get("user_id"):
+                _CACHED_BOT_USER_ID = str(auth.get("user_id"))
+                return _CACHED_BOT_USER_ID
+        except Exception as e:
+            log.warning("Failed to get bot_user_id from auth_test: %s", e)
+    return None
 
 
 def deny(respond, text: str) -> None:
@@ -192,14 +225,123 @@ def log_rejection(user_id: str | None, filename: str, problems: list, requester_
     log.warning("Form validation failed for '%s' (from %s): %s", filename, user_str, "; ".join(problems))
 
 
+def classify_thread_files(
+    messages: list[dict],
+    bot_user_id: str | None,
+    read_fields: Callable[[dict], dict],
+) -> dict[str, list[dict]]:
+    """Classify thread attachments into epifs, boms, quotes, and flattened_epifs.
+
+    WHY THIS EXISTS:
+    Ticket 100 / ADR 0015 Decisions 2 and 4: Classifies files posted in a thread purely
+    without a Slack client. Non-EPIF PDFs (quotes, invoices, W-9s) and bot-posted files
+    are never parsed as EPIFs, and quotes uploaded via @Purchasing quote are not saved twice.
+    """
+    result: dict[str, list[dict]] = {
+        "epifs": [],
+        "boms": [],
+        "quotes": [],
+        "flattened_epifs": [],
+    }
+
+    def _msg_ts(m: dict) -> float:
+        try:
+            return float(m.get("ts") or 0)
+        except (ValueError, TypeError):
+            return 0.0
+
+    sorted_messages = sorted(messages or [], key=_msg_ts)
+
+    for msg in sorted_messages:
+        # Rule 1: Skip if user == bot_user_id or it has a bot_id
+        if (bot_user_id and msg.get("user") == bot_user_id) or msg.get("bot_id"):
+            continue
+
+        # Rule 2: Skip if it is an @Purchasing quote command
+        text = msg.get("text") or ""
+        if bot_user_id and f"<@{bot_user_id}>" in text:
+            remainder = text.replace(f"<@{bot_user_id}>", "").strip().lower()
+            if remainder.startswith(tuple(config.QUOTE_KEYWORDS)):
+                continue
+
+        # Process each file of the message
+        files = msg.get("files") or []
+        for file_obj in files:
+            name = (file_obj.get("name") or "").lower()
+            if name.endswith((".xlsx", ".csv")):
+                result["boms"].append({
+                    "file": file_obj,
+                    "user": msg.get("user"),
+                    "ts": msg.get("ts"),
+                })
+            elif name.endswith(".pdf"):
+                try:
+                    fields = read_fields(file_obj)
+                except epif_parser.FlattenedPdfError:
+                    fields = {}
+                except Exception as e:
+                    log.warning("Could not read fields for %s: %s", file_obj.get("name"), e)
+                    fields = {}
+
+                if epif_parser.is_epif_form(fields):
+                    result["epifs"].append({
+                        "file": file_obj,
+                        "user": msg.get("user"),
+                        "ts": msg.get("ts"),
+                    })
+                elif not fields and "epif" in name:
+                    result["flattened_epifs"].append({
+                        "file": file_obj,
+                        "user": msg.get("user"),
+                        "ts": msg.get("ts"),
+                    })
+                else:
+                    result["quotes"].append({
+                        "file": file_obj,
+                        "user": msg.get("user"),
+                        "ts": msg.get("ts"),
+                    })
+            else:
+                # Anything else (images, etc.) is skipped
+                continue
+
+    return result
+
+
 def find_epif_in_thread(client, channel: str, thread_ts: str):
-    """Newest PDF posted in the thread, plus who posted it."""
-    replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
-    for message in reversed(replies.get("messages", [])):
-        for attachment in message.get("files", []):
-            name = attachment.get("name", "").lower()
-            if name.endswith(".pdf"):
-                return attachment, message.get("user")
+    """Find the newest EPIF in the thread, returning (file_obj, poster).
+
+    WHY THIS EXISTS:
+    Ticket 100 / ADR 0015 Decision 2: Classifies thread attachments using
+    classify_thread_files. Returns the newest real EPIF, or the newest flattened
+    EPIF so the existing flattened-PDF error can still reach the uploader, or (None, None).
+    """
+    try:
+        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
+        messages = replies.get("messages", [])
+    except Exception as e:
+        log.warning("Could not fetch replies for thread %s in %s: %s", thread_ts, channel, e)
+        return None, None
+
+    def _read_fields(file_obj: dict) -> dict:
+        try:
+            pdf_bytes = download(file_obj)
+            return epif_parser.read_fields(pdf_bytes)
+        except epif_parser.FlattenedPdfError:
+            return {}
+        except Exception as e:
+            log.warning("Could not read fields for %s: %s", file_obj.get("name"), e)
+            return {}
+
+    b_id = bot_user_id(client)
+    classified = classify_thread_files(messages, b_id, _read_fields)
+
+    if classified.get("epifs"):
+        newest = classified["epifs"][-1]
+        return newest["file"], newest["user"]
+    if classified.get("flattened_epifs"):
+        newest = classified["flattened_epifs"][-1]
+        return newest["file"], newest["user"]
     return None, None
 
 
