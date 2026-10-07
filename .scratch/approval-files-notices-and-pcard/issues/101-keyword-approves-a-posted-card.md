@@ -1,6 +1,6 @@
 # 101: `@Purchasing approved` approves a posted card in the thread
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Claimed-by:** box
 
