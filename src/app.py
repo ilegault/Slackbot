@@ -2009,26 +2009,16 @@ def handle_nudge_settings_submit(ack, body, client, view):
 
 # --- Dispatcher Helpers -------------------------------------------------------
 
-_CACHED_BOT_USER_ID = None
-
-
 def get_bot_user_id(client, context=None) -> str | None:
-    """Resolve and cache the bot's own Slack user ID."""
-    global _CACHED_BOT_USER_ID
+    """Resolve and cache the bot's own Slack user ID.
+
+    WHY THIS EXISTS:
+    Ticket 100 / ADR 0015 Decision 4: Delegates to slack_io.bot_user_id(client) while
+    retaining the context shortcut.
+    """
     if context and context.get("bot_user_id"):
-        _CACHED_BOT_USER_ID = context.get("bot_user_id")
-        return _CACHED_BOT_USER_ID
-    if _CACHED_BOT_USER_ID:
-        return _CACHED_BOT_USER_ID
-    if client:
-        try:
-            auth = client.auth_test()
-            if isinstance(auth, dict) and auth.get("user_id"):
-                _CACHED_BOT_USER_ID = auth.get("user_id")
-                return _CACHED_BOT_USER_ID
-        except Exception as e:
-            log.warning("Failed to get bot_user_id from auth_test: %s", e)
-    return None
+        return context.get("bot_user_id")
+    return slack_io.bot_user_id(client)
 
 
 def dispatch_command(

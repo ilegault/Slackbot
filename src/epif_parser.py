@@ -2,6 +2,11 @@
 
 The EPIF is a real AcroForm: 28 named fields. That means we never have to look at
 coordinates or scrape text - pypdf hands us {field_name: value} directly.
+
+Ticket 100 / ADR 0015 Decision 2:
+Adds is_epif_form(fields) to check if an AcroForm dictionary has the EPIF's core
+fields ('Amount of Purchase' and 'Vendor'), distinguishing real EPIFs from attached
+quotes or other PDFs in a thread.
 """
 import io
 import re
@@ -37,6 +42,18 @@ def read_fields(pdf_bytes: bytes) -> dict:
         value = obj.get("/V")
         out[name] = "" if value is None else str(value)
     return out
+
+
+def is_epif_form(fields: dict) -> bool:
+    """True when fields has the EPIF's core fields ('Amount of Purchase' and 'Vendor').
+
+    WHY THIS EXISTS:
+    Ticket 100 / ADR 0015 Decision 2: Pure function used to classify whether a thread's
+    PDF is a real EPIF AcroForm or a non-EPIF document (e.g. quote, invoice, W-9).
+    """
+    if not isinstance(fields, dict):
+        return False
+    return "Amount of Purchase" in fields and "Vendor" in fields
 
 
 def parse_money(raw: str):
