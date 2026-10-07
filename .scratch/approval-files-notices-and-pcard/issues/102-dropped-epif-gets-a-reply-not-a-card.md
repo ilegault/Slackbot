@@ -1,6 +1,6 @@
 # 102: A dropped EPIF gets an "EPIF read" reply, not a card
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Claimed-by:** box
 
@@ -64,3 +64,6 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+Progress (2026-10-07 12:53): Claimed ticket. Split decision: do not split (vertical slice across lifecycle and tests).
+Next: write tests in tests/test_102_drop_reply_no_card.py (test-first).
