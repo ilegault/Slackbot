@@ -515,20 +515,49 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-10-06 04:53. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-10-07 16:44. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: the buyer picker lists only buyers (98)
+# Active work: approval reads the right files, one rule for who is told, P-card under $5,000 (99–110)
 
-This is a **pointer**, not the work. The work is the ticket below.
+This is a **pointer**, not the work. The work is the spec and tickets below.
 
-- Ticket: `.scratch/buyer-picker-lists-buyers/issues/98-buyer-picker-lists-only-buyers.md` (`ready-for-agent`, no blockers)
-- **Read before starting:** `docs/adr/0014-the-buyer-picker-lists-only-buyers.md` (amends ADR 0005 decision 1 and ADR 0011 decision 2)
-- Also binding: `docs/adr/0001-tests-first-and-no-muted-failures.md`
-- Glossary: `CONTEXT.md` — **Buyer picker** (new), **Button** (updated)
+- Spec: `.scratch/approval-files-notices-and-pcard/spec.md`
+- Tickets: `.scratch/approval-files-notices-and-pcard/issues/99-…` through `110-…` (12 tickets)
+- **Read before starting:** `docs/adr/0015-approval-reads-the-card-or-the-threads-files-by-role.md`, `docs/adr/0016-one-rule-for-who-is-told.md`, `docs/adr/0017-p-card-under-5000-req-po-at-5000-and-over.md`
+- Also binding: ADR 0001 (tests first), ADR 0003 (decline/cancel, decision 3 amended by 0016), ADR 0010 (amended by 0015), ADR 0012 (amended by 0015)
+- Glossary: `CONTEXT.md` — new **Thread files at approval**, **P-card**, **Req/PO**; updated **Decline**, **Batch**, **Quote**, **Edit**, **Superseded**
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Next:** 98. The earlier sets (81–86 uploads, 87–97 nudges) are all `done`. Still open from
-earlier sets: **71** (`ready-for-developer` — not for an agent).
+**Next:** 99, 100 and 109 have no blockers. **Start with 99.** It fixes a live production bug:
+Approve on a `/new-purchase` card with an attached quote reads the quote as an EPIF and approves nothing.
+
+## Dependency graph
+
+    Part A  99 ──► 101 ──┐
+            100 ─┬─► 103 ┴─► 104 ──► 105 ──► 106 (Part B)
+                 └─► 102 ──────┘
+    Part B  106 ──► 107
+            106 ──► 108
+    Part C  109 ──► 110
+
+Some edges exist only so that two tickets never edit the same function at once (e.g. 106 after 105,
+110 after 109). Keep them. No ticket is `ready-for-developer`, and none is held.
+
+## Requirements an implementer might treat as preferences — they are not
+
+- The Approve button never calls `slack_io.find_epif_in_thread` unless the card's payload is `source == "epif"`.
+- `epif_parser.is_epif_form`, `slack_io.classify_thread_files`, `slack_io.notice_recipients` and `validators.pcard_problem` are **pure**. Each is tested without a Slack client.
+- Regression tests use **real PDF bytes** (a field-less PDF from `pypdf.PdfWriter`, and the real EPIF fixture). Do not mock the parser.
+- Attached quotes and BOMs are never opened (`epif_parser.read_fields` is never called on a quote).
+- 102 deletes only the tests named on its **Deletes tests:** line. Every other changed test is rewritten in place under the same name.
+- Exactly $5,000.00 on a P-card is refused.
+
+## Deliberately not in this set
+
+- Removing the PDF-born Add items / Edit handlers and the superseding code (kept for cards posted before 102).
+- Sweeping quotes into bare-thread (Workday) approvals. Only EPIF threads take thread files.
+- Counting quotes for Req/PO. A decline reason. DMs that are not about a request.
+- The 2026-10-05 tungsten request (handled by hand).
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol
