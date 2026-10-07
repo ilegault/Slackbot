@@ -170,7 +170,8 @@ Delivered nudges pause until it, then resume every N. Set from the nudge card or
 Confirmed card by the buyer, the requester, an admin or an approver. Not in the workbook.
 
 **Decline** — an approver's "no" on a request that has not been approved. No
-reason, no logging, one click. The point is to reduce friction.
+reason, no logging, one click. The point is to reduce friction. The requester is told
+by one DM naming the item and who declined, with a link to the thread (ADR 0016).
 
 **Cancel** — killing a request that *was* approved, before it is processed.
 Cancel **un-writes** the Excel row — blanks it, so the row can be recycled. The
@@ -184,7 +185,9 @@ the thread, which is the record. Both approvers and admins can cancel. Cancel is
 
 **Batch** — one request carrying multiple EPIFs. Big orders often do, plus
 quotes. A batch is approved together and cancelled together: **no per-item
-control.**
+control.** At `@Purchasing approved`, two or more EPIFs in a thread are a batch; EPIFs
+from the same uploader for the same vendor collapse to the newest. A batch cannot carry
+a BOM file (ADR 0015).
 
 **Line item** — one row of an order: quantity, item name, part number, unit
 price, link, description. Entered in the paste box on interview Screen 2 or through
@@ -207,17 +210,34 @@ attached BOM is carried, never read: the bot does not check it against the EPIF 
 and does not re-lay it out. The Total Price the requester types is the amount.
 
 **Quote** — a vendor's price document for a request, a PDF. Given in the forms'
-Quotes field, or with `@Purchasing quote` in the thread. Carried, never read.
+Quotes field, with `@Purchasing quote` in the thread, or as any non-EPIF PDF a person
+posted in the thread before `@Purchasing approved`. Carried, never read — and never
+mistaken for an EPIF (ADR 0015).
+
+**Thread files at approval** — at `@Purchasing approved` in a thread with no posted
+card, the bot takes every file a person posted, by type: a PDF with the EPIF form
+fields is an EPIF, an `.xlsx` / `.csv` is the BOM, any other PDF is a quote; images and
+the bot's own files are skipped (ADR 0015).
+
+**P-card** — the lab's university credit card. For orders **under $5,000**; the bot
+refuses a P-card at $5,000.00 or more (ADR 0017).
+
+**Req/PO** — a purchase order placed through UW purchasing. Required at **$5,000 and
+over**, where three quotes are needed (the bot explains this, it does not count them),
+and allowed below that when a vendor only accepts a PO.
 
 **Edit** — changing a **posted** card before anyone approves it. The requester, a
 buyer or an admin may edit. A modal-born card reopens the full Screen 2 form. A
 PDF-born card edits line items only, because the PDF is the source for everything
 else. Every edit posts one thread line saying what changed. Not available after
-approval; the way to change an approved request is **cancel** and resubmit.
+approval; the way to change an approved request is **cancel** and resubmit. Since
+ADR 0015 a dropped EPIF posts no card, so PDF-born cards exist only from before then.
 
 **Superseded** — a posted card replaced by a corrected EPIF from the same requester
 for the same vendor in the same thread. It is terminal: no buttons, just
-"Superseded by a newer EPIF below". Only posted cards can be superseded.
+"Superseded by a newer EPIF below". Only posted cards can be superseded. No longer
+created: since ADR 0015 a dropped EPIF posts no card, and at approval the newest EPIF
+per uploader and vendor wins.
 
 ---
 
