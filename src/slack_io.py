@@ -57,6 +57,12 @@ Adds `thread_files(client, channel, thread_ts)`: fetches thread replies and retu
 classified attachments by role (epifs, boms, quotes, flattened_epifs).
 Reimplements `find_epif_in_thread` on top of `thread_files`.
 
+Ticket 106 / ADR 0016 Decisions 1-3:
+Adds `notice_recipients(actor_id, requester_id, requester_fix, bot_id)`: pure recipient
+resolver filtering out bot_id, de-duplicating, and preserving order.
+Adds `notify(client, *, actor_id, requester_id, requester_fix, text, channel, link_ts)`:
+single notification function for request error DMs with thread permalink attachment.
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -474,6 +480,86 @@ def download_file(file_obj) -> bytes:
 
 def tell(client, user_id: str, text: str):
     client.chat_postMessage(channel=user_id, text=text)
+
+
+def notice_recipients(
+    actor_id: str | None,
+    requester_id: str | None = None,
+    requester_fix: bool = False,
+    bot_id: str | None = None,
+) -> list[str]:
+    """Pure helper to decide recipients for request error/status notices.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 106 / ADR 0016 Decisions 1-3: Pure recipient resolution for request error notices.
+    Always notifies the actor, plus the requester when requester_fix is True.
+    Strips None and the bot's own ID, de-duplicates while preserving order,
+    and falls back to actor_id if leaving nobody and actor_id is a person (not the bot).
+    """
+    candidates: list[str] = []
+    if actor_id:
+        candidates.append(actor_id)
+    if requester_fix and requester_id:
+        candidates.append(requester_id)
+
+    recipients: list[str] = []
+    for uid in candidates:
+        if uid and (not bot_id or uid != bot_id) and uid not in recipients:
+            recipients.append(uid)
+
+    if not recipients and actor_id and (not bot_id or actor_id != bot_id):
+        recipients.append(actor_id)
+
+    return recipients
+
+
+def notify(
+    client,
+    *,
+    actor_id: str | None,
+    requester_id: str | None = None,
+    requester_fix: bool = False,
+    text: str,
+    channel: str,
+    link_ts: str,
+) -> list[str]:
+    """Send a request error notice DM to resolved recipients with a thread permalink.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 106 / ADR 0016 Decisions 1-3: One function to send every request-related error DM.
+    Recipients are resolved purely via notice_recipients, skipping the bot itself.
+    Appends a link to the thread parent message via chat_getPermalink.
+    If chat_getPermalink raises, logs a warning and sends the text alone.
+    Returns the list of user IDs DM'd.
+    """
+    bot_id = bot_user_id(client) if client else None
+    recipients = notice_recipients(
+        actor_id,
+        requester_id=requester_id,
+        requester_fix=requester_fix,
+        bot_id=bot_id,
+    )
+    if not recipients:
+        return []
+
+    msg_text = text
+    try:
+        if client:
+            resp = client.chat_getPermalink(channel=channel, message_ts=link_ts)
+            permalink = resp["permalink"]
+            msg_text = f"{text}\n<{permalink}|Open the thread>"
+    except Exception as e:
+        log.warning("Could not fetch permalink for channel %s ts %s: %s", channel, link_ts, e)
+        msg_text = text
+
+    sent: list[str] = []
+    for uid in recipients:
+        if client:
+            tell(client, uid, msg_text)
+        sent.append(uid)
+    return sent
 
 
 def _parse_card_button_value(msg: dict) -> tuple[dict, list, str] | None:

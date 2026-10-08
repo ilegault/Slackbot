@@ -72,6 +72,13 @@ Per Ticket 102 / ADR 0015 decisions 3 and 6:
   The card appears when an approver types @Purchasing approved.
   The request-log entry is created at approval.
 
+Per Ticket 106 / ADR 0016 Decisions 1-3:
+- Replaces ad-hoc slack_io.tell calls on approval-path error branches with slack_io.notify.
+- Error DMs in finalize_purchase_request, handle_epif_processing, and handle_epif_drop
+  use notify with actor_id, requester_id, requester_fix=True, and thread permalink link.
+- Prevents sending error DMs to the bot itself (2026-10-05 regression) while ensuring both
+  the actor and requester are notified appropriately.
+
 Per Ticket 33:
 - handle_epif_drop supersedes any posted card in the same thread from the same
   requester and vendor before posting the new card (ADR 0006 decision 9).
@@ -594,8 +601,15 @@ def finalize_purchase_request(
                 f"I couldn't log *{display_file}* yet:\n  • {total_error}\n\n"
                 "Please adjust the line items or total price and ask for approval again."
             )
-            if notify_target:
-                slack_io.tell(client, notify_target, fail_msg)
+            slack_io.notify(
+                client,
+                actor_id=approver or notify_target,
+                requester_id=notify_target,
+                requester_fix=True,
+                text=fail_msg,
+                channel=channel,
+                link_ts=thread_ts,
+            )
             if channel != notify_target:
                 say(text=f"Not logged - {total_error}, requester DM'd.", thread_ts=thread_ts)
             return
@@ -604,18 +618,25 @@ def finalize_purchase_request(
     if problems:
         slack_io.log_rejection(notify_target, display_file, problems, requester_name=requester)
         bullets = "\n".join(f"  • {p}" for p in problems)
-        if notify_target:
-            if pdf_bytes:
-                fail_msg = (
-                    f"I couldn't log *{display_file}* yet:\n{bullets}\n\n"
-                    "Fix those in the EPIF, re-upload it to the thread, and ask for approval again."
-                )
-            else:
-                fail_msg = (
-                    f"I couldn't log this *{display_file}* yet:\n{bullets}\n\n"
-                    "Please adjust your request and submit again."
-                )
-            slack_io.tell(client, notify_target, fail_msg)
+        if pdf_bytes:
+            fail_msg = (
+                f"I couldn't log *{display_file}* yet:\n{bullets}\n\n"
+                "Fix those in the EPIF, re-upload it to the thread, and ask for approval again."
+            )
+        else:
+            fail_msg = (
+                f"I couldn't log this *{display_file}* yet:\n{bullets}\n\n"
+                "Please adjust your request and submit again."
+            )
+        slack_io.notify(
+            client,
+            actor_id=approver or notify_target,
+            requester_id=notify_target,
+            requester_fix=True,
+            text=fail_msg,
+            channel=channel,
+            link_ts=thread_ts,
+        )
         if channel != notify_target:
             say(text=f"Not logged - {len(problems)} problem(s), requester DM'd.", thread_ts=thread_ts)
         return
@@ -1133,10 +1154,16 @@ def handle_epif_processing(
                 except (epif_parser.FlattenedPdfError, RuntimeError) as error:
                     requester = slack_io.resolve_requester(client, u_id)
                     slack_io.log_rejection(u_id or approver, f_name, [str(error)], requester_name=requester)
-                    target_dm = u_id or approver
-                    slack_io.tell(client, target_dm, str(error))
-                    if channel != target_dm:
-                        say(text=f"Error processing {f_name}: {str(error)}", thread_ts=thread_ts)
+                    slack_io.notify(
+                        client,
+                        actor_id=approver,
+                        requester_id=u_id,
+                        requester_fix=True,
+                        text=str(error),
+                        channel=channel,
+                        link_ts=thread_ts,
+                    )
+                    say(text=f"Error processing {f_name}: {str(error)}", thread_ts=thread_ts)
                     return
 
             collapsed = epif_parser.collapse_epifs(parsed_epifs)
@@ -1265,10 +1292,16 @@ def handle_epif_processing(
                          parsed.get("project_id"), parsed.get("fund"), parsed.get("category"))
             except (epif_parser.FlattenedPdfError, RuntimeError) as error:
                 slack_io.log_rejection(poster or approver, file_name, [str(error)], requester_name=requester)
-                target_dm = poster or approver
-                slack_io.tell(client, target_dm, str(error))
-                if channel != target_dm:
-                    say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
+                slack_io.notify(
+                    client,
+                    actor_id=approver,
+                    requester_id=poster,
+                    requester_fix=True,
+                    text=str(error),
+                    channel=channel,
+                    link_ts=thread_ts,
+                )
+                say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
                 return
 
         finalize_purchase_request(
@@ -1442,9 +1475,16 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         requester = slack_io.resolve_requester(client, user_id)
         if "epif" in file_name.lower():
             slack_io.log_rejection(user_id, file_name, [str(error)], requester_name=requester)
-            target_dm = user_id
-            slack_io.tell(client, target_dm, str(error))
-            if channel != target_dm:
+            slack_io.notify(
+                client,
+                actor_id=user_id,
+                requester_id=user_id,
+                requester_fix=True,
+                text=str(error),
+                channel=channel,
+                link_ts=thread_ts,
+            )
+            if channel != user_id:
                 say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
             slack_io.alert_admins(
                 client,
@@ -1513,7 +1553,15 @@ def handle_epif_drop(client, say, channel: str, thread_ts: str, user_id: str, fi
         thread_ts=thread_ts,
         text=problem_text,
     )
-    slack_io.tell(client, user_id, problem_text)
+    slack_io.notify(
+        client,
+        actor_id=user_id,
+        requester_id=user_id,
+        requester_fix=True,
+        text=problem_text,
+        channel=channel,
+        link_ts=thread_ts,
+    )
     log.info("drop exit: validation failed")
 
 
