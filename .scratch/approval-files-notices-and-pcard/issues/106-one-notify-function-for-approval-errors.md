@@ -1,6 +1,6 @@
 # 106: One `notify` function; approval-path error DMs use it
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Claimed-by:** box
 
