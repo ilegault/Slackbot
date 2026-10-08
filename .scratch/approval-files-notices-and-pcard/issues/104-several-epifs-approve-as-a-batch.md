@@ -1,6 +1,8 @@
 # 104: Several EPIFs in a thread approve as a batch
 
-**Status:** ready-for-agent
+**Status:** done
+
+**Claimed-by:** box
 
 **Runner:** any
 
@@ -32,11 +34,11 @@ with no posted card:
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_104_batch_approval.py`: a thread with EPIFs for vendors A and B from one uploader. Keyword approval writes two rows (vendors A and B) to the temp workbook and posts two approved cards, each showing its own vendor. Assert on the `chat_postMessage` calls carrying `blocks`.
-- [ ] A thread with two EPIFs from the same uploader for vendor A (older total $10, newer total $20) writes **one** row with total 20.00.
-- [ ] The same vendor from two **different** uploaders is not collapsed: two rows.
-- [ ] Cancel on either card of a two-EPIF batch blanks both rows. Drive `handle_cancel` as `tests/test_05_decline_cancel.py` does, on the temp workbook.
-- [ ] A single-EPIF thread still posts exactly one card, and `finalize_purchase_request` called without `new_card` still updates an existing thread card in place (the existing tests in `tests/test_14_approve_payload.py` and `tests/test_40_bare_thread_approval.py` pass unchanged).
+- [x] New `tests/test_104_batch_approval.py`: a thread with EPIFs for vendors A and B from one uploader. Keyword approval writes two rows (vendors A and B) to the temp workbook and posts two approved cards, each showing its own vendor. Assert on the `chat_postMessage` calls carrying `blocks`.
+- [x] A thread with two EPIFs from the same uploader for vendor A (older total $10, newer total $20) writes **one** row with total 20.00.
+- [x] The same vendor from two **different** uploaders is not collapsed: two rows.
+- [x] Cancel on either card of a two-EPIF batch blanks both rows. Drive `handle_cancel` as `tests/test_05_decline_cancel.py` does, on the temp workbook.
+- [x] A single-EPIF thread still posts exactly one card, and `finalize_purchase_request` called without `new_card` still updates an existing thread card in place (the existing tests in `tests/test_14_approve_payload.py` and `tests/test_40_bare_thread_approval.py` pass unchanged).
 
 May fake: the Slack client, downloads, `epif_parser.parse_epif` (return per-file dicts). Must be real: the collapse, `finalize_purchase_request`, the workbook writes and the blanking on a temp copy.
 
@@ -52,3 +54,18 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-08:
+Implemented batch approval of several EPIFs in a thread at `@Purchasing approved` per Ticket 104 and ADR 0015 Decision 5 / ADR 0003 Decision 7:
+- Built `epif_parser.collapse_epifs(epif_list)` to collapse multiple EPIFs by `(user, vendor.strip().lower())`, keeping the newest by message timestamp `ts`, returning surviving EPIFs sorted oldest first.
+- Updated `lifecycle.handle_epif_processing` at `@Purchasing approved` in a thread with no posted card:
+  - If 1 EPIF survives collapse: follows single-EPIF path unchanged.
+  - If 2+ EPIFs survive collapse: executes per-EPIF finalize for each oldest first with `new_card=True` and `attachments=[]`.
+- Added keyword-only parameter `new_card: bool = False` to `lifecycle.finalize_purchase_request` so fresh approved cards are posted without updating or overwriting existing cards in the thread.
+- Preserved existing batch cancellation behavior via `slack_io.find_all_rows_in_thread` in `handle_cancel`.
+- Tests in `tests/test_104_batch_approval.py`:
+  - `test_batch_approval_two_vendors_one_uploader`: covers criterion 1 (2 vendors from 1 uploader -> 2 rows written to temp workbook and 2 approved cards posted with blocks).
+  - `test_same_vendor_same_uploader_collapses_to_newer`: covers criterion 2 (same uploader & vendor collapses to newest total).
+  - `test_different_uploaders_same_vendor_not_collapsed`: covers criterion 3 (same vendor from different uploaders not collapsed).
+  - `test_cancel_on_either_card_blanks_both_rows`: covers criterion 4 (batch cancellation blanks both rows).
+  - `test_single_epif_thread_posts_one_card`, `test_finalize_without_new_card_updates_existing_card_in_place`, and `test_finalize_with_new_card_posts_fresh_card_ignoring_found`: cover criterion 5 (single EPIF posts 1 card, finalize without new_card updates existing card).

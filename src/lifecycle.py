@@ -176,6 +176,15 @@ Per Ticket 103 (ADR 0015 decision 4, ADR 0012 decisions 2 & 5):
   "One BOM per EPIF — delete the extra and approve again: ..."
   without writing a row or archiving anything.
 
+Per Ticket 104 (ADR 0015 decision 5, ADR 0003 decision 7):
+- At @Purchasing approved in a thread with no posted card, thread EPIFs are collapsed:
+  EPIFs with the same (user, vendor.strip().lower()) keep only the newest by ts.
+- One EPIF left: single-EPIF path (Ticket 103), unchanged.
+- Two or more left: run per-EPIF finalize once for each, oldest first, with new_card=True
+  and attachments=[]. Each writes its own row and posts its own fresh approved card.
+- finalize_purchase_request gains keyword-only parameter new_card: bool = False. When True,
+  the found card in thread is ignored and a fresh approved card is posted.
+
 
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, slack_io, store, text_rules, validators
@@ -561,6 +570,8 @@ def finalize_purchase_request(
     items: list[dict] | None = None,
     shipping: float = 0.0,
     attachments: list[dict] | None = None,
+    *,
+    new_card: bool = False,
 ):
     """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF/BOM if present, and notify."""
     display_file = file_name or "Purchase Request"
@@ -763,10 +774,15 @@ def finalize_purchase_request(
             )
 
         # Update or post card in thread
-        found_req, found_ts, found_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
-        target_card_ts = card_ts or found_ts
-        target_req = found_req or parsed or {}
-        target_hist = found_hist or []
+        if new_card:
+            target_card_ts = None
+            target_req = parsed or {}
+            target_hist = []
+        else:
+            found_req, found_ts, found_hist, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
+            target_card_ts = card_ts or found_ts
+            target_req = found_req or parsed or {}
+            target_hist = found_hist or []
 
         now_str = datetime.now().strftime("%m/%d/%y %H:%M")
         appr_name = slack_io.resolve_requester(client, approver) or (f"<@{approver}>" if approver else "Approver")
@@ -887,7 +903,7 @@ def finalize_purchase_request(
             # one card of a batch never overwrites another card's entry.
             if actual_card_ts:
                 existing_id = store.find_id_by_card(channel, actual_card_ts)
-            if not existing_id:
+            if not existing_id and not new_card:
                 thread_id = store.find_id_by_thread(channel, thread_ts)
                 thread_entry = store.get(thread_id) if thread_id else None
                 if thread_entry is not None and not thread_entry.get("posted_at"):
@@ -1059,6 +1075,9 @@ def handle_epif_processing(
             attachments = posted_payload.get("attachments")
 
     files = None
+    pdf_bytes = None
+    parsed = None
+    file_name = None
     if direct_file:
         file_obj, poster = direct_file, direct_poster
     elif card_ts or posted_payload:
@@ -1079,12 +1098,92 @@ def handle_epif_processing(
         else:
             file_obj, poster = None, None
     else:
-        file_obj, poster = slack_io.find_epif_in_thread(client, channel, thread_ts)
+        # No card_ts, no posted_payload, no direct_file:
+        # At @Purchasing approved in a thread with no posted card (Ticket 104)
+        files = slack_io.thread_files(client, channel, thread_ts)
+        raw_epifs = files.get("epifs", [])
+        if raw_epifs:
+            parsed_epifs = []
+            for ep in raw_epifs:
+                f_obj = ep.get("file") or {}
+                f_name = f_obj.get("name", "EPIF.pdf")
+                u_id = ep.get("user")
+                try:
+                    p_bytes = slack_io.download(f_obj)
+                    p_parsed = epif_parser.parse_epif(p_bytes)
+                    parsed_epifs.append({
+                        "file": f_obj,
+                        "file_name": f_name,
+                        "user": u_id,
+                        "ts": ep.get("ts"),
+                        "pdf_bytes": p_bytes,
+                        "parsed": p_parsed,
+                    })
+                except (epif_parser.FlattenedPdfError, RuntimeError) as error:
+                    requester = slack_io.resolve_requester(client, u_id)
+                    slack_io.log_rejection(u_id or approver, f_name, [str(error)], requester_name=requester)
+                    target_dm = u_id or approver
+                    slack_io.tell(client, target_dm, str(error))
+                    if channel != target_dm:
+                        say(text=f"Error processing {f_name}: {str(error)}", thread_ts=thread_ts)
+                    return
+
+            collapsed = epif_parser.collapse_epifs(parsed_epifs)
+            if len(collapsed) > 1:
+                # Batch approval (Ticket 104 / ADR 0015 decision 5):
+                # Run per-EPIF finalize for each, oldest first.
+                for ep in collapsed:
+                    ep_poster = ep.get("user")
+                    ep_requester = slack_io.resolve_requester(client, ep_poster)
+                    finalize_purchase_request(
+                        client=client,
+                        say=say,
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        event_ts=event_ts,
+                        parsed=ep["parsed"],
+                        requester=ep_requester,
+                        notify_target=ep_poster or approver,
+                        pdf_bytes=ep.get("pdf_bytes"),
+                        file_name=ep.get("file_name"),
+                        is_pending_name=False,
+                        assignee_id=assignee_id,
+                        assignee_name=assignee_name,
+                        refusal_msg=refusal_msg,
+                        approver=approver,
+                        input_note=input_note,
+                        card_ts=None,
+                        items=None,
+                        shipping=0.0,
+                        attachments=[],
+                        new_card=True,
+                    )
+                return
+            elif len(collapsed) == 1:
+                single_ep = collapsed[0]
+                file_obj = single_ep["file"]
+                poster = single_ep["user"]
+                file_name = single_ep["file_name"]
+                pdf_bytes = single_ep["pdf_bytes"]
+                parsed = single_ep["parsed"]
+            else:
+                file_obj, poster = None, None
+        elif files.get("flattened_epifs"):
+            newest_flat = files["flattened_epifs"][-1]
+            file_obj, poster = newest_flat.get("file"), newest_flat.get("user")
+            file_name = (file_obj.get("name") if file_obj else None) or "EPIF.pdf"
+        else:
+            file_obj, poster = None, None
+            # Fallback to find_epif_in_thread in case find_epif_in_thread was mocked by a test
+            mocked_f, mocked_p = slack_io.find_epif_in_thread(client, channel, thread_ts)
+            if mocked_f is not None:
+                file_obj, poster = mocked_f, mocked_p
 
     if file_obj is not None:
         # PDF Attachment Path
         if not card_ts and not posted_payload and not direct_file and attachments is None:
-            files = slack_io.thread_files(client, channel, thread_ts)
+            if files is None:
+                files = slack_io.thread_files(client, channel, thread_ts)
             if len(files.get("boms", [])) > 1:
                 bom_names = [f"`{b['file'].get('name', '')}`" for b in files["boms"]]
                 say(text=f"One BOM per EPIF \u2014 delete the extra and approve again: {', '.join(bom_names)}", thread_ts=thread_ts)
@@ -1119,23 +1218,25 @@ def handle_epif_processing(
                     attachments = card_pl.get("attachments")
 
         requester = slack_io.resolve_requester(client, poster)
-        file_name = file_obj.get("name", "EPIF.pdf")
+        if file_name is None:
+            file_name = file_obj.get("name", "EPIF.pdf")
         log.info("Found file '%s' posted by %s (resolved requester: %s)", file_name, poster, requester)
 
-        try:
-            pdf_bytes = slack_io.download(file_obj)
-            log.info("Downloaded %s (%d bytes)", file_name, len(pdf_bytes))
-            parsed = epif_parser.parse_epif(pdf_bytes)
-            log.info("Parsed EPIF fields: Item='%s', Vendor='%s', Total=$%s, Project=%s, Fund=%s, Category='%s'",
-                     parsed.get("item_description"), parsed.get("vendor"), parsed.get("total_price"),
-                     parsed.get("project_id"), parsed.get("fund"), parsed.get("category"))
-        except (epif_parser.FlattenedPdfError, RuntimeError) as error:
-            slack_io.log_rejection(poster or approver, file_name, [str(error)], requester_name=requester)
-            target_dm = poster or approver
-            slack_io.tell(client, target_dm, str(error))
-            if channel != target_dm:
-                say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
-            return
+        if pdf_bytes is None or parsed is None:
+            try:
+                pdf_bytes = slack_io.download(file_obj)
+                log.info("Downloaded %s (%d bytes)", file_name, len(pdf_bytes))
+                parsed = epif_parser.parse_epif(pdf_bytes)
+                log.info("Parsed EPIF fields: Item='%s', Vendor='%s', Total=$%s, Project=%s, Fund=%s, Category='%s'",
+                         parsed.get("item_description"), parsed.get("vendor"), parsed.get("total_price"),
+                         parsed.get("project_id"), parsed.get("fund"), parsed.get("category"))
+            except (epif_parser.FlattenedPdfError, RuntimeError) as error:
+                slack_io.log_rejection(poster or approver, file_name, [str(error)], requester_name=requester)
+                target_dm = poster or approver
+                slack_io.tell(client, target_dm, str(error))
+                if channel != target_dm:
+                    say(text=f"Error processing {file_name}: {str(error)}", thread_ts=thread_ts)
+                return
 
         finalize_purchase_request(
             client=client,
@@ -1158,6 +1259,7 @@ def handle_epif_processing(
             items=items,
             shipping=shipping,
             attachments=attachments,
+            new_card=False,
         )
         return
 
