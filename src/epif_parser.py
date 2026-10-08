@@ -7,6 +7,11 @@ Ticket 100 / ADR 0015 Decision 2:
 Adds is_epif_form(fields) to check if an AcroForm dictionary has the EPIF's core
 fields ('Amount of Purchase' and 'Vendor'), distinguishing real EPIFs from attached
 quotes or other PDFs in a thread.
+
+Ticket 104 / ADR 0015 Decision 5:
+Adds collapse_epifs(epif_list) to collapse multiple EPIFs in a thread by
+(user, parsed["vendor"].strip().lower()), keeping only the newest by ts,
+and returning the surviving EPIFs sorted oldest first by ts.
 """
 import io
 import re
@@ -136,3 +141,33 @@ def parse_epif(pdf_bytes: bytes) -> dict:
         "category_error": category_error,
         "payment_method": payment_method(fields),
     }
+
+
+def collapse_epifs(epif_list: list[dict]) -> list[dict]:
+    """Collapse EPIFs: for same (user, vendor.strip().lower()), keep newest by ts.
+
+    WHY THIS EXISTS:
+    Ticket 104 / ADR 0015 Decision 5: Two or more EPIFs in a thread are a batch.
+    EPIFs from the same uploader for the same vendor collapse to the newest — the
+    older one is an earlier draft. Surviving EPIFs are sorted oldest first by ts.
+    """
+    def _parse_ts(val) -> float:
+        try:
+            return float(val or 0)
+        except (ValueError, TypeError):
+            return 0.0
+
+    by_key: dict[tuple[str | None, str], dict] = {}
+    for item in epif_list:
+        parsed_data = item.get("parsed") or {}
+        vendor_raw = parsed_data.get("vendor") or ""
+        vendor_key = str(vendor_raw).strip().lower()
+        key = (item.get("user"), vendor_key)
+        if key not in by_key:
+            by_key[key] = item
+        else:
+            curr_ts = _parse_ts(item.get("ts"))
+            prev_ts = _parse_ts(by_key[key].get("ts"))
+            if curr_ts > prev_ts:
+                by_key[key] = item
+    return sorted(by_key.values(), key=lambda x: _parse_ts(x.get("ts")))
