@@ -61,7 +61,7 @@ def filled():
 # ---------------------------------------------------------------------------
 
 def test_decline_writes_no_excel_row_and_posts_no_alert():
-    """handle_decline must update the message but never touch the workbook or DM anyone."""
+    """handle_decline must update the message but never touch the workbook or post an alert."""
     client = MagicMock()
     req_data = {
         "parsed": {"item_description": "Resistors", "total_price": 10.0},
@@ -91,8 +91,9 @@ def test_decline_writes_no_excel_row_and_posts_no_alert():
     assert update_kwargs["channel"] == "C_PURCHASE"
     assert update_kwargs["ts"] == "123.456"
 
-    # No DM, no alert channel post
-    client.chat_postMessage.assert_not_called()
+    # No alert channel post (ADR 0016: the only messages are the requester/decliner DMs)
+    for call in client.chat_postMessage.call_args_list:
+        assert call.kwargs["channel"] == "U_CHARLIE", "decline may only DM the people involved"
 
     # The history now contains a Declined line
     assert any("Declined" in h for h in history)

@@ -1,6 +1,6 @@
 # 107: A decline DMs the requester
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -35,10 +35,10 @@ Update the `handle_decline` docstring: it no longer says "no DM is sent".
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_107_decline_dm.py`: decline a posted card whose payload `user_id` is `U_REQ`, with decliner `U_APPROVER`. A DM goes to `U_REQ` whose text starts with the exact sentence above, including the item, vendor and formatted price.
-- [ ] A decliner who is also the requester gets exactly one DM.
-- [ ] No row is written. The temp workbook's row count is unchanged, and the request-log entry is flagged `declined=True` exactly as `tests/test_93_posted_cards_logged.py::test_decline_flags_entry` asserts.
-- [ ] The existing decline tests in `tests/test_05_decline_cancel.py` pass unchanged, or are rewritten **in place, same name** where one asserted that no DM is sent.
+- [x] New `tests/test_107_decline_dm.py`: decline a posted card whose payload `user_id` is `U_REQ`, with decliner `U_APPROVER`. A DM goes to `U_REQ` whose text starts with the exact sentence above, including the item, vendor and formatted price.
+- [x] A decliner who is also the requester gets exactly one DM.
+- [x] No row is written. The temp workbook's row count is unchanged, and the request-log entry is flagged `declined=True` exactly as `tests/test_93_posted_cards_logged.py::test_decline_flags_entry` asserts.
+- [x] The existing decline tests in `tests/test_05_decline_cancel.py` pass unchanged, or are rewritten **in place, same name** where one asserted that no DM is sent.
 
 May fake: the Slack client. Must be real: `handle_decline`, `notify`, the store on its isolated temp path.
 
@@ -54,3 +54,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-08: handle_decline now calls slack_io.notify (requester_fix=True) after the card update. tests/test_107_decline_dm.py covers the exact sentence, top-level fallback, single DM when decliner is requester, no row written. test_05 test_decline_writes_no_excel_row_and_posts_no_alert rewritten in place (asserts only involved users are DM'd). Flagging stays covered by test_93 test_decline_flags_entry.
