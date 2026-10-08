@@ -22,7 +22,7 @@ import openpyxl
 import pypdf
 import pytest
 
-from src import blocks, bom, config, epif_filler, epif_parser, lifecycle, log_writer, queue_worker, roster, slack_io
+from src import blocks, config, epif_filler, epif_parser, lifecycle, queue_worker, roster, slack_io
 
 FIXTURE_PATH = os.path.join(
     os.path.dirname(__file__), "fixtures", "EPIF_TEMPLATE_HIRST.pdf"
