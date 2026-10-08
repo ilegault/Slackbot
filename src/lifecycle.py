@@ -169,6 +169,14 @@ Per Ticket 93 (ADR 0013 decision 7):
   lookup is only a fallback for an entry that was never posted, because a thread can hold several cards.
 - Decline sets declined=True and a superseding EPIF drop sets superseded=True on that card's entry.
 
+Per Ticket 103 (ADR 0015 decision 4, ADR 0012 decisions 2 & 5):
+- At @Purchasing approved in a thread with no posted card and an EPIF, thread quotes and BOM
+  go with the request as attachments (roles 'quote' and 'bom').
+- Multiple BOMs in the thread are refused immediately with:
+  "One BOM per EPIF — delete the extra and approve again: ..."
+  without writing a row or archiving anything.
+
+
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, slack_io, store, text_rules, validators
 May NOT import:
@@ -1050,6 +1058,7 @@ def handle_epif_processing(
         if attachments is None and posted_payload.get("attachments"):
             attachments = posted_payload.get("attachments")
 
+    files = None
     if direct_file:
         file_obj, poster = direct_file, direct_poster
     elif card_ts or posted_payload:
@@ -1074,6 +1083,29 @@ def handle_epif_processing(
 
     if file_obj is not None:
         # PDF Attachment Path
+        if not card_ts and not posted_payload and not direct_file and attachments is None:
+            files = slack_io.thread_files(client, channel, thread_ts)
+            if len(files.get("boms", [])) > 1:
+                bom_names = [f"`{b['file'].get('name', '')}`" for b in files["boms"]]
+                say(text=f"One BOM per EPIF \u2014 delete the extra and approve again: {', '.join(bom_names)}", thread_ts=thread_ts)
+                return
+            thread_attachments = []
+            for b in files.get("boms", []):
+                f = b.get("file") or {}
+                thread_attachments.append((b.get("ts"), {"id": f.get("id"), "name": f.get("name"), "role": "bom"}))
+            for q in files.get("quotes", []):
+                f = q.get("file") or {}
+                thread_attachments.append((q.get("ts"), {"id": f.get("id"), "name": f.get("name"), "role": "quote"}))
+
+            def _ts_key(item):
+                try:
+                    return float(item[0] or 0)
+                except (ValueError, TypeError):
+                    return 0.0
+
+            thread_attachments.sort(key=_ts_key)
+            attachments = [item[1] for item in thread_attachments]
+
         if items is None:
             card_req, found_ts, _, _ = slack_io.find_card_in_thread(client, channel, thread_ts)
             if found_ts:
