@@ -60,6 +60,7 @@ try:
         blocks,
         bom,
         config,
+        epif_parser,
         heartbeat,
         interview,
         lifecycle,
@@ -79,6 +80,7 @@ except ImportError:
     import blocks
     import bom
     import config
+    import epif_parser
     import heartbeat
     import interview
     import lifecycle
@@ -556,6 +558,15 @@ def handle_stage2_submit(ack, body, client, view):
     ]
     if attachments:
         stage2["attachments"] = attachments
+
+    # Screen 3 moves on without validate(), and an error raised later would name
+    # block_payment_method, which Screen 3 does not have. Refuse here (ADR 0017).
+    pcard_msg = validators.pcard_problem(
+        stage2.get("payment_method"), epif_parser.parse_money(str(stage2.get("total_price") or ""))
+    )
+    if pcard_msg:
+        ack(response_action="errors", errors={"block_payment_method": pcard_msg})
+        return
 
     category = stage2.get("category")
     if interview.needs_asset_details(category):
