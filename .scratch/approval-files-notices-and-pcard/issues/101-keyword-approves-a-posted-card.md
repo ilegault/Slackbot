@@ -1,6 +1,8 @@
 # 101: `@Purchasing approved` approves a posted card in the thread
 
-**Status:** ready-for-agent
+**Status:** done
+
+**Claimed-by:** box
 
 **Runner:** any
 
@@ -28,10 +30,10 @@ button. Do not search the thread for a PDF. The logic lives in `lifecycle` (not 
 
 ## Acceptance criteria
 
-- [ ] New test in `tests/test_101_keyword_approves_posted_card.py`: the thread holds a `/new-purchase` card in the `posted` state and a bot-posted form-less quote PDF (real bytes from `pypdf.PdfWriter`). Calling `handle_epif_processing` as the mention handler does writes a row with the card's item, vendor and total. No `Error processing` text is posted.
-- [ ] Same setup: the card is updated in place to the `approved` state. Assert `chat_update` was called with `ts` = the card's ts, and no second card was posted with `chat_postMessage` + `blocks`.
-- [ ] A thread with a posted card **and** a person's dropped EPIF approves the card. Assert the row's vendor is the card's, not the EPIF's.
-- [ ] `tests/test_14_approve_payload.py::test_keyword_path_approves_via_metadata_lookup` still passes unchanged.
+- [x] New test in `tests/test_101_keyword_approves_posted_card.py`: the thread holds a `/new-purchase` card in the `posted` state and a bot-posted form-less quote PDF (real bytes from `pypdf.PdfWriter`). Calling `handle_epif_processing` as the mention handler does writes a row with the card's item, vendor and total. No `Error processing` text is posted.
+- [x] Same setup: the card is updated in place to the `approved` state. Assert `chat_update` was called with `ts` = the card's ts, and no second card was posted with `chat_postMessage` + `blocks`.
+- [x] A thread with a posted card **and** a person's dropped EPIF approves the card. Assert the row's vendor is the card's, not the EPIF's.
+- [x] `tests/test_14_approve_payload.py::test_keyword_path_approves_via_metadata_lookup` still passes unchanged.
 
 May fake: the Slack client, `resolve_requester`. Must be real: `handle_epif_processing`, `finalize_purchase_request`, the workbook write on a temp copy (`temp_workbook`, `sync_queue`).
 
@@ -47,3 +49,10 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+Summary (2026-10-07):
+- In `lifecycle.handle_epif_processing`, when neither `card_ts`, `posted_payload`, nor `direct_file` is given, `slack_io.find_card_in_thread(client, channel, thread_ts)` is called first. If a card in the `posted` state is found, `card_ts` is set to that card's timestamp and `posted_payload` is set to its request payload (falling back to None if empty). The handler then follows the button action path created in ticket 99 without searching the thread for a PDF.
+- Added tests in `tests/test_101_keyword_approves_posted_card.py`:
+  - `test_keyword_approves_posted_card_with_quote_in_thread`: verifies AC 1 and AC 2. In a thread with a posted card and a bot-posted quote PDF, calling `handle_epif_processing` with mention-handler arguments writes the row with the card's item, vendor, and total without posting error text, updates the card in place via `chat_update(ts=card_ts)`, posts no second card with blocks, and does not call `slack_io.find_epif_in_thread` or parse the quote as an EPIF form.
+  - `test_keyword_approves_posted_card_when_epif_also_in_thread`: verifies AC 3. In a thread containing both a posted card and a dropped AcroForm EPIF PDF, approval writes the row for the card's vendor, not the EPIF's, and updates the card in place.
+- Verified AC 4: `tests/test_14_approve_payload.py::test_keyword_path_approves_via_metadata_lookup` passes unchanged.

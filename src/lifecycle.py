@@ -29,6 +29,13 @@ Per Ticket 99 / ADR 0015:
   quotes as EPIFs.
   Resolution order in handle_epif_processing: direct_file -> card/posted_payload (thread searched only for source == "epif") -> PDF in thread -> metadata lookup -> bare thread.
 
+Per Ticket 101 / ADR 0015 Decision 4:
+- The keyword @Purchasing approved approves a posted card in the thread, sharing the
+  button's implementation (Invariant 1). When neither card_ts, posted_payload, nor
+  direct_file is given, find_card_in_thread is called first. If a card in the 'posted'
+  state is found, card_ts and posted_payload are populated from it, taking the button path
+  and skipping the thread PDF search.
+
 
 Per Ticket 15:
 - PURCHASING_CHANNEL is read from config.py; silent fallback to ADMIN_ALERT_CHANNEL or DM is removed.
@@ -1009,14 +1016,22 @@ def handle_epif_processing(
 ):
     """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving.
 
-    Per ADR 0015 / Ticket 99, resolution order is:
+    Per ADR 0015 / Ticket 99 & Ticket 101, resolution order is:
       1. direct_file
-      2. card/posted_payload (thread searched only for source == "epif")
+      2. card/posted_payload:
+         - passed directly from Approve button, or
+         - resolved first via slack_io.find_card_in_thread when state == 'posted'
+         (thread searched for PDF only for legacy source == 'epif')
       3. PDF in thread
       4. metadata lookup via find_request_metadata_in_thread
       5. bare thread
     """
     log.info("Processing EPIF/purchase request from approver/poster: %s in channel: %s", approver or direct_poster, channel)
+    if not card_ts and not posted_payload and not direct_file:
+        found_req, found_ts, _, card_state = slack_io.find_card_in_thread(client, channel, thread_ts)
+        if card_state == "posted":
+            card_ts = found_ts
+            posted_payload = found_req or None
     card_payload = None
     if card_ts:
         card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
