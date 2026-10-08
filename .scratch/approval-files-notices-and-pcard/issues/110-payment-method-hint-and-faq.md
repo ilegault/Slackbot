@@ -1,6 +1,6 @@
 # 110: The Payment Method hint and FAQ explain P-card vs Req/PO
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -26,10 +26,10 @@
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_110_payment_hint.py`: the Screen 2 view built for the EPIF route has a block with `block_id == "block_payment_method"` whose `hint.text` equals `config.PAYMENT_METHOD_HINT`. Copy the view-building call from `tests/test_81_quotes_on_new_purchase.py::test_screen2_renders_quotes_field_when_not_edit`.
-- [ ] The Edit view for an EPIF-route card carries the same hint on `block_payment_method`.
-- [ ] The Workday-route Screen 2 has no `block_payment_method` block (unchanged).
-- [ ] The three FAQ keys return exactly `config.PAYMENT_METHOD_HINT`.
+- [x] New `tests/test_110_payment_hint.py`: the Screen 2 view built for the EPIF route has a block with `block_id == "block_payment_method"` whose `hint.text` equals `config.PAYMENT_METHOD_HINT`. Copy the view-building call from `tests/test_81_quotes_on_new_purchase.py::test_screen2_renders_quotes_field_when_not_edit`.
+- [x] The Edit view for an EPIF-route card carries the same hint on `block_payment_method`.
+- [x] The Workday-route Screen 2 has no `block_payment_method` block (unchanged).
+- [x] The three FAQ keys return exactly `config.PAYMENT_METHOD_HINT`.
 
 May fake: nothing beyond roster setup. Builders are pure. Must be real: the block builders and `FAQ_ANSWERS`.
 
@@ -45,3 +45,8 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+### 2026-10-08 - Implementation Summary
+- Added `config.PAYMENT_METHOD_HINT`; `blocks.build_stage2_view` puts it as the `hint` on `block_payment_method` (EPIF route, create and Edit); `interview.FAQ_ANSWERS` keys `p-card`, `req/po`, `req po` now return it.
+- Tests: `tests/test_110_payment_hint.py` covers all four criteria (create view, Edit view, Workday route has no block, three FAQ keys).
+- Gate: ruff, check_tests_first, type_gate (94 <= ratchet 95), pytest 810 passed / 31 skipped.

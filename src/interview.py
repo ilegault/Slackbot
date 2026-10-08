@@ -1,6 +1,9 @@
 """Purchasing interview routing, modal data conversion, and FAQ engine.
 
 Pure Python logic separated from Slack API plumbing for testability.
+
+The p-card / req/po FAQ answers reuse config.PAYMENT_METHOD_HINT so the form hint and the
+FAQ cannot drift apart (ADR 0017 decision 4).
 """
 import difflib
 import re
@@ -202,18 +205,9 @@ FAQ_ANSWERS: Dict[str, str] = {
         "This is the physical lab room where the package should be delivered on campus "
         "(e.g. `ERB 212` or `ERB 839`)."
     ),
-    "p-card": (
-        "A P-card (Purchasing Card) is a university credit card used for direct purchases. "
-        "Non-catalog and out-of-network vendor orders typically use a P-card."
-    ),
-    "req/po": (
-        "A Req/PO (Purchase Order) is used when a vendor requires an official university requisition "
-        "or purchase order before invoicing."
-    ),
-    "req po": (
-        "A Req/PO (Purchase Order) is used when a vendor requires an official university requisition "
-        "or purchase order before invoicing."
-    ),
+    "p-card": config.PAYMENT_METHOD_HINT,
+    "req/po": config.PAYMENT_METHOD_HINT,
+    "req po": config.PAYMENT_METHOD_HINT,
     "asset id": (
         "An Asset ID is an optional university inventory tag number. You only need this if you are "
         "purchasing an upgrade or replacement part for existing tagged lab equipment."

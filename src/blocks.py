@@ -18,6 +18,7 @@ Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step butt
 Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned with note, delivered) with no buttons (ADR 0010 Decision 3).
 Ticket 74: build_dm_card_blocks carries the buyer picker in approved state with pointer in block_id (ADR 0011 Decision 2).
 Ticket 75: _BUTTON_LIST updates help text to teach that any buyer can pick/move the buyer from the card until Processed (ADR 0011 Decision 1).
+Ticket 110: block_payment_method carries config.PAYMENT_METHOD_HINT (P-card vs Req/PO, ADR 0017 decision 4).
 Ticket 82: Adds bom_inputs (optional BOM file + one-vendor tick box on Screen 2, omitted when is_edit=True) and updates _BUTTON_LIST to teach attaching a BOM in the form (ADR 0012 Decisions 1-4).
 Ticket 96: Adds nudge_summary_text (built from nudge_settings.load()) rendered under a Nudges header on App Home and inside get_help_message, so the words always match what the bot does (ADR 0013 decisions 3, 6); the stage text says the requester can mark Delivered.
 Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
@@ -1630,6 +1631,7 @@ def build_stage2_view(meta: dict) -> dict:
                 prefill_key="payment_method",
             ),
             "label": {"type": "plain_text", "text": "Payment Method"},
+            "hint": {"type": "plain_text", "text": config.PAYMENT_METHOD_HINT},
         })
 
     # Edit mode: always include asset fields (required at submit when category needs them)

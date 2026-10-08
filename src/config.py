@@ -179,6 +179,13 @@ COLUMN_TOTAL_PRICE = "H"    # Amount / Total Price
 # ADR 0017: a P-card is for orders under this amount; $5,000.00 exactly is refused.
 PCARD_LIMIT = 5000.00
 PCARD_LIMIT_MESSAGE = "P-card is for orders under $5,000. Pick Req/PO."
+# ADR 0017 decision 4: shown under the Payment Method dropdown and returned by the FAQ.
+# The bot explains the three-quote rule; it never counts quotes (decision 3).
+PAYMENT_METHOD_HINT = (
+    "P-card — the lab's university credit card, for orders under $5,000. "
+    "Req/PO — a purchase order placed through UW purchasing; required at $5,000 and over "
+    "(get 3 quotes), or whenever a vendor only accepts a PO."
+)
 
 COLUMN_HOW_BUYING = "L"     # P-card / Req is NOT the same as Workday / Out-of-Network
 COLUMN_DATE_OF_REQUEST = "M"# Date of Purchase / Request
