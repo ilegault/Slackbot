@@ -1,6 +1,6 @@
 # 103: Quotes and a BOM dropped in the thread go with the request at approval
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Claimed-by:** box
 
@@ -59,3 +59,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+Do not split: single vertical slice across slack_io and lifecycle layers sharing test fixtures.
