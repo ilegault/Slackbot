@@ -2,6 +2,8 @@
 
 **Status:** ready-for-agent
 
+**Claimed-by:** box
+
 **Runner:** any
 
 **Auto-merge:** yes
