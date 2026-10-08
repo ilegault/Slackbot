@@ -2605,8 +2605,11 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
         The card's request-log entry is flagged declined=True (ADR 0013 decision 7).
         Decline is an approver's or buyer's "no" on a request in the posted state.
         It updates the message to show it was declined and by whom, and removes
-        every button.  Nothing is written to Excel (no row exists yet),
-        no alert is posted, and no DM is sent (ADR 0003 decision 3).
+        every button.  Nothing is written to Excel (no row exists yet) and no
+        alert is posted.  The requester is DM'd that the request was declined
+        (ADR 0016 decision 4, amending ADR 0003 decision 3), through the one
+        notify function; the decliner receives the same DM as "the person who
+        acted".  There is no reason text.
     """
     user_name = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
     now_str = datetime.now().strftime("%m/%d/%y %H:%M")
@@ -2623,6 +2626,27 @@ def handle_decline(client, channel: str, msg_ts: str, user_id: str, req_data: di
     except Exception as e:
         log.error("Failed to update message on decline: %s", e)
     _flag_card_entry(client, channel, msg_ts, history[-1], declined=True)
+
+    parsed = req_data.get("parsed") or {}
+    item = parsed.get("item_description") or req_data.get("item_description") or "your item"
+    vendor = parsed.get("vendor") or req_data.get("vendor") or "Vendor"
+    price = parsed.get("total_price")
+    if price is None:
+        price = req_data.get("total_price")
+    try:
+        price_str = f"${float(price):,.2f}"
+    except (TypeError, ValueError):
+        price_str = "$0.00"
+    slack_io.notify(
+        client,
+        actor_id=user_id,
+        requester_id=req_data.get("user_id"),
+        requester_fix=True,
+        text=f"Your request for *{item}* ({vendor}, {price_str}) was declined by {user_name}.",
+        channel=channel,
+        link_ts=msg_ts,
+    )
+
 
 def _move_epif_to_cancelled(epif_fname: str) -> None:
     """Move the named EPIF file from EPIFS_DIR into EPIFS_DIR/Cancelled/.
