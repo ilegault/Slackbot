@@ -180,10 +180,19 @@ Per Ticket 104 (ADR 0015 decision 5, ADR 0003 decision 7):
 - At @Purchasing approved in a thread with no posted card, thread EPIFs are collapsed:
   EPIFs with the same (user, vendor.strip().lower()) keep only the newest by ts.
 - One EPIF left: single-EPIF path (Ticket 103), unchanged.
-- Two or more left: run per-EPIF finalize once for each, oldest first, with new_card=True
-  and attachments=[]. Each writes its own row and posts its own fresh approved card.
+- Two or more left: run per-EPIF finalize once for each, oldest first, with new_card=True.
+  Each writes its own row and posts its own fresh approved card.
 - finalize_purchase_request gains keyword-only parameter new_card: bool = False. When True,
   the found card in thread is ignored and a fresh approved card is posted.
+
+Per Ticket 105 (ADR 0015 decision 5, ADR 0010 decision 5):
+- In batch approval (two or more EPIFs after collapsing), if thread_files holds any BOM
+  (files["boms"] is non-empty), approval is refused immediately:
+  "This thread has {n} EPIFs and a BOM — I can't tell which EPIF the BOM belongs to. Put each vendor's order in its own thread."
+  No rows are written and nothing is archived.
+- Otherwise, quotes in thread_files are passed as attachments (role "quote") to every EPIF's finalize.
+  Each row archives its own copies named bom.quote_filename(row, vendor, k).
+  The assign-time buyer DM then finds and uploads card B's quotes.
 
 
 Imports:
@@ -376,6 +385,7 @@ def _send_assignee_dm(
                         if hasattr(client, "files_upload_v2"):
                             client.files_upload_v2(
                                 channel=dm_channel,
+                                file=path,
                                 content=content,
                                 filename=fname,
                                 title=fname,
@@ -383,6 +393,7 @@ def _send_assignee_dm(
                         else:
                             client.files_upload(
                                 channels=dm_channel,
+                                file=path,
                                 content=content,
                                 filename=fname,
                                 title=fname,
@@ -1130,7 +1141,29 @@ def handle_epif_processing(
 
             collapsed = epif_parser.collapse_epifs(parsed_epifs)
             if len(collapsed) > 1:
-                # Batch approval (Ticket 104 / ADR 0015 decision 5):
+                # Batch approval (Ticket 104, 105 / ADR 0015 decision 5):
+                if files.get("boms"):
+                    n = len(collapsed)
+                    say(
+                        text=f"This thread has {n} EPIFs and a BOM — I can't tell which EPIF the BOM belongs to. Put each vendor's order in its own thread.",
+                        thread_ts=thread_ts,
+                    )
+                    return
+
+                quote_attachments = []
+                for q in files.get("quotes", []):
+                    f = q.get("file") or {}
+                    quote_attachments.append((q.get("ts"), {"id": f.get("id"), "name": f.get("name"), "role": "quote"}))
+
+                def _ts_key(item):
+                    try:
+                        return float(item[0] or 0)
+                    except (ValueError, TypeError):
+                        return 0.0
+
+                quote_attachments.sort(key=_ts_key)
+                batch_attachments = [item[1] for item in quote_attachments]
+
                 # Run per-EPIF finalize for each, oldest first.
                 for ep in collapsed:
                     ep_poster = ep.get("user")
@@ -1155,7 +1188,7 @@ def handle_epif_processing(
                         card_ts=None,
                         items=None,
                         shipping=0.0,
-                        attachments=[],
+                        attachments=batch_attachments,
                         new_card=True,
                     )
                 return
