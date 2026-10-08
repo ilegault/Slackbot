@@ -1,6 +1,6 @@
 # 103: Quotes and a BOM dropped in the thread go with the request at approval
 
-**Status:** in-progress
+**Status:** done
 
 **Claimed-by:** box
 
@@ -39,11 +39,11 @@ splits into `attached_boms` / `attached_quotes`.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_103_thread_files_at_approval.py`. A thread holds a person's EPIF, a person's form-less `Quote_A.pdf`, and a person's `order.xlsx` (real bytes for each). Keyword approval writes the row, the temp `QUOTES_DIR` holds `bom.quote_filename(row, vendor, 1)`, the temp `BOMS_DIR` holds the archived BOM with the `.xlsx` extension, and the BOM file is byte-identical to what was posted (carried, not read). Copy the folder setup from `tests/test_83_approval_archives_attachments.py`.
-- [ ] Two BOM files in the thread: the exact refusal text is posted with both names, no row is written (the workbook row count is unchanged), and nothing is archived.
-- [ ] A `.png` screenshot in the thread is not archived, and the attachments passed to `finalize_purchase_request` contain no entry for it.
-- [ ] A quote posted on a `<@BOT> quote` message is not archived a second time at approval. Exactly one file exists in the temp `QUOTES_DIR` for it: the one `handle_quote` saved.
-- [ ] A bot-posted PDF in the thread is not archived as a quote.
+- [x] New `tests/test_103_thread_files_at_approval.py`. A thread holds a person's EPIF, a person's form-less `Quote_A.pdf`, and a person's `order.xlsx` (real bytes for each). Keyword approval writes the row, the temp `QUOTES_DIR` holds `bom.quote_filename(row, vendor, 1)`, the temp `BOMS_DIR` holds the archived BOM with the `.xlsx` extension, and the BOM file is byte-identical to what was posted (carried, not read). Copy the folder setup from `tests/test_83_approval_archives_attachments.py`.
+- [x] Two BOM files in the thread: the exact refusal text is posted with both names, no row is written (the workbook row count is unchanged), and nothing is archived.
+- [x] A `.png` screenshot in the thread is not archived, and the attachments passed to `finalize_purchase_request` contain no entry for it.
+- [x] A quote posted on a `<@BOT> quote` message is not archived a second time at approval. Exactly one file exists in the temp `QUOTES_DIR` for it: the one `handle_quote` saved.
+- [x] A bot-posted PDF in the thread is not archived as a quote.
 
 May fake: the Slack client, downloads (return fixture bytes), `resolve_requester`. Must be real: `classify_thread_files`, `finalize_purchase_request`, the archive writes into temp folders, the workbook write on a temp copy.
 
@@ -60,4 +60,20 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 
 ## Comments
 
-Do not split: single vertical slice across slack_io and lifecycle layers sharing test fixtures.
+2026-10-08:
+Implemented thread quotes and BOM collection on keyword approval (`@Purchasing approved`) for threads with no posted card and an EPIF (ADR 0015 decision 4, ADR 0012 decisions 2 & 5):
+- Added `slack_io.thread_files(client, channel, thread_ts)` to fetch and classify thread files; reimplemented `slack_io.find_epif_in_thread` on top of it.
+- Updated `lifecycle.handle_epif_processing` on the thread-PDF keyword path:
+  - If `len(files["boms"]) > 1`: replies with "One BOM per EPIF — delete the extra and approve again: `...`", writing no row and archiving nothing.
+  - Otherwise, attaches thread BOMs and quotes as `attachments` (`role="bom"` and `role="quote"`), sorted oldest first, proceeding to `finalize_purchase_request`.
+- Bare-thread approval path remains unchanged when no EPIF is found.
+
+Tests in `tests/test_103_thread_files_at_approval.py`:
+- `test_thread_files_archived_at_keyword_approval`: covers criterion 1 (person's EPIF, formless quote, xlsx BOM archived byte-for-byte in temp dirs, notes updated, row written).
+- `test_two_boms_in_thread_refused_no_row_written`: covers criterion 2 (two BOMs refused with exact text, no row written, nothing archived).
+- `test_screenshot_png_in_thread_not_archived`: covers criterion 3 (.png ignored, not archived, absent from attachments).
+- `test_quote_on_bot_quote_message_not_archived_again`: covers criterion 4 (quote from @BOT quote not duplicated at approval).
+- `test_bot_posted_pdf_not_archived_as_quote`: covers criterion 5 (bot-posted PDF skipped and not archived as quote).
+- `test_thread_files_and_find_epif_in_thread_delegation`: unit test covering `thread_files` classification and `find_epif_in_thread` delegation.
+All 6 new tests and full 756 test suite pass; ruff, type gate, check_tests_first all green.
+

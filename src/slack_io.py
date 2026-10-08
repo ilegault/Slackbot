@@ -52,6 +52,11 @@ Updates `find_epif_in_thread(client, channel, thread_ts)` to use classify_thread
 returning the newest real EPIF, or the newest flattened EPIF so the existing error can
 reach the uploader, or (None, None).
 
+Ticket 103 / ADR 0015 Decision 4:
+Adds `thread_files(client, channel, thread_ts)`: fetches thread replies and returns
+classified attachments by role (epifs, boms, quotes, flattened_epifs).
+Reimplements `find_epif_in_thread` on top of `thread_files`.
+
 Imports:
     - config, epif_parser, roster, text_rules
 May NOT import:
@@ -308,20 +313,25 @@ def classify_thread_files(
     return result
 
 
-def find_epif_in_thread(client, channel: str, thread_ts: str):
-    """Find the newest EPIF in the thread, returning (file_obj, poster).
+def thread_files(client, channel: str, thread_ts: str) -> dict[str, list[dict]]:
+    """Fetch replies in a thread and classify all file attachments by role.
 
     WHY THIS EXISTS:
-    Ticket 100 / ADR 0015 Decision 2: Classifies thread attachments using
-    classify_thread_files. Returns the newest real EPIF, or the newest flattened
-    EPIF so the existing flattened-PDF error can still reach the uploader, or (None, None).
+    Ticket 103 / ADR 0015 Decision 4: Fetches thread messages and classifies attachments
+    using classify_thread_files, so approval handlers can access quotes, boms, and epifs
+    in a single pass.
     """
     try:
         replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
-        messages = replies.get("messages", [])
+        messages = replies.get("messages", []) if isinstance(replies, dict) else []
     except Exception as e:
         log.warning("Could not fetch replies for thread %s in %s: %s", thread_ts, channel, e)
-        return None, None
+        return {
+            "epifs": [],
+            "boms": [],
+            "quotes": [],
+            "flattened_epifs": [],
+        }
 
     def _read_fields(file_obj: dict) -> dict:
         try:
@@ -334,8 +344,18 @@ def find_epif_in_thread(client, channel: str, thread_ts: str):
             return {}
 
     b_id = bot_user_id(client)
-    classified = classify_thread_files(messages, b_id, _read_fields)
+    return classify_thread_files(messages, b_id, _read_fields)
 
+
+def find_epif_in_thread(client, channel: str, thread_ts: str):
+    """Find the newest EPIF in the thread, returning (file_obj, poster).
+
+    WHY THIS EXISTS:
+    Ticket 100 / ADR 0015 Decision 2 & Ticket 103: Classifies thread attachments using
+    thread_files. Returns the newest real EPIF, or the newest flattened
+    EPIF so the existing flattened-PDF error can still reach the uploader, or (None, None).
+    """
+    classified = thread_files(client, channel, thread_ts)
     if classified.get("epifs"):
         newest = classified["epifs"][-1]
         return newest["file"], newest["user"]
@@ -343,6 +363,7 @@ def find_epif_in_thread(client, channel: str, thread_ts: str):
         newest = classified["flattened_epifs"][-1]
         return newest["file"], newest["user"]
     return None, None
+
 
 
 def find_request_metadata_in_thread(client, channel: str, thread_ts: str):
