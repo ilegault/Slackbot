@@ -1,6 +1,6 @@
 # 105: A batch refuses a BOM and carries the thread's quotes on every row
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Claimed-by:** box
 
