@@ -1,6 +1,6 @@
 # 109: A P-card at $5,000 or more is refused
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -35,10 +35,10 @@
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_109_pcard_limit.py` tests `pcard_problem` directly: (`"P-card"`, 4999.99) → None; (`"P-card"`, 5000.00) → the message; (`"p-card"`, 12000) → the message; (`"Req/PO"`, 2520) → None; (`"Req/PO"`, 9000) → None; (`"P-card"`, None) → None.
-- [ ] Submitting Screen 2 (drive `app.handle_stage2_submit` with a view state, as `tests/test_28_line_items_modal_path.py` does) with P-card and total 6000 calls `ack` with `response_action="errors"` and `errors == {"block_payment_method": "P-card is for orders under $5,000. Pick Req/PO."}`. This holds for a category that needs asset details too: the view is not advanced to Screen 3.
-- [ ] Approving an EPIF whose parsed `payment_method` is `"P-card"` and total 7500 writes no row. The thread reply says "Not logged", and the requester is DM'd text that contains the message.
-- [ ] Req/PO at $2,520 approves normally. A row is written on the temp workbook.
+- [x] New `tests/test_109_pcard_limit.py` tests `pcard_problem` directly: (`"P-card"`, 4999.99) → None; (`"P-card"`, 5000.00) → the message; (`"p-card"`, 12000) → the message; (`"Req/PO"`, 2520) → None; (`"Req/PO"`, 9000) → None; (`"P-card"`, None) → None.
+- [x] Submitting Screen 2 (drive `app.handle_stage2_submit` with a view state, as `tests/test_28_line_items_modal_path.py` does) with P-card and total 6000 calls `ack` with `response_action="errors"` and `errors == {"block_payment_method": "P-card is for orders under $5,000. Pick Req/PO."}`. This holds for a category that needs asset details too: the view is not advanced to Screen 3.
+- [x] Approving an EPIF whose parsed `payment_method` is `"P-card"` and total 7500 writes no row. The thread reply says "Not logged", and the requester is DM'd text that contains the message.
+- [x] Req/PO at $2,520 approves normally. A row is written on the temp workbook.
 
 May fake: the Slack client, `parse_epif` in criterion 3. Must be real: `validators.validate`, `pcard_problem`, `handle_stage2_submit`, the workbook write on a temp copy.
 
@@ -54,3 +54,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-08: Added config.PCARD_LIMIT/MESSAGE, validators.pcard_problem (also in validate), and a Screen 2 check in app.handle_stage2_submit. All four criteria covered by tests/test_109_pcard_limit.py. Gate green locally.

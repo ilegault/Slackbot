@@ -10,6 +10,24 @@ except ImportError:
     import roster
 
 
+def pcard_problem(payment_method, total_price):
+    """Return the P-card limit message, or None (ADR 0017).
+
+    WHY: a P-card is only for orders under config.PCARD_LIMIT; at that amount or
+    more the lab must use a Req/PO. One pure rule so approval, Edit, dropped EPIFs
+    and the Screen 2 submit all refuse the same way.
+    """
+    if (
+        isinstance(payment_method, str)
+        and payment_method.strip().lower() == "p-card"
+        and isinstance(total_price, (int, float))
+        and not isinstance(total_price, bool)
+        and total_price >= config.PCARD_LIMIT
+    ):
+        return config.PCARD_LIMIT_MESSAGE
+    return None
+
+
 def validate(parsed: dict, requester_name=None) -> list:
     problems = []
 
@@ -71,6 +89,10 @@ def validate(parsed: dict, requester_name=None) -> list:
 
     if parsed["payment_method"] is None:
         problems.append("Tick either the P-card box or the Req/PO box (exactly one).")
+
+    pcard = pcard_problem(parsed["payment_method"], parsed["total_price"])
+    if pcard is not None:
+        problems.append(pcard)
 
     # --- the Slack side --------------------------------------------------------
     valid_requesters = roster.get_valid_requesters() if hasattr(roster, "get_valid_requesters") else set()

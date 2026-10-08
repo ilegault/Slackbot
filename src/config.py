@@ -176,6 +176,10 @@ COLUMN_LINK = "E"           # first URL scraped out of the Purpose text
 COLUMN_QTY = "F"            # not on the EPIF
 COLUMN_UNIT_PRICE = "G"     # not on the EPIF
 COLUMN_TOTAL_PRICE = "H"    # Amount / Total Price
+# ADR 0017: a P-card is for orders under this amount; $5,000.00 exactly is refused.
+PCARD_LIMIT = 5000.00
+PCARD_LIMIT_MESSAGE = "P-card is for orders under $5,000. Pick Req/PO."
+
 COLUMN_HOW_BUYING = "L"     # P-card / Req is NOT the same as Workday / Out-of-Network
 COLUMN_DATE_OF_REQUEST = "M"# Date of Purchase / Request
 COLUMN_URGENCY = "N"        # not on the EPIF
