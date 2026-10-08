@@ -1,6 +1,6 @@
 # 107: A decline DMs the requester
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
