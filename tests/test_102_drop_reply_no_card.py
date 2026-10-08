@@ -163,10 +163,11 @@ def test_invalid_epif_drop_posts_problem_reply_and_dms_uploader():
     assert "📄 I read *EPIF_broken.pdf* but it can't be approved yet:" in thread_call.kwargs.get("text")
     assert "  • Vendor is blank." in thread_call.kwargs.get("text")
 
-    # DM to uploader
+    # DM to uploader (routed via notify in ticket 106, appending thread permalink)
     dm_call = next(c for c in post_calls if c.kwargs.get("channel") == "U_REQ")
     assert dm_call.kwargs.get("channel") == "U_REQ"
-    assert dm_call.kwargs.get("text") == thread_call.kwargs.get("text")
+    assert dm_call.kwargs.get("text").startswith(thread_call.kwargs.get("text"))
+    assert "Open the thread" in dm_call.kwargs.get("text")
 
     # No chat_update
     client.chat_update.assert_not_called()

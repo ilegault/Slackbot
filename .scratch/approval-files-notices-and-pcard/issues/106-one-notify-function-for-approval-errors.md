@@ -1,6 +1,6 @@
 # 106: One `notify` function; approval-path error DMs use it
 
-**Status:** in-progress
+**Status:** done
 
 **Claimed-by:** box
 
@@ -45,11 +45,11 @@ Add one function and route the approval-path error DMs through it.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_106_notify.py`. Table tests on `notice_recipients`: actor only; actor + requester with `requester_fix`; requester ignored without `requester_fix`; requester == actor → one id; requester == bot id → actor only; actor == bot id and requester None → `[]`.
-- [ ] `notify` with a fake client: each DM's text ends with `<https://x/p|Open the thread>` when `chat_getPermalink` returns `{"permalink": "https://x/p"}`. When `chat_getPermalink` raises, the DM is still sent without the link.
-- [ ] Regression for the 2026-10-05 failure: `handle_epif_processing` is called with `approver="U_APPROVER"`. The thread's only PDF is a flattened file named `X_EPIF.pdf` posted by the bot's own id (fake `auth_test` returns it). Exactly one DM is sent, to `U_APPROVER`, and none to the bot id.
-- [ ] Approving a card whose data fails `validators.validate` DMs both the approver and the requester (two `chat_postMessage` calls with those `channel`s), and still posts the "Not logged" thread reply.
-- [ ] `grep -n "slack_io.tell(" src/lifecycle.py` no longer lists the call sites named in step 2. Assert this in a test that reads the source file, as `tests/test_14_approve_payload.py::test_source_scan_no_sales_at_vendor_com_in_src` does.
+- [x] New `tests/test_106_notify.py`. Table tests on `notice_recipients`: actor only; actor + requester with `requester_fix`; requester ignored without `requester_fix`; requester == actor → one id; requester == bot id → actor only; actor == bot id and requester None → `[]`.
+- [x] `notify` with a fake client: each DM's text ends with `<https://x/p|Open the thread>` when `chat_getPermalink` returns `{"permalink": "https://x/p"}`. When `chat_getPermalink` raises, the DM is still sent without the link.
+- [x] Regression for the 2026-10-05 failure: `handle_epif_processing` is called with `approver="U_APPROVER"`. The thread's only PDF is a flattened file named `X_EPIF.pdf` posted by the bot's own id (fake `auth_test` returns it). Exactly one DM is sent, to `U_APPROVER`, and none to the bot id.
+- [x] Approving a card whose data fails `validators.validate` DMs both the approver and the requester (two `chat_postMessage` calls with those `channel`s), and still posts the "Not logged" thread reply.
+- [x] `grep -n "slack_io.tell(" src/lifecycle.py` no longer lists the call sites named in step 2. Assert this in a test that reads the source file, as `tests/test_14_approve_payload.py::test_source_scan_no_sales_at_vendor_com_in_src` does.
 
 May fake: the Slack client (`auth_test`, `chat_getPermalink`, `chat_postMessage`). Must be real: `notice_recipients`, `notify`, and the lifecycle functions under change.
 
@@ -65,3 +65,15 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-08: Completed implementation and verification for ticket 106.
+- Built `notice_recipients(actor_id, requester_id, requester_fix, bot_id)` pure helper and `notify(client, *, actor_id, requester_id, requester_fix, text, channel, link_ts)` in `src/slack_io.py`.
+- Routed approval-path error DMs in `src/lifecycle.py` (`finalize_purchase_request`, `handle_epif_processing`, `handle_epif_drop`) through `slack_io.notify`.
+- Added comprehensive tests in `tests/test_106_notify.py` and updated `tests/test_102_drop_reply_no_card.py` to account for thread permalinks in drop notices.
+- Verified acceptance criteria:
+  - Criterion 1: `test_notice_recipients_table` verifies table test cases.
+  - Criterion 2: `test_notify_success_appends_thread_link` and `test_notify_permalink_raises_sends_text_alone` verify permalink formatting and error fallback.
+  - Criterion 3: `test_regression_2026_10_05_bot_posted_flattened_epif` verifies bot-posted flattened PDF DMs only approver, not bot.
+  - Criterion 4: `test_card_validation_failure_dms_approver_and_requester` verifies dual DMs and thread message upon validation failure.
+  - Criterion 5: `test_source_scan_no_approval_error_tell_calls_in_lifecycle` verifies AST source scan confirming removal of `slack_io.tell` from the targeted functions in `src/lifecycle.py`.
+- Passed full local gate: `ruff check .`, `check_tests_first.py`, `tools/type_gate.py`, and `pytest` (784 passed, 31 skipped).
