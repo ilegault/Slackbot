@@ -79,6 +79,12 @@ Per Ticket 106 / ADR 0016 Decisions 1-3:
 - Prevents sending error DMs to the bot itself (2026-10-05 regression) while ensuring both
   the actor and requester are notified appropriately.
 
+Per Ticket 108 / ADR 0016: the last two request error DMs follow the same rule. A quote that
+fails to attach DMs the requester (thread line unchanged) and the edit refusal on an approved
+card DMs the clicker, both through notify so each ends with the `Open the thread` link. The
+only slack_io.tell calls left here are the assignee email-draft DM and the submission
+confirmation, which are not error notices.
+
 Per Ticket 33:
 - handle_epif_drop supersedes any posted card in the same thread from the same
   requester and vendor before posting the new card (ADR 0006 decision 9).
@@ -2913,7 +2919,15 @@ def post_attachments_to_thread(
             except Exception as e_post:
                 log.warning("Failed to post attachment failure warning to thread %s: %s", thread_ts, e_post)
             try:
-                slack_io.tell(client, requester_id, msg)
+                slack_io.notify(
+                    client,
+                    actor_id=requester_id,
+                    requester_id=requester_id,
+                    requester_fix=True,
+                    text=msg,
+                    channel=channel,
+                    link_ts=thread_ts,
+                )
             except Exception as e_tell:
                 log.warning("Failed to DM attachment failure warning to %s: %s", requester_id, e_tell)
             failed.append(fname)
@@ -3005,7 +3019,13 @@ def handle_items_update(
     state = card_payload.get("state", "posted")
     if state != "posted":
         log.warning("Card %s in channel %s is in state '%s', not 'posted'", card_ts, channel, state)
-        slack_io.tell(client, user_id, "⚠️ This purchase request has already been approved and line items can no longer be edited.")
+        slack_io.notify(
+            client,
+            actor_id=user_id,
+            text="⚠️ This purchase request has already been approved and line items can no longer be edited.",
+            channel=channel,
+            link_ts=card_ts,
+        )
         return False
 
     new_payload = dict(card_payload)

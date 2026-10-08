@@ -1,6 +1,6 @@
 # 108: The remaining request error DMs use `notify`
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -30,10 +30,10 @@ Do not touch: the assignee email-draft DM in `_send_assignee_dm`, the submission
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_108_remaining_notices.py`: a quote whose `files_info` raises produces a thread line naming the file (unchanged) and a DM to the requester ending with the `Open the thread` link.
-- [ ] The edit refusal on an approved card DMs the clicking user with the same text plus the link.
-- [ ] A source-scan test (as in ticket 106) shows `src/lifecycle.py` keeps exactly two `slack_io.tell(` calls: the assignee DM and the submission confirmation.
-- [ ] `tests/test_81_quotes_on_new_purchase.py` passes unchanged.
+- [x] New `tests/test_108_remaining_notices.py`: a quote whose `files_info` raises produces a thread line naming the file (unchanged) and a DM to the requester ending with the `Open the thread` link.
+- [x] The edit refusal on an approved card DMs the clicking user with the same text plus the link.
+- [x] A source-scan test (as in ticket 106) shows `src/lifecycle.py` keeps exactly two `slack_io.tell(` calls: the assignee DM and the submission confirmation.
+- [x] `tests/test_81_quotes_on_new_purchase.py` passes unchanged.
 
 May fake: the Slack client. Must be real: `notify` and the two lifecycle functions.
 
@@ -49,3 +49,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-08: `post_attachments_to_thread` and `handle_items_update` now use `slack_io.notify`. Covered by `tests/test_108_remaining_notices.py` (one test per criterion 1-3; criterion 4: `tests/test_81_quotes_on_new_purchase.py` unchanged and passing). Full gate green (787 passed).
