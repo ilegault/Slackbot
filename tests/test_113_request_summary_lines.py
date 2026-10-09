@@ -75,7 +75,6 @@ def test_request_summary_lines_states():
         actual_text = built[0]["text"]["text"]
 
         assert actual_text == expected_text
-
         if state == "posted":
             assert "• *Buyer:* ⚠️ _Unassigned_" not in expected_text
         else:
