@@ -89,6 +89,9 @@ purchasing path.
 the vendor is on the vendor list; the buyer places the order in Workday, and no EPIF
 or email exists. **EPIF path**: the vendor is not on the list; the bot fills in the
 EPIF and the buyer emails it to purchasing. On the interview, the vendor pick decides.
+From then on the request's **payment method** records its path: `Workday` means the
+Workday path; anything else (**P-card**, **Req/PO**, or blank on an uploaded EPIF)
+means the EPIF path. There is no second record of the path to drift from it (ADR 0018).
 In a thread, an uploaded EPIF means the EPIF path; no EPIF means the Workday path
 (see **Bare-thread approval**). A Workday request can switch to the EPIF path until
 it is processed, never after. See ADR 0007.
@@ -293,8 +296,10 @@ cannot lose a request's position. Every approved request has one: if approval fi
 none in the thread, the bot posts it (ADR 0010). Also called the **thread card**
 when it must be told apart from the DM card.
 
-**DM card** — the card in the assigned buyer's DM: a short summary, a link to the
-thread card, and the one next-step button for the current stage (no Cancel). It is a
+**DM card** — the card in the assigned buyer's DM: every request line the thread card
+shows, its History and row, a link to the thread card, and the one next-step button
+for the current stage (no Cancel). On the Workday path it is the whole DM, headed
+"Place this in Workday"; on the EPIF path it follows the email draft (ADR 0018). It is a
 *view*, not a second store: the thread card is authoritative, and a click on either
 card moves both. A cancel retires it; a reassignment retires the old buyer's and gives
 the new buyer a fresh one (ADR 0010). Who may click a stage button on either card: the
