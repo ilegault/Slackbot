@@ -29,3 +29,5 @@ processed, the button is gone and a switch is refused.
 ## Comments
 
 Progress (2024-05-24): Implemented ticket #42 - Added "Switch to EPIF" to conditionally trigger an EPIF route change on an un-processed Workday approval path. Handled modal switch action and modal submit. Enforced strict permissions similar to Fill in Details. Implemented queued rewrite for updating row alongside new EPIF archival without mutating requestor context. Tests cover conditionals and verify thread posting, assignee messaging, and Slack payload updates exactly according to the Acceptance Criteria.
+
+2026-10-09: PR #61 changed only this ticket file; no code or tests from it exist. Superseded by `.scratch/epif-path-and-buyer-dm/issues/116-…` and `117-…`.
