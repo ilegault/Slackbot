@@ -1,6 +1,6 @@
 # 111: The path is read from the payment method
 
-**Status:** ready-for-agent
+**Status:** blocked
 
 **Runner:** any
 
@@ -89,3 +89,14 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+## Escalation — 2026-10-10
+Ticket: 111 The path is read from the payment method   Branch: claim/epif-path-and-buyer-dm/111
+Goal: The path is read from the payment method
+Attempt 1: engine auto-reply told the session to proceed unattended → the session stopped to ask again
+Attempt 2: engine auto-reply told the session to proceed unattended → the session stopped to ask again
+Failing output (exact, trimmed to the relevant lines):
+```
+Jules session sessions/6290843894371044651 is in AWAITING_USER_FEEDBACK after 2 auto-replies. Its question is in the Jules web UI; it is not copied here (ADR 0002).
+```
+Decision needed: Answer the session's question in Jules, or rewrite the ticket so it can be finished without one, then delete the claim branch to retry.
