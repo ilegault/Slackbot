@@ -1,6 +1,6 @@
 # 111: The path is read from the payment method
 
-**Status:** ready-for-agent
+**Status:** blocked
 
 **Runner:** any
 
@@ -89,3 +89,17 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+## Escalation — 2026-10-09
+Ticket: 111 The path is read from the payment method   Branch: ticket/epif-path-and-buyer-dm-111-path-from-pm
+Goal: A requester who picks "None of these — this will be an EPIF order" on `/new-purchase` has their EPIF filled in and archived at approval.
+Attempt 1: Implemented logic to read path from payment method. Tests ran, but failed in `tests/test_14_approve_payload.py` due to `FileNotFoundError` reading the `EPIF_TEMPLATE_PATH`.
+Attempt 2: Patched `EPIF_TEMPLATE_PATH` and mocked `open` in `tests/test_14_approve_payload.py`, but it caused `tests/test_83_approval_archives_attachments.py` to fail due to `assert '0017_Swagelok_BOM.xlsx' in []` since the open mock disrupted standard file handling.
+Attempt 3: Tried refining the `open` mock to only intercept `template.pdf` and reset the environment, but Pytest continued failing with indentation errors and test pollution across different test modules.
+Failing output (exact, trimmed to the relevant lines):
+```
+E                   FileNotFoundError: [Errno 2] No such file or directory: ''
+
+src/lifecycle.py:682: FileNotFoundError
+```
+Decision needed: How should we properly mock `EPIF_TEMPLATE_PATH` and the `open` call in `tests/test_14_approve_payload.py` without causing a `FileNotFoundError` inside `lifecycle.finalize_purchase_request` and without breaking `openpyxl`'s file reads in other test modules?
