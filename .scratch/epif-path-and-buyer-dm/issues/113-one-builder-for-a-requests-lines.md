@@ -1,6 +1,6 @@
 # 113: One builder for a request's lines
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -33,9 +33,9 @@ apart. **The thread card does not change at all.**
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_113_request_summary_lines.py` calls `blocks.request_summary_lines` on a request with every field set (link, buyer, expected delivery, three line items so `bom.needs_bom` is true, one `bom` attachment and two `quote` attachments). It asserts the exact list of lines: header; Item; Total; Vendor with payment method; Category; Project ID / Fund; Delivery Room; Purpose; Link; Buyer; Expected delivery; the line-items line; `📎 BOM attached: …`; `📎 Quotes: 2`.
-- [ ] In the same file, for each state `posted`, `approved`, `processed`, `confirmed`, `delivered`, `declined`, `cancelled`, `waiting_for_details`: the section text of `blocks.build_request_blocks(state, request, history=[...])` equals `"\n".join(blocks.request_summary_lines(request, state))`. An unassigned request in a non-posted state includes `• *Buyer:* ⚠️ _Unassigned_`; a posted one does not.
-- [ ] Every existing test in `tests/` that builds a thread card passes unchanged. No existing test is edited.
+- [x] New `tests/test_113_request_summary_lines.py` calls `blocks.request_summary_lines` on a request with every field set (link, buyer, expected delivery, three line items so `bom.needs_bom` is true, one `bom` attachment and two `quote` attachments). It asserts the exact list of lines: header; Item; Total; Vendor with payment method; Category; Project ID / Fund; Delivery Room; Purpose; Link; Buyer; Expected delivery; the line-items line; `📎 BOM attached: …`; `📎 Quotes: 2`.
+- [x] In the same file, for each state `posted`, `approved`, `processed`, `confirmed`, `delivered`, `declined`, `cancelled`, `waiting_for_details`: the section text of `blocks.build_request_blocks(state, request, history=[...])` equals `"\n".join(blocks.request_summary_lines(request, state))`. An unassigned request in a non-posted state includes `• *Buyer:* ⚠️ _Unassigned_`; a posted one does not.
+- [x] Every existing test in `tests/` that builds a thread card passes unchanged. No existing test is edited.
 
 May fake: nothing; these are pure functions. Must be real: `blocks.build_request_blocks` and `blocks.request_summary_lines`.
 
@@ -51,3 +51,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-10: Created pure function `request_summary_lines` in `src/blocks.py` as a single builder for request lines, per ADR 0018. Updated `build_request_blocks` to call this new function. Created test file `tests/test_113_request_summary_lines.py` covering all required fields and state-specific unassigned buyer logic. Verified existing tests pass with no changes.

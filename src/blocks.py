@@ -570,24 +570,13 @@ def _buyer_picker(action_id: str, placeholder: str, assignee_id: str | None) -> 
     return picker
 
 
-def build_request_blocks(
-    state: str,
-    request: dict,
-    history: list | None = None,
-    requester: str | None = None,
-    items: list[dict] | None = None,
-    attachments: list[dict] | None = None,
-    thread_channel: str | None = None,
-    card_ts: str | None = None,
-) -> list:
-    """Generate Block Kit blocks for a purchase request at a given lifecycle state.
+def request_summary_lines(request: dict, state: str, requester: str | None = None, items: list | None = None, attachments: list | None = None) -> list[str]:
+    """Build the request lines for both the thread card and the DM card.
 
-    ``thread_channel`` / ``card_ts`` fill the pointer on a Confirmed card's optional
-    'Set expected delivery' button (Ticket 91); when omitted the button still renders and the
-    click handler falls back to the channel and message the click came from.
-
-    States: posted -> approved -> processed -> confirmed -> delivered
-    Terminal states with no buttons: declined, cancelled, delivered, superseded.
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0018 decision 2: the DM card shows the same request fields as the thread
+    card. One pure function builds them so they cannot drift.
     """
     parsed = request.get("parsed", request)
     requester = requester or request.get("requester")
@@ -661,6 +650,31 @@ def build_request_blocks(
 
     if suggest_note:
         summary_lines.append(suggest_note)
+
+    return summary_lines
+
+
+def build_request_blocks(
+    state: str,
+    request: dict,
+    history: list | None = None,
+    requester: str | None = None,
+    items: list[dict] | None = None,
+    attachments: list[dict] | None = None,
+    thread_channel: str | None = None,
+    card_ts: str | None = None,
+) -> list:
+    """Generate Block Kit blocks for a purchase request at a given lifecycle state.
+
+    ``thread_channel`` / ``card_ts`` fill the pointer on a Confirmed card's optional
+    'Set expected delivery' button (Ticket 91); when omitted the button still renders and the
+    click handler falls back to the channel and message the click came from.
+
+    States: posted -> approved -> processed -> confirmed -> delivered
+    Terminal states with no buttons: declined, cancelled, delivered, superseded.
+    """
+
+    summary_lines = request_summary_lines(request, state, requester, items, attachments)
 
     blocks = [
         {
@@ -818,7 +832,7 @@ def build_request_blocks(
             picker = _buyer_picker(
                 config.ACTION_REQ_ASSIGN_SELECT,
                 "Assign a buyer (optional)",
-                assignee_id,
+                request.get("assignee_id"),
             )
             if picker is not None:
                 elements.append(picker)
@@ -829,7 +843,7 @@ def build_request_blocks(
             picker = _buyer_picker(
                 config.ACTION_REQ_ASSIGN_SELECT,
                 "Assign a buyer",
-                assignee_id,
+                request.get("assignee_id"),
             )
             if picker is not None:
                 elements.append(picker)
@@ -1048,7 +1062,7 @@ def build_dm_card_blocks(
             picker = _buyer_picker(
                 config.ACTION_DM_REQ_ASSIGN_SELECT,
                 "Assign a buyer",
-                assignee_id,
+                request.get("assignee_id"),
             )
             if picker is not None:
                 elements.append(picker)
