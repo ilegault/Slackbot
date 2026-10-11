@@ -55,13 +55,13 @@ request. Submitting it is ticket 117; this ticket stops at the open form.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_116_switch_to_epif_button.py`, **one test function over a table**:
+- [ ] New `tests/test_116_switch_to_epif_button.py`, test `test_switch_button_shows_only_on_an_approved_workday_card`, **one test function over a table**:
   - `build_request_blocks("approved", request)` with `payment_method="Workday"` has an action with `action_id == "req_switch_epif"`;
   - it has none with `payment_method="P-card"`;
   - it has none in states `posted`, `processed`, `confirmed` and `delivered`.
-- [ ] Same file: `app.handle_req_switch_epif` pressed by the assignee calls `views_open` once. The view's `callback_id` is the Screen 2 callback. Its `private_metadata` has `route == "epif"` and a `switch` object with `card_ts` and `row`. The item-description input's `initial_value` equals the request's item.
-- [ ] Same file: pressed by a user who is not the requester, not the assignee, not an admin, and not a buyer on an unassigned request, it calls `respond` with the 🔒 text and does **not** call `views_open`.
-- [ ] Same file: `admin.can_fill_or_switch` returns True for each of the four allowed roles and False for a stranger. Existing Fill-in-details and This-needs-an-EPIF permission tests (`tests/test_40_bare_thread_approval.py`, `tests/test_41_this_needs_an_epif.py`) pass unchanged.
+- [ ] Same file, test `test_switch_button_opens_the_epif_form_prefilled`: `app.handle_req_switch_epif` pressed by the assignee calls `views_open` once. The view's `callback_id` is the Screen 2 callback. Its `private_metadata` has `route == "epif"` and a `switch` object with `card_ts` and `row`. The item-description input's `initial_value` equals the request's item.
+- [ ] Same file, test `test_switch_button_refuses_a_stranger_privately`: pressed by a user who is not the requester, not the assignee, not an admin, and not a buyer on an unassigned request, it calls `respond` with the 🔒 text and does **not** call `views_open`.
+- [ ] Same file, test `test_can_fill_or_switch_allows_four_roles_and_refuses_a_stranger`: `admin.can_fill_or_switch` returns True for each of the four allowed roles and False for a stranger. Existing Fill-in-details and This-needs-an-EPIF permission tests (`tests/test_40_bare_thread_approval.py`, `tests/test_41_this_needs_an_epif.py`) pass unchanged.
 
 May fake: the Slack client (`MagicMock`), the roster (temp `roster.json`, as `tests/test_41_this_needs_an_epif.py` sets it up). Must be real: `blocks.build_request_blocks`, `blocks.build_stage2_view`, `interview.get_request_route`, `admin.can_fill_or_switch`, and the registered Bolt listener (find it in the app's listener registry as existing action tests do; do not call a re-implemented copy).
 

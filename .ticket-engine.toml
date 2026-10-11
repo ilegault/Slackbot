@@ -5,6 +5,7 @@ daily_cap = 10
 concurrency = 2
 jules_reserve = 10
 box_enabled = true
+jules_enabled = false
 
 # Environment the test suite needs, mirroring tests.yml. Deliberately bogus values:
 # the integrity gate sets these for check 7's runs so tests can import.

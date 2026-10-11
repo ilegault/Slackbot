@@ -41,11 +41,11 @@ carries the History and the path header.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_115_workday_dm_is_the_card.py`: a Workday-path approval through `lifecycle.finalize_purchase_request` (request `payment_method="Workday"`, buyer set, `card_ts` known) sends exactly **one** `chat_postMessage` to the buyer's id. That call has `blocks`, its section starts with `🛒 *Place this in Workday*`, it contains `• *Total:*` and `• *Row:*`, and a `context` block holds `Approved by` and `Assigned to`. No call to the buyer has text starting with `Place this in Workday:`.
-- [ ] Same file: an EPIF-path approval (`payment_method="P-card"`) sends the buyer the draft message (text contains `Send this email to purchasing`) and then a DM card whose section starts with `📧 *Email the EPIF to purchasing*`, in that order.
-- [ ] Same file: `lifecycle.handle_assign` on an approved Workday-path card sends the new buyer one card-only DM whose History block contains the `Assigned to` line.
-- [ ] Same file, **same test function** as the first criterion (it passes on today's code alone): calling `_send_assignee_dm(route="workday", card_ts=None, ...)` sends one plain-text DM containing `• *Item:*` and logs the `No card_ts` warning.
-- [ ] Rewritten in place, keeping the same test names and number of assertions:
+- [ ] New `tests/test_115_workday_dm_is_the_card.py`, test `test_workday_approval_sends_one_dm_card_and_no_plain_text`: a Workday-path approval through `lifecycle.finalize_purchase_request` (request `payment_method="Workday"`, buyer set, `card_ts` known) sends exactly **one** `chat_postMessage` to the buyer's id. That call has `blocks`, its section starts with `🛒 *Place this in Workday*`, it contains `• *Total:*` and `• *Row:*`, and a `context` block holds `Approved by` and `Assigned to`. No call to the buyer has text starting with `Place this in Workday:`.
+- [ ] Same file, test `test_epif_approval_sends_the_draft_then_the_card`: an EPIF-path approval (`payment_method="P-card"`) sends the buyer the draft message (text contains `Send this email to purchasing`) and then a DM card whose section starts with `📧 *Email the EPIF to purchasing*`, in that order.
+- [ ] Same file, test `test_assigning_a_workday_card_sends_one_card_only_dm`: `lifecycle.handle_assign` on an approved Workday-path card sends the new buyer one card-only DM whose History block contains the `Assigned to` line.
+- [ ] Same file, **same test function** as the first criterion (`test_workday_approval_sends_one_dm_card_and_no_plain_text`; it passes on today's code alone): calling `_send_assignee_dm(route="workday", card_ts=None, ...)` sends one plain-text DM containing `• *Item:*` and logs the `No card_ts` warning.
+- [ ] Rewritten in place, keeping the same test names and number of assertions (`test_workday_path_approval_dm_and_thread` and `test_buyer_self_assigns_unassigned_request`):
   - in `tests/test_38_workday_path_approval.py`, the Workday DM assertions now read the buyer's single DM card blocks (section starts with `🛒 *Place this in Workday*`, contains `• *Item:*`, `• *Vendor:*`, `• *Total:* $149.99`, `• *Link:*`, `• *Row:* 21`, and no `Subject:`);
   - in `tests/test_08_assignment.py`, the `Place this in Workday:` text-call assertion reads the card instead.
 
