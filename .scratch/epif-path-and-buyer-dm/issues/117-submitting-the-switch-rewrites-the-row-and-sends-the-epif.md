@@ -66,13 +66,13 @@ person who submitted is told why.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_117_switch_to_epif_submit.py`, on a temp workbook holding one approved Workday row:
+- [ ] New `tests/test_117_switch_to_epif_submit.py`, test `test_switching_an_approved_workday_row_to_epif`, on a temp workbook holding one approved Workday row:
   - submit the switch through `lifecycle._process_interview_completion` with a `switch` context and Screen 2 `payment_method="P-card"`;
   - assert that afterwards the row number and the row count are unchanged, the requester cell (column B) is unchanged, the payment-method cell (column L) reads P-card, and the vendor cell has the new vendor;
   - assert exactly one PDF is in the temp `EPIFS_DIR`, and `epif_parser.parse_epif` on it returns the vendor and amount.
-- [ ] Same test function: the thread got a message containing `🔁 Switched to EPIF by`. The card's `chat_update` `metadata.event_payload.parsed.payment_method == "P-card"`, and `interview.get_request_route` on that payload is `epif`. The assigned buyer's DM contains `Send this email to purchasing`, and a `files_upload_v2` call names the PDF.
-- [ ] Processed between click and write: set the row's Date Processed on the temp workbook **before** the queued task runs. Assert the row is byte-identical afterwards, `EPIFS_DIR` is empty, `chat_update` was not called, no `🔁` line was posted, and the submitter's DM contains `Already processed`.
-- [ ] Template missing (`config.EPIF_TEMPLATE_PATH` pointing at a missing file): the row's cells equal their values before the switch, `EPIFS_DIR` is empty, and `chat_update` was not called.
+- [ ] Same test function (`test_switching_an_approved_workday_row_to_epif`): the thread got a message containing `🔁 Switched to EPIF by`. The card's `chat_update` `metadata.event_payload.parsed.payment_method == "P-card"`, and `interview.get_request_route` on that payload is `epif`. The assigned buyer's DM contains `Send this email to purchasing`, and a `files_upload_v2` call names the PDF.
+- [ ] Test `test_switch_is_refused_when_the_row_was_processed_meanwhile`: processed between click and write: set the row's Date Processed on the temp workbook **before** the queued task runs. Assert the row is byte-identical afterwards, `EPIFS_DIR` is empty, `chat_update` was not called, no `🔁` line was posted, and the submitter's DM contains `Already processed`.
+- [ ] Test `test_switch_with_a_missing_template_changes_nothing`: template missing (`config.EPIF_TEMPLATE_PATH` pointing at a missing file): the row's cells equal their values before the switch, `EPIFS_DIR` is empty, and `chat_update` was not called.
 
 May fake: the Slack client (`MagicMock`), the lock queue (synchronous, as the `sync_queue` fixture in `tests/test_45_epif_approval_archives.py`). Must be real: `log_writer` on a temp workbook copy (copy the `temp_workbook` fixture from `tests/test_45_epif_approval_archives.py`), `epif_filler.fill_epif` on `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`, `epif_parser.parse_epif`, `interview.build_parsed_from_stages`, `validators.validate`. A test that patches `update_row`, `fill_epif` or `get_request_route` does not count.
 

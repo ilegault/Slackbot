@@ -48,14 +48,14 @@ It stays a view; nothing about its buttons, picker or pointer changes.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_114_dm_card_whole_request.py`:
+- [ ] New `tests/test_114_dm_card_whole_request.py`, test `test_dm_card_shows_every_line_of_the_request`:
   - build a request with every field set and a row, then call `blocks.build_dm_card_blocks(state="approved", request=..., ..., history=["Approved by the approver on 10/09/26 10:00"], route="workday")`;
   - assert that every line of `blocks.request_summary_lines(request, "approved")[1:]` appears in the section text, and that the section starts with `🛒 *Place this in Workday*`;
   - assert it contains `• *Row:* 7` and `Stage: *approved*`;
   - assert the next block is a `context` block whose text contains `*History:*` and the history line.
-- [ ] Same file: with `route="epif"` the section starts with `📧 *Email the EPIF to purchasing*`. For states `processed`, `confirmed`, `cancelled`, `reassigned` (with a note) and `delivered`, every summary line is still present, and the retired states still show their status line and no `actions` block.
-- [ ] Same file: `lifecycle.sync_dm_card` on a request with `payment_method="P-card"`, `dm_channel` and `dm_ts`, given a history list, calls `chat_update` with blocks whose section starts with `📧 *Email the EPIF to purchasing*` and whose History block holds that history.
-- [ ] Existing DM card tests (`tests/test_67_dm_card.py`, `tests/test_69_cards_move_together.py`, `tests/test_74_dm_card_picker.py`, `tests/test_88_confirmed_nudge.py`, `tests/test_91_expected_delivery.py`, `tests/test_98_buyer_picker_lists_buyers.py`) pass. Any assertion on the old first line `🛒 *{item}* — {vendor}, {price}` or the old expected-delivery line is rewritten in place to assert the new text, keeping the same test name and number of assertions. No test is deleted.
+- [ ] Same file, test `test_dm_card_header_and_retired_states_follow_the_path`: with `route="epif"` the section starts with `📧 *Email the EPIF to purchasing*`. For states `processed`, `confirmed`, `cancelled`, `reassigned` (with a note) and `delivered`, every summary line is still present, and the retired states still show their status line and no `actions` block.
+- [ ] Same file, test `test_sync_dm_card_rebuilds_the_whole_card`: `lifecycle.sync_dm_card` on a request with `payment_method="P-card"`, `dm_channel` and `dm_ts`, given a history list, calls `chat_update` with blocks whose section starts with `📧 *Email the EPIF to purchasing*` and whose History block holds that history.
+- [ ] Existing DM card tests (`tests/test_67_dm_card.py`, `tests/test_69_cards_move_together.py`, `tests/test_74_dm_card_picker.py`, `tests/test_88_confirmed_nudge.py`, `tests/test_91_expected_delivery.py`, `tests/test_98_buyer_picker_lists_buyers.py`) pass. The two that assert the old text, `test_dm_card_blocks_shape` and `test_valid_date_lands_everywhere_and_can_be_changed`, are rewritten in place (see the sentence that follows). Any assertion on the old first line `🛒 *{item}* — {vendor}, {price}` or the old expected-delivery line is rewritten in place to assert the new text, keeping the same test name and number of assertions. No test is deleted.
 
 May fake: the Slack client (`MagicMock`). Must be real: `blocks.build_dm_card_blocks`, `blocks.request_summary_lines`, `interview.get_request_route`, `lifecycle.sync_dm_card`.
 
