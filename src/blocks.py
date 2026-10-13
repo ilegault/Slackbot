@@ -968,6 +968,8 @@ def build_dm_card_blocks(
     card_ts: str,
     thread_link: str | None = None,
     note: str | None = None,
+    history: list | None = None,
+    route: str = "workday",
 ) -> list:
     """Build the Block Kit payload for a buyer's linked DM card.
 
@@ -980,33 +982,26 @@ def build_dm_card_blocks(
     and no request state of its own; the thread card remains the store.
     Retired states (cancelled, reassigned, replaced, delivered) render the section plus a status line
     and no buttons (Tickets 69 & 78).
+
+    ADR 0018 decision 2 & Ticket 114: the DM card shows the WHOLE request, not a one-line
+    summary. A buyer who got only "item - vendor, price" had to click through to the thread
+    to learn the category, project, room or link. The section is headed by what the buyer
+    does (`route`: Workday, or email the EPIF), then the very lines the thread card shows
+    (`request_summary_lines`, one builder so the two cannot drift), then the row, the stage
+    and the thread link; `history` becomes the same History context block. It is still a
+    view: buttons, buyer picker and the block_id pointer are unchanged and it keeps no state.
     """
     parsed = request.get("parsed") if isinstance(request.get("parsed"), dict) else {}
-    item = parsed.get("item_description") or request.get("item_description") or "Item"
-    vendor = parsed.get("vendor") or request.get("vendor") or "Vendor"
-    price = parsed.get("total_price") if "total_price" in parsed else request.get("total_price")
-
-    if isinstance(price, (int, float)):
-        price_str = f"${price:,.2f}"
-    elif price:
-        price_str = str(price)
-        if not price_str.startswith("$"):
-            price_str = f"${price_str}"
-    else:
-        price_str = "$0.00"
 
     row = request.get("row") or parsed.get("row") or request.get("row_number")
-    row_str = f" (Row {row})" if row else ""
 
-    lines = [
-        f"🛒 *{item}* — {vendor}, {price_str}{row_str}",
-        f"Stage: *{state}*",
-    ]
+    header = "🛒 *Place this in Workday*" if route == "workday" else "📧 *Email the EPIF to purchasing*"
+    lines = [header, *request_summary_lines(request, state)[1:]]
+    if row:
+        lines.append(f"• *Row:* {row}")
+    lines.append(f"Stage: *{state}*")
     if thread_link:
         lines.append(f"<{thread_link}|Open the request thread>")
-
-    if request.get("expected_delivery") and state not in ("cancelled", "reassigned", "replaced", "delivered"):
-        lines.append(f"*Expected delivery:* {format_short_date(request['expected_delivery'])}")
 
     if state == "cancelled":
         lines.append("🚫 Cancelled")
@@ -1026,6 +1021,13 @@ def build_dm_card_blocks(
             },
         }
     ]
+
+    if history:
+        hist_text = "\n".join(f"• {h}" for h in history)
+        blocks.append({
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"*History:*\n{hist_text}"}],
+        })
 
     primary_dm_buttons = {
         "approved": ("Mark Processed", config.ACTION_DM_REQ_PROCESSED),

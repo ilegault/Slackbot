@@ -66,10 +66,11 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
 
 try:
-    from . import blocks, config, lifecycle, log_writer, nudge_settings, roster, slack_io, store
+    from . import blocks, config, interview, lifecycle, log_writer, nudge_settings, roster, slack_io, store
 except ImportError:
     import blocks  # type: ignore[no-redef]
     import config  # type: ignore[no-redef]
+    import interview  # type: ignore[no-redef]
     import lifecycle  # type: ignore[no-redef]
     import log_writer  # type: ignore[no-redef]
     import nudge_settings  # type: ignore[no-redef]
@@ -220,6 +221,8 @@ def _repost_dm_card(client, entry, req_data, history, card_state, section_text):
         thread_ts=thread_ts,
         card_ts=card_ts,
         thread_link=thread_link,
+        history=history,
+        route=interview.get_request_route(req_data),
     )
     dm_blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": section_text}}

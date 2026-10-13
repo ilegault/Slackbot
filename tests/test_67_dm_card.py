@@ -128,7 +128,7 @@ def test_dm_card_blocks_shape():
     assert "Widget" in sec_text
     assert "Acme" in sec_text
     assert "$12.50" in sec_text
-    assert "Row 17" in sec_text
+    assert "*Row:* 17" in sec_text
     assert "Stage: *approved*" in sec_text
     assert "<http" not in sec_text
 

@@ -557,6 +557,8 @@ def sync_dm_card(
             card_ts=card_ts,
             thread_link=thread_link,
             note=note,
+            history=history,
+            route=interview.get_request_route(request),
         )
         client.chat_update(
             channel=dm_channel,
