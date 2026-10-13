@@ -1,6 +1,6 @@
 # 122: Link in the glossary
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -33,10 +33,10 @@ blank line on each side. Its text, exactly:
 
 ## Acceptance criteria
 
-- [ ] `CONTEXT.md` contains the paragraph above, word for word, starting `**Link** — the product page or quote URL for a request`. (by hand)
-- [ ] That paragraph sits between the **Quote** paragraph and the **Thread files at approval** paragraph. (by hand)
-- [ ] `git diff master -- CONTEXT.md` shows only added lines: no other line of `CONTEXT.md` changes. (by hand)
-- [ ] No file other than `CONTEXT.md` and this ticket file changes. (by hand)
+- [x] `CONTEXT.md` contains the paragraph above, word for word, starting `**Link** — the product page or quote URL for a request`. (by hand)
+- [x] That paragraph sits between the **Quote** paragraph and the **Thread files at approval** paragraph. (by hand)
+- [x] `git diff master -- CONTEXT.md` shows only added lines: no other line of `CONTEXT.md` changes. (by hand)
+- [x] No file other than `CONTEXT.md` and this ticket file changes. (by hand)
 
 May fake: nothing. No new test is needed for a glossary entry. The existing suite, `tests/test_59_readme_and_docs.py` included, must pass unchanged.
 
@@ -52,3 +52,4 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+2026-10-13: Added the **Link** entry to `CONTEXT.md` between **Quote** and **Thread files at approval**, word for word. 7 added lines, none removed; no other file changed except this ticket. Gate green locally: ruff, tests-first, type_gate (95/95), pytest unchanged. Held for review (`Auto-merge: no`).

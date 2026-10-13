@@ -217,6 +217,13 @@ Quotes field, with `@Purchasing quote` in the thread, or as any non-EPIF PDF a p
 posted in the thread before `@Purchasing approved`. Carried, never read — and never
 mistaken for an EPIF (ADR 0015).
 
+**Link** — the product page or quote URL for a request, given in Screen 2's
+Product Page / Quote Link field. Kept apart from Purpose on the thread card, the DM
+card and the log (its own column). Only on a **Filled EPIF** is it added to the end of
+Purpose, as a last line `Link: <url>`, and not if the exact URL is already in Purpose.
+Left blank, the first URL in Purpose is used. Reading any EPIF, a Purpose whose last
+line is only a URL (with or without `Link:`) gives that URL back as the link.
+
 **Thread files at approval** — at `@Purchasing approved` in a thread with no posted
 card, the bot takes every file a person posted, by type: a PDF with the EPIF form
 fields is an EPIF, an `.xlsx` / `.csv` is the BOM, any other PDF is a quote; images and
