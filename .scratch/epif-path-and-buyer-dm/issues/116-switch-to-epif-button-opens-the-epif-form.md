@@ -1,6 +1,6 @@
 # 116: The Switch to EPIF button opens the EPIF form
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -55,13 +55,13 @@ request. Submitting it is ticket 117; this ticket stops at the open form.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_116_switch_to_epif_button.py`, test `test_switch_button_shows_only_on_an_approved_workday_card`, **one test function over a table**:
+- [x] New `tests/test_116_switch_to_epif_button.py`, test `test_switch_button_shows_only_on_an_approved_workday_card`, **one test function over a table**:
   - `build_request_blocks("approved", request)` with `payment_method="Workday"` has an action with `action_id == "req_switch_epif"`;
   - it has none with `payment_method="P-card"`;
   - it has none in states `posted`, `processed`, `confirmed` and `delivered`.
-- [ ] Same file, test `test_switch_button_opens_the_epif_form_prefilled`: `app.handle_req_switch_epif` pressed by the assignee calls `views_open` once. The view's `callback_id` is the Screen 2 callback. Its `private_metadata` has `route == "epif"` and a `switch` object with `card_ts` and `row`. The item-description input's `initial_value` equals the request's item.
-- [ ] Same file, test `test_switch_button_refuses_a_stranger_privately`: pressed by a user who is not the requester, not the assignee, not an admin, and not a buyer on an unassigned request, it calls `respond` with the 🔒 text and does **not** call `views_open`.
-- [ ] Same file, test `test_can_fill_or_switch_allows_four_roles_and_refuses_a_stranger`: `admin.can_fill_or_switch` returns True for each of the four allowed roles and False for a stranger. Existing Fill-in-details and This-needs-an-EPIF permission tests (`tests/test_40_bare_thread_approval.py`, `tests/test_41_this_needs_an_epif.py`) pass unchanged.
+- [x] Same file, test `test_switch_button_opens_the_epif_form_prefilled`: `app.handle_req_switch_epif` pressed by the assignee calls `views_open` once. The view's `callback_id` is the Screen 2 callback. Its `private_metadata` has `route == "epif"` and a `switch` object with `card_ts` and `row`. The item-description input's `initial_value` equals the request's item.
+- [x] Same file, test `test_switch_button_refuses_a_stranger_privately`: pressed by a user who is not the requester, not the assignee, not an admin, and not a buyer on an unassigned request, it calls `respond` with the 🔒 text and does **not** call `views_open`.
+- [x] Same file, test `test_can_fill_or_switch_allows_four_roles_and_refuses_a_stranger`: `admin.can_fill_or_switch` returns True for each of the four allowed roles and False for a stranger. Existing Fill-in-details and This-needs-an-EPIF permission tests (`tests/test_40_bare_thread_approval.py`, `tests/test_41_this_needs_an_epif.py`) pass unchanged.
 
 May fake: the Slack client (`MagicMock`), the roster (temp `roster.json`, as `tests/test_41_this_needs_an_epif.py` sets it up). Must be real: `blocks.build_request_blocks`, `blocks.build_stage2_view`, `interview.get_request_route`, `admin.can_fill_or_switch`, and the registered Bolt listener (find it in the app's listener registry as existing action tests do; do not call a re-implemented copy).
 
@@ -77,3 +77,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-13: Added `config.ACTION_REQ_SWITCH_EPIF`, the Switch to EPIF button on approved Workday-path cards (`blocks.build_request_blocks`), `admin.can_fill_or_switch` (used by Fill in details, This needs an EPIF and the new handler), `app.handle_req_switch_epif`, and `build_stage2_view` pre-fill for `meta["switch"]`. All four criteria are covered by `tests/test_116_switch_to_epif_button.py`; tests 40 and 41 pass unchanged. Gate green except `test_docs_adr_is_unmodified`, which fails locally only because the shared clone's `master` ref is stale. Submitting the form is ticket 117.

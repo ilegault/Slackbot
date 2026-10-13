@@ -1105,12 +1105,7 @@ def handle_req_fill_details(ack, body, respond, client):
 
     # Permission check: requester, assignee, unassigned buyer, or admin
     requester_name = val_data.get("requester")
-    is_requester = (requester_name and requester_name == slack_io.resolve_requester(client, user_id)) or (user_id == req_data.get("user_id"))
-    is_assignee = user_id == req_data.get("assignee_id")
-    is_unassigned_buyer = (not req_data.get("assignee_id")) and roster.is_buyer(user_id)
-    is_admin = admin.is_admin_user(user_id)
-
-    if not (is_requester or is_assignee or is_unassigned_buyer or is_admin):
+    if not admin.can_fill_or_switch(user_id, req_data, requester_name, slack_io.resolve_requester(client, user_id)):
         log.warning("Unauthorized user %s attempted to fill details", user_id)
         slack_io.deny(respond, "🔒 Only the requester, assignee, or admin can fill in the details.")
         return
@@ -1132,12 +1127,7 @@ def handle_req_needs_epif(ack, body, respond, client):
 
     # Permission check
     requester_name = val_data.get("requester")
-    is_requester = (requester_name and requester_name == slack_io.resolve_requester(client, user_id)) or (user_id == req_data.get("user_id"))
-    is_assignee = user_id == req_data.get("assignee_id")
-    is_unassigned_buyer = (not req_data.get("assignee_id")) and roster.is_buyer(user_id)
-    is_admin = admin.is_admin_user(user_id)
-
-    if not (is_requester or is_assignee or is_unassigned_buyer or is_admin):
+    if not admin.can_fill_or_switch(user_id, req_data, requester_name, slack_io.resolve_requester(client, user_id)):
         log.warning("Unauthorized user %s attempted to click Needs EPIF", user_id)
         slack_io.deny(respond, "🔒 Only the requester, assignee, or admin can change this.")
         return
@@ -1162,6 +1152,73 @@ def handle_req_needs_epif(ack, body, respond, client):
     }
     client.views_open(trigger_id=body["trigger_id"], view=blocks.build_stage2_view(meta))
     log.info("Opened EPIF interview for bare-thread card %s in %s (pressed by %s)", card_ts, channel_id, user_id)
+
+
+@app.action(config.ACTION_REQ_SWITCH_EPIF)
+def handle_req_switch_epif(ack, body, respond, client):
+    """Handle 'Switch to EPIF' on an approved Workday-path card: open the pre-filled EPIF form.
+
+    Submitting the form is Ticket 117; this handler only opens it (ADR 0007 decision 5).
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    val_data = json.loads(action.get("value") or "{}")
+    req_data = val_data.get("request", {})
+    requester_name = val_data.get("requester")
+
+    if not admin.can_fill_or_switch(user_id, req_data, requester_name, slack_io.resolve_requester(client, user_id)):
+        log.warning("Unauthorized user %s attempted to switch a request to EPIF", user_id)
+        slack_io.deny(respond, "🔒 Only the requester, assignee, a buyer while unassigned, or an admin can switch this to EPIF.")
+        return
+
+    channel_id = body.get("channel", {}).get("id")
+    card_ts = body.get("container", {}).get("message_ts") or body.get("message", {}).get("ts")
+    thread_ts = body.get("container", {}).get("thread_ts") or body.get("message", {}).get("thread_ts") or card_ts
+    row = slack_io.find_row_in_thread(client, channel_id, thread_ts)
+    if not row:
+        slack_io.deny(respond, "⚠️ I couldn't find this request's row, so I can't switch it.")
+        return
+
+    parsed = req_data.get("parsed") if isinstance(req_data.get("parsed"), dict) else req_data
+    card_payload = slack_io.get_card_payload(client, channel_id, thread_ts, card_ts) or {}
+    items = card_payload.get("items") or []
+    shipping = float(card_payload.get("shipping") or 0.0)
+    price = parsed.get("total_price")
+    price_str = f"{price:.2f}" if isinstance(price, (int, float)) else str(price or "")
+    date_val = parsed.get("date_of_purchase")
+    meta = {
+        "route": "epif",
+        "vendor_choice": config.VENDOR_OTHER_OPTION,
+        "vendor_custom": parsed.get("vendor", "") or "",
+        "resolved_name": req_data.get("requester") or requester_name,
+        "user_id": req_data.get("user_id"),
+        "item_description": parsed.get("item_description", "") or "",
+        "purpose": parsed.get("purpose", "") or "",
+        "link": parsed.get("link", "") or "",
+        "total_price": price_str,
+        "vendor_contact_name": parsed.get("vendor_contact_name", "") or "",
+        "vendor_contact_email": parsed.get("vendor_contact_email", "") or "",
+        "date_of_purchase": str(date_val) if date_val else "",
+        "delivery_room": parsed.get("delivery_room", "") or "",
+        "project_id": parsed.get("project_id", "") or "",
+        "fund": parsed.get("fund", "") or "",
+        "category": parsed.get("category", "") or "",
+        "payment_method": parsed.get("payment_method", "") or "",
+        "line_items": bom.format_line_items(items, shipping) if items else "",
+        "switch": {
+            "channel": channel_id,
+            "thread_ts": thread_ts,
+            "card_ts": card_ts,
+            "row": row,
+            "approver": req_data.get("approver"),
+            "assignee_id": req_data.get("assignee_id"),
+            "assignee_name": req_data.get("assignee"),
+        },
+    }
+    client.views_open(trigger_id=body["trigger_id"], view=blocks.build_stage2_view(meta))
+    log.info("Opened switch-to-EPIF form for row %s, card %s in %s (pressed by %s)", row, card_ts, channel_id, user_id)
+
 
 @app.action("req_cancel")
 def handle_req_cancel_action(ack, body, respond, client):

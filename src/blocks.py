@@ -803,6 +803,16 @@ def build_request_blocks(
             elements.append(_expected_delivery_button(
                 thread_channel, request.get("thread_ts"), card_ts
             ))
+        if state == "approved" and interview.get_request_route(request) == "workday":
+            # ADR 0007 decision 5 / Ticket 116: a buyer who finds the vendor is not on Workday can
+            # switch until the request is processed. An approved card is never processed, so the
+            # state check is the "no processed date" check. Never on the DM card.
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Switch to EPIF", "emoji": True},
+                "action_id": config.ACTION_REQ_SWITCH_EPIF,
+                "value": btn_value,
+            })
         if state in secondary_buttons:
             sec_label, sec_action_id = secondary_buttons[state]
             elements.append({
@@ -1411,10 +1421,15 @@ def build_stage2_view(meta: dict) -> dict:
       selected category needs them, validated at submit time)
     - vendor and route are shown as read-only context, not editable inputs
 
+    When meta['switch'] is set (Ticket 116, Switch to EPIF) the inputs are pre-filled from meta
+    exactly as for edit, but the callback_id, title and submit text stay those of Screen 2.
+
     Ticket 28: Line items box added with 1500-char cap.
     Ticket 32: Pre-fill / edit mode added.
     """
     is_edit = bool(meta.get("is_edit"))
+    # Ticket 116: a Switch-to-EPIF form is pre-filled like Edit but keeps the Screen 2 callback.
+    prefill = is_edit or bool(meta.get("switch"))
     v_choice = meta.get("vendor_choice") or ""
     v_custom = meta.get("vendor_custom") or ""
     other_opt = getattr(config, "VENDOR_OTHER_OPTION", "None of these — this will be an EPIF order")
@@ -1465,7 +1480,7 @@ def build_stage2_view(meta: dict) -> dict:
             elem["multiline"] = True
         if max_len:
             elem["max_length"] = max_len
-        if is_edit and prefill_key:
+        if prefill and prefill_key:
             val = meta.get(prefill_key)
             if val is not None:
                 elem["initial_value"] = str(val)
@@ -1479,7 +1494,7 @@ def build_stage2_view(meta: dict) -> dict:
             "placeholder": {"type": "plain_text", "text": placeholder},
             "options": options,
         }
-        if is_edit and prefill_key:
+        if prefill and prefill_key:
             initial = _select_initial_option(meta.get(prefill_key), options)
             if initial:
                 elem["initial_option"] = initial
@@ -1487,7 +1502,7 @@ def build_stage2_view(meta: dict) -> dict:
 
     # Date picker initial_date: today for new, stored value for edit
     date_initial = datetime.now().strftime("%Y-%m-%d")
-    if is_edit and meta.get("date_of_purchase"):
+    if prefill and meta.get("date_of_purchase"):
         raw_date = str(meta["date_of_purchase"])
         # Stored as "YYYY-MM-DD" (isoformat) or a date object str
         if len(raw_date) >= 10 and raw_date[4] == "-":
