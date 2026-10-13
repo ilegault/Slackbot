@@ -1,6 +1,6 @@
 # 120: Purpose asks why, and the card shows the link once
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -61,22 +61,22 @@ Do **not** change `interview.build_parsed_from_stages`, `log_writer.build_row`, 
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_120_purpose_and_link_on_the_card.py`, test `test_link_in_purpose`, asserts:
+- [x] New `tests/test_120_purpose_and_link_on_the_card.py`, test `test_link_in_purpose`, asserts:
   - `link_in_purpose("why https://a.com/x", "https://a.com/x")` is `True`;
   - `link_in_purpose("why", "https://a.com/x")` is `False`;
   - `link_in_purpose("why https://a.com/x", "")` and `link_in_purpose("why https://a.com/x", None)` are `False`;
   - `link_in_purpose("why https://a.com/x/", "https://a.com/x/y")` is `False`.
-- [ ] Test `test_screen_2_purpose_asks_only_why` builds `blocks.build_stage2_view(meta)` (copy a `meta` dict from an existing Screen 2 test in `tests/test_interview.py`). Find the blocks by `block_id` and assert:
+- [x] Test `test_screen_2_purpose_asks_only_why` builds `blocks.build_stage2_view(meta)` (copy a `meta` dict from an existing Screen 2 test in `tests/test_interview.py`). Find the blocks by `block_id` and assert:
   - `block_purpose`'s `label.text == "Purpose / Why Necessary"`;
   - its `element.placeholder.text == "Why this is needed for the research"`;
   - its `hint.text` equals the hint string above;
   - `block_link`'s `label.text == "Product Page / Quote Link (added to the EPIF)"`.
-- [ ] Test `test_card_shows_a_link_once` calls `blocks.request_summary_lines(request, "posted")` (build `request` the way `tests/test_113_request_summary_lines.py` does) for three cases:
+- [x] Test `test_card_shows_a_link_once` calls `blocks.request_summary_lines(request, "posted")` (build `request` the way `tests/test_113_request_summary_lines.py` does) for three cases:
   - (a) purpose `"For the beamline"` with link `https://fisher.com/a`: exactly one line equals `• *Link:* https://fisher.com/a`;
   - (b) purpose `"For the beamline https://fisher.com/a"` with the same link: no line starts with `• *Link:*`, and `https://fisher.com/a` occurs exactly once across all lines joined;
   - (c) purpose `"See https://other.com/b"` with link `https://fisher.com/a`: the `• *Link:* https://fisher.com/a` line is present.
-- [ ] Same file, test `test_dm_card_shows_a_link_once`: `blocks.build_dm_card_blocks` for case (b) above (copy the call from `tests/test_67_dm_card.py`). Assert `https://fisher.com/a` occurs exactly once in the section text and `*Link:*` does not occur.
-- [ ] **Rewrite in place, same name:** in `tests/test_interview.py`, test `test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url`.
+- [x] Same file, test `test_dm_card_shows_a_link_once`: `blocks.build_dm_card_blocks` for case (b) above (copy the call from `tests/test_67_dm_card.py`). Assert `https://fisher.com/a` occurs exactly once in the section text and `*Link:*` does not occur.
+- [x] **Rewrite in place, same name:** in `tests/test_interview.py`, test `test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url`.
   - Keep its assertion `parsed["link"] == "https://fishersci.com/purpose-gloves"`.
   - Replace its two `• *Link:*` assertions with: `"*Link:*" not in card_text`, `"*Link:*" not in call_kwargs["text"]`, and `"• *Purpose:* Supplies https://fishersci.com/purpose-gloves" in card_text`.
   - No test function is deleted. All other tests in `tests/test_interview.py` and `tests/test_113_request_summary_lines.py` pass unchanged.
@@ -95,3 +95,4 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+2026-10-13: Added `text_rules.link_in_purpose`; Screen 2 Purpose/Link labels, placeholder and hint; `request_summary_lines` and the channel post drop the Link line when the URL is already in Purpose. Tests: `tests/test_120_purpose_and_link_on_the_card.py` (all four criteria) and the in-place rewrite of `test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url`. Gate green locally: ruff, tests-first, type_gate (95/95), pytest 847 passed. No bench verification needed; deploy is a human step.
