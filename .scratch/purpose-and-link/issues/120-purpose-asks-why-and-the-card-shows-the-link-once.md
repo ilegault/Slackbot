@@ -1,6 +1,6 @@
 # 120: Purpose asks why, and the card shows the link once
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
