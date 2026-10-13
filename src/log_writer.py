@@ -16,6 +16,9 @@ Why this file is not just a high-level Excel package:
 This is safe because rows 12-1999 already exist in the sheet with their styles
 and their A/Z array formulas. We are filling blanks, not appending structure.
 
+snapshot_row()/restore_row() are the Switch to EPIF rollback (Ticket 117): the approved row
+is rewritten in place, and if the filled EPIF cannot be archived the row's raw cells go back.
+
 blank_row() is the cancel path: it resets every writable cell in one row back to
 its template state (empty), so the row can be recycled. The workbook is a log of
 live approved purchases, nothing else; a cancelled purchase does not belong in it
@@ -268,6 +271,58 @@ def _blank_cell(sheet_xml: str, ref: str) -> str:
     attrs = re.sub(r'\st="[^"]*"', "", match.group("attrs")).rstrip()
     replacement = f'<c r="{ref}"{attrs}/>'
     return sheet_xml[: match.start()] + replacement + sheet_xml[match.end() :]
+
+
+def snapshot_row(row: int, workbook_path: str = None) -> dict:
+    """Return the raw <c> XML of every writable cell in *row*, keyed by column letter.
+
+    WHY THIS EXISTS:
+        Ticket 117 (Switch to EPIF) rewrites an approved row in place, then archives a
+        PDF; if the archive step fails the row must go back exactly as it was. Reading
+        cell values back and re-writing them would turn numbers and dates into text,
+        so the raw cell elements are kept and put back by restore_row.
+    """
+    path = _check_workbook_path(workbook_path)
+    with zipfile.ZipFile(path) as archive:
+        sheet_xml = archive.read(config.SHEET_XML).decode("utf-8")
+    snapshot = {}
+    for col in (chr(c) for c in range(ord("B"), ord("Z"))):
+        match = _cell_pattern(f"{col}{row}").search(sheet_xml)
+        if match is not None:
+            snapshot[col] = match.group(0)
+    return snapshot
+
+
+def restore_row(row: int, snapshot: dict, workbook_path: str = None) -> int:
+    """Put back the cells captured by snapshot_row, byte for byte (Ticket 117 rollback)."""
+    path = _check_workbook_path(workbook_path)
+    _assert_not_locked(path)
+
+    with zipfile.ZipFile(path) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+        order = archive.namelist()
+
+    sheet_xml = parts[config.SHEET_XML].decode("utf-8")
+    for col, raw in snapshot.items():
+        match = _cell_pattern(f"{col}{row}").search(sheet_xml)
+        if match is not None:
+            sheet_xml = sheet_xml[: match.start()] + raw + sheet_xml[match.end():]
+    parts[config.SHEET_XML] = sheet_xml.encode("utf-8")
+
+    directory = os.path.dirname(os.path.abspath(path))
+    handle, temp_path = tempfile.mkstemp(suffix=".xlsx", dir=directory)
+    os.close(handle)
+    try:
+        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as out:
+            for name in order:
+                out.writestr(name, parts[name])
+        shutil.copystat(path, temp_path)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+    return row
 
 
 def blank_row(row: int, workbook_path: str = None) -> int:
