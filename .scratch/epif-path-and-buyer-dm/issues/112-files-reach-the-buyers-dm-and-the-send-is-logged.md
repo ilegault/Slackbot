@@ -1,6 +1,6 @@
 # 112: Files reach the buyer's DM, and the send is logged
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -41,11 +41,11 @@ nothing to the log, so "the buyer got nothing" cannot be checked.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_112_uploads_and_dm_log.py`; its test `test_assignee_dm_uploads_pass_slacks_argument_check` builds a **real** `slack_sdk.WebClient(token="xoxb-test-not-a-real-token")` and patches only its network methods: `files_getUploadURLExternal`, `_upload_file` and `files_completeUploadExternal` return canned successes, and `chat_postMessage`, `conversations_open` and `chat_getPermalink` return canned dicts. Calling `lifecycle._send_assignee_dm(..., route="epif", epif_path=<temp PDF>, epif_fname=..., bom_path=<temp xlsx>, bom_fname=...)` raises nothing, logs no "Could not upload" warning, and calls `files_getUploadURLExternal` once per file with each file's name.
-- [ ] Test `test_archived_bom_upload_passes_slacks_argument_check`: with the same real-client setup, `lifecycle.upload_archived_bom(client=..., channel=..., thread_ts=..., file_path=<temp xlsx>, filename=...)` raises nothing, logs no "Could not upload archived BOM" warning, and uploads the file under that name.
-- [ ] Test `test_buyer_dm_send_is_logged_with_its_path`: with `caplog` at INFO, an EPIF-path `_send_assignee_dm` call with a buyer id and row 7 produces one record containing `📨 Buyer DM sent to <buyer id> for row 7 (epif path)` and one containing `📨 DM card posted to <buyer id>`. A Workday-path call produces `(workday path)`.
-- [ ] In the **same test function** as the previous criterion (`test_buyer_dm_send_is_logged_with_its_path`; it passes on today's code alone, and the gate holds a PR whose new test passes on base): when `slack_io.tell` raises, there is no `📨 Buyer DM sent` record. The existing `Could not DM assignee` warning still appears.
-- [ ] No existing test is deleted or loses assertions. Any existing assertion on these two call sites' `content=` keyword is rewritten in place to assert `file=`. (by hand)
+- [x] New `tests/test_112_uploads_and_dm_log.py`; its test `test_assignee_dm_uploads_pass_slacks_argument_check` builds a **real** `slack_sdk.WebClient(token="xoxb-test-not-a-real-token")` and patches only its network methods: `files_getUploadURLExternal`, `_upload_file` and `files_completeUploadExternal` return canned successes, and `chat_postMessage`, `conversations_open` and `chat_getPermalink` return canned dicts. Calling `lifecycle._send_assignee_dm(..., route="epif", epif_path=<temp PDF>, epif_fname=..., bom_path=<temp xlsx>, bom_fname=...)` raises nothing, logs no "Could not upload" warning, and calls `files_getUploadURLExternal` once per file with each file's name.
+- [x] Test `test_archived_bom_upload_passes_slacks_argument_check`: with the same real-client setup, `lifecycle.upload_archived_bom(client=..., channel=..., thread_ts=..., file_path=<temp xlsx>, filename=...)` raises nothing, logs no "Could not upload archived BOM" warning, and uploads the file under that name.
+- [x] Test `test_buyer_dm_send_is_logged_with_its_path`: with `caplog` at INFO, an EPIF-path `_send_assignee_dm` call with a buyer id and row 7 produces one record containing `📨 Buyer DM sent to <buyer id> for row 7 (epif path)` and one containing `📨 DM card posted to <buyer id>`. A Workday-path call produces `(workday path)`.
+- [x] In the **same test function** as the previous criterion (`test_buyer_dm_send_is_logged_with_its_path`; it passes on today's code alone, and the gate holds a PR whose new test passes on base): when `slack_io.tell` raises, there is no `📨 Buyer DM sent` record. The existing `Could not DM assignee` warning still appears.
+- [x] No existing test is deleted or loses assertions. Any existing assertion on these two call sites' `content=` keyword is rewritten in place to assert `file=`. (by hand)
 
 May fake: Slack's network methods, listed above. Must be real: `slack_sdk.WebClient.files_upload_v2` itself, which does the argument check under test, and real files on disk under `tmp_path`. A `MagicMock` client does not count as proof for the first two criteria.
 
@@ -61,3 +61,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-13: `_send_assignee_dm` and `upload_archived_bom` now pass `file=` only to `files_upload_v2`; the legacy `files_upload` fallbacks still read bytes themselves and are otherwise unchanged. The buyer DM and the DM card each log an INFO line. `tests/test_112_uploads_and_dm_log.py` covers all four criteria (the first two with a real `WebClient`, network methods patched). No existing test asserted `content=` on these call sites, so none changed. Docstring has a `Per Ticket 112` paragraph. Note: a stale local `master` ref made `test_docs_adr_is_unmodified` fail locally only; it passes against `origin/master`.
