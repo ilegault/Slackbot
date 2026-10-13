@@ -21,6 +21,10 @@ EPIF_TEMPLATE_PATH, showed no paths, and kept a hard-coded list separate from th
 startup check. Now get_system_health and build_health_blocks read config.STORAGE_SETTINGS
 in order, report per-setting status and full paths, and format unset paths cleanly as "not set".
 
+Ticket 116 / ADR 0007 Decision 5:
+can_fill_or_switch is the single four-way check (requester, assignee, unassigned buyer,
+admin) behind Fill in details, This needs an EPIF and Switch to EPIF.
+
 Ticket 66 / ADR 0010 Decision 4:
 Unified stage permission check can_update_request: authorises the assigned buyer,
 any admin, or any approver. An unassigned request returns False.
@@ -60,6 +64,23 @@ def is_admin_user(user_id: Optional[str]) -> bool:
             return True
     return user_id in getattr(config, "ADMIN_SLACK_USER_IDS", [])
 
+
+
+def can_fill_or_switch(user_id: Optional[str], req_data: dict, requester_name: Optional[str],
+                       resolved_actor_name: Optional[str]) -> bool:
+    """May this user fill in details, mark 'needs an EPIF', or switch to EPIF? (Ticket 116)
+
+    The requester (by name or user id), the assignee, any buyer while the request is
+    unassigned, or an admin. One home for the check that Fill in details and This needs an
+    EPIF each wrote inline, so Switch to EPIF cannot drift from them (AGENTS.md invariant 1).
+    """
+    is_requester = bool(
+        (requester_name and requester_name == resolved_actor_name)
+        or (user_id and user_id == req_data.get("user_id"))
+    )
+    is_assignee = bool(user_id) and user_id == req_data.get("assignee_id")
+    is_unassigned_buyer = (not req_data.get("assignee_id")) and roster.is_buyer(user_id)
+    return bool(is_requester or is_assignee or is_unassigned_buyer or is_admin_user(user_id))
 
 
 def is_approved_reviewer(user_id: Optional[str]) -> bool:
