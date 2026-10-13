@@ -8,6 +8,11 @@ Adds is_epif_form(fields) to check if an AcroForm dictionary has the EPIF's core
 fields ('Amount of Purchase' and 'Vendor'), distinguishing real EPIFs from attached
 quotes or other PDFs in a thread.
 
+Ticket 121 (.scratch/purpose-and-link/spec.md):
+parse_epif splits a last line of Purpose that is only a URL (text_rules.split_trailing_link)
+into "link", so a Filled EPIF gives back the link the bot wrote there; otherwise Purpose is
+left as written and the link is the first URL in it.
+
 Ticket 104 / ADR 0015 Decision 5:
 Adds collapse_epifs(epif_list) to collapse multiple EPIFs in a thread by
 (user, parsed["vendor"].strip().lower()), keeping only the newest by ts,
@@ -20,9 +25,10 @@ from datetime import datetime
 from pypdf import PdfReader
 
 try:
-    from . import config
+    from . import config, text_rules
 except ImportError:
     import config
+    import text_rules  # type: ignore[no-redef]
 
 
 class FlattenedPdfError(Exception):
@@ -117,13 +123,13 @@ def parse_epif(pdf_bytes: bytes) -> dict:
     """The one function the bot calls. Everything downstream reads this dict."""
     fields = read_fields(pdf_bytes)
     category, category_error = selected_category(fields)
-    purpose = fields.get("Purpose", "")
+    purpose, trailing_link = text_rules.split_trailing_link(fields.get("Purpose", ""))
 
     return {
         "raw_fields": fields,
         "item_description": fields.get("What is being purchased", "").strip(),
-        "purpose": purpose.strip(),
-        "link": first_url(purpose),
+        "purpose": purpose,
+        "link": trailing_link or first_url(purpose),
         "total_price": parse_money(fields.get("Amount of Purchase", "")),
         "total_price_raw": fields.get("Amount of Purchase", "").strip(),
         "vendor": fields.get("Vendor", "").strip(),

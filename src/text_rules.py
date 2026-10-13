@@ -53,6 +53,48 @@ def link_in_purpose(purpose: str | None, link: str | None) -> bool:
     return bool(link) and link in (purpose or "")
 
 
+def purpose_with_link(purpose: str | None, link: str | None) -> str:
+    """Return the Purpose text as it is written on the Filled EPIF.
+
+    WHY THIS EXISTS:
+    ----------------
+    Purchasing needs the product page or quote link on the form itself
+    (.scratch/purpose-and-link/spec.md). A PDF text field cannot hold a clickable
+    link, so it is plain text on its own last line. Nothing is added when there is
+    no link or the exact link is already in Purpose. The stored request's purpose
+    is never changed; only the PDF gets the extra line.
+    """
+    text = (purpose or "").rstrip()
+    link = (link or "").strip()
+    if not link or link_in_purpose(purpose, link):
+        return text
+    return f"{text}\n\nLink: {link}"
+
+
+_TRAILING_LINK_RE = re.compile(r"^(?:link:\s*)?(https?://\S+)$", re.IGNORECASE)
+
+
+def split_trailing_link(purpose: str | None) -> tuple[str, str | None]:
+    """Split a trailing ``Link: <url>`` line off Purpose; return (purpose, url or None).
+
+    WHY THIS EXISTS:
+    ----------------
+    The inverse of `purpose_with_link` (.scratch/purpose-and-link/spec.md): reading a
+    Filled EPIF gives the link back instead of leaving it inside Purpose. Only a last
+    line that is entirely a URL (with or without a ``Link:`` label) is split, so a
+    URL in the middle of a sentence is left alone. Purpose is never left blank: if
+    the URL is the whole of Purpose, nothing is split.
+    """
+    text = (purpose or "").strip()
+    lines = text.split("\n")
+    match = _TRAILING_LINK_RE.match(lines[-1].strip())
+    if match:
+        remainder = "\n".join(lines[:-1]).rstrip()
+        if remainder:
+            return remainder, match.group(1)
+    return text, None
+
+
 def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list[str], list[str]]:
     """Return (text with all mentions removed, user ids excluding the bot, user-group ids).
 

@@ -33,6 +33,7 @@ def test_fill_epif_round_trip(template_bytes):
         "project_id": "PG000025831",
         "fund": "133",
         "asset_id": "ASSET-999",
+        "link": "https://www.airgas.com/product/ABC123",
     }
 
     # Test for each category and payment method combination
@@ -62,6 +63,8 @@ def test_fill_epif_round_trip(template_bytes):
             assert parsed_out["name_of_system"] == parsed_in["name_of_system"]
             assert parsed_out["category"] == parsed_in["category"]
             assert parsed_out["payment_method"] == parsed_in["payment_method"]
+            assert parsed_out["link"] == parsed_in["link"]
+            assert parsed_out["raw_fields"]["Purpose"].endswith("\n\nLink: https://www.airgas.com/product/ABC123")
 
             assert parsed_out["pi_of_funding"] == config.EPIF_PI_AND_END_USER
             assert parsed_out["end_user"] == config.EPIF_PI_AND_END_USER

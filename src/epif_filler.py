@@ -4,6 +4,9 @@ WHY THIS EXISTS: When a request takes the EPIF path, the bot generates the fille
 instead of having the requester fill it manually (ADR 0007). This ensures data in Slack
 exactly matches the PDF the buyer sends.
 
+Purpose on the Filled EPIF ends with the request's link (plain text, `Link: <url>`), per
+.scratch/purpose-and-link/spec.md; the stored request's purpose is never changed.
+
 NOTE: Three fields in the EPIF template are not read or written by this module:
 - `Signature1`: A `/Sig` digital-signature field. A person signs it outside the bot.
 - `Telephone # for ?'s`: Pre-filled in the university template; kept as-is.
@@ -16,9 +19,10 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import BooleanObject, NameObject
 
 try:
-    from . import config
+    from . import config, text_rules
 except ImportError:
     import config
+    import text_rules  # type: ignore[no-redef]
 
 def fill_epif(template_bytes: bytes, parsed: dict) -> bytes:
     """
@@ -83,6 +87,9 @@ def fill_epif(template_bytes: bytes, parsed: dict) -> bytes:
             val = val.strftime("%m/%d/%Y")
         elif parsed_key == "total_price" and val is not None:
             val = f"${val:.2f}"
+
+        if parsed_key == "purpose":
+            val = text_rules.purpose_with_link(parsed.get("purpose"), parsed.get("link"))
 
         # BOM check
         if parsed_key == "item_description":

@@ -1,6 +1,6 @@
 # 121: The Filled EPIF ends with the link, and reading an EPIF gives it back
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -62,27 +62,27 @@ reaches the EPIF.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_121_link_on_the_filled_epif.py`, test `test_purpose_with_link`, asserts:
+- [x] New `tests/test_121_link_on_the_filled_epif.py`, test `test_purpose_with_link`, asserts:
   - `purpose_with_link("why", "https://a.com/x") == "why\n\nLink: https://a.com/x"`;
   - `purpose_with_link("why https://a.com/x", "https://a.com/x") == "why https://a.com/x"`;
   - `purpose_with_link("why", "")` and `purpose_with_link("why", None)` both `== "why"`.
-- [ ] Test `test_split_trailing_link` asserts:
+- [x] Test `test_split_trailing_link` asserts:
   - `"why\n\nLink: https://a.com/x"` gives `("why", "https://a.com/x")`;
   - `"why\nhttps://a.com/x"` gives `("why", "https://a.com/x")`;
   - `"why\nLINK:  https://a.com/x"` gives `("why", "https://a.com/x")`;
   - `"we need this per https://a.com/x for the beamline"` gives that same string and `None`;
   - `"https://a.com/x"` gives `("https://a.com/x", None)`.
-- [ ] **Rewrite in place, same name:** in `tests/test_37_fill_epif.py`, test `test_fill_epif_round_trip`.
+- [x] **Rewrite in place, same name:** in `tests/test_37_fill_epif.py`, test `test_fill_epif_round_trip`.
   - Add `"link": "https://www.airgas.com/product/ABC123"` to `base_parsed`.
   - Keep every existing assertion.
   - Add, inside the loop: `parsed_out["link"] == parsed_in["link"]`, and
     `parsed_out["raw_fields"]["Purpose"].endswith("\n\nLink: https://www.airgas.com/product/ABC123")`.
   - No test function is deleted.
-- [ ] In `tests/test_121_link_on_the_filled_epif.py`, one test function, `test_fill_appends_the_link_only_when_needed`, covers three cases. Each case fills the real template with `fill_epif` (load the fixture as `tests/test_37_fill_epif.py` does) and reads it back with `parse_epif`. Keep the three cases in **one** function: the gate holds a PR that adds a new test which already passes on today's code, and only the first case fails today.
+- [x] In `tests/test_121_link_on_the_filled_epif.py`, one test function, `test_fill_appends_the_link_only_when_needed`, covers three cases. Each case fills the real template with `fill_epif` (load the fixture as `tests/test_37_fill_epif.py` does) and reads it back with `parse_epif`. Keep the three cases in **one** function: the gate holds a PR that adds a new test which already passes on today's code, and only the first case fails today.
   - Purpose `"For the beamline"` with link `https://fisher.com/a`: `raw_fields["Purpose"] == "For the beamline\n\nLink: https://fisher.com/a"`.
   - Purpose `"For the beamline https://fisher.com/a"` with the same link: `raw_fields["Purpose"]` contains `https://fisher.com/a` exactly once and does not contain `Link:`.
   - Link `None`: `raw_fields["Purpose"] == "For the beamline"`.
-- [ ] Test `test_reading_an_epif_takes_a_url_on_the_last_line`: fill the real template with purpose `"For the beamline\nhttps://fisher.com/a"` and link `None`, then `parse_epif` it. Assert `purpose == "For the beamline"` and `link == "https://fisher.com/a"`. In the same function (the first half fails on today's code, the second does not), do the same with purpose `"Per https://fisher.com/a for the beamline"` and assert that `purpose` is unchanged and `link == "https://fisher.com/a"`. Every existing test that calls `fill_epif` (`tests/test_100_thread_file_classifier.py`, `tests/test_101_keyword_approves_posted_card.py`, `tests/test_103_thread_files_at_approval.py`, `tests/test_45_epif_approval_archives.py`, `tests/test_117_switch_to_epif_submit.py`) passes unchanged.
+- [x] Test `test_reading_an_epif_takes_a_url_on_the_last_line`: fill the real template with purpose `"For the beamline\nhttps://fisher.com/a"` and link `None`, then `parse_epif` it. Assert `purpose == "For the beamline"` and `link == "https://fisher.com/a"`. In the same function (the first half fails on today's code, the second does not), do the same with purpose `"Per https://fisher.com/a for the beamline"` and assert that `purpose` is unchanged and `link == "https://fisher.com/a"`. Every existing test that calls `fill_epif` (`tests/test_100_thread_file_classifier.py`, `tests/test_101_keyword_approves_posted_card.py`, `tests/test_103_thread_files_at_approval.py`, `tests/test_45_epif_approval_archives.py`, `tests/test_117_switch_to_epif_submit.py`) passes unchanged.
 
 May fake: nothing in these tests needs Slack. Must be real: `text_rules`, `epif_filler.fill_epif` on `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`, and `epif_parser.parse_epif` on its output. A test that patches `fill_epif`, `parse_epif`, `read_fields` or the `text_rules` helpers does not count.
 
@@ -98,3 +98,4 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+2026-10-13: Added `text_rules.purpose_with_link` and `split_trailing_link`; `fill_epif` writes the link at the end of Purpose; `parse_epif` splits a URL-only last line into `link`. Tests: `tests/test_121_link_on_the_filled_epif.py` (all four new tests) and the in-place rewrite of `test_fill_epif_round_trip`; all fail on the old code. Gate green locally: ruff, tests-first, type_gate (95/95), pytest 851 passed. Deploy is a human step.
