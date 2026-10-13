@@ -213,6 +213,17 @@ Per ADR 0018 / Ticket 111:
   (modal private_metadata keeps its own, because no payment method exists before Screen 2).
   _finalize_bare_thread_epif therefore no longer stamps `route`: the payment method the
   requester chose on the EPIF form already records the path.
+
+Per Ticket 112 (ADR 0018 decision 3):
+- slack_sdk's WebClient.files_upload_v2 raises SlackRequestError ("You cannot specify both
+  the file and the content argument.") before sending anything. _send_assignee_dm and
+  upload_archived_bom used to pass both, so the filled EPIF, BOM and quotes never reached the
+  buyer's DM and the archived BOM never reached the thread (production log, 2026-10-05).
+  files_upload_v2 is now given `file=path` only and never `content`. The legacy files_upload
+  fallback still reads the bytes itself. A MagicMock client hid this; the tests use a real
+  WebClient with only its network methods replaced.
+- _send_assignee_dm logs a successful buyer DM ("📨 Buyer DM sent ... (<route> path)") and a
+  posted DM card, so "the buyer got nothing" can be checked from the log.
   Why: Screen 1's path was never written onto the posted card, so approval fell back to
   Workday and no /new-purchase EPIF-path request ever got a filled EPIF.
 - The EPIF-path email draft says "Send this email to purchasing". It no longer offers
@@ -387,6 +398,7 @@ def _send_assignee_dm(
     except Exception as e:
         log.warning("Could not DM assignee %s: %s", assignee_id, e)
         return None
+    log.info("📨 Buyer DM sent to %s for row %s (%s path)", assignee_id, row, route)
 
     if route == "epif":
         files_to_upload = []
@@ -404,17 +416,16 @@ def _send_assignee_dm(
                 dm_channel = resp["channel"]["id"]
                 for path, fname in files_to_upload:
                     try:
-                        with open(path, "rb") as fh:
-                            content = fh.read()
                         if hasattr(client, "files_upload_v2"):
                             client.files_upload_v2(
                                 channel=dm_channel,
                                 file=path,
-                                content=content,
                                 filename=fname,
                                 title=fname,
                             )
                         else:
+                            with open(path, "rb") as fh:
+                                content = fh.read()
                             client.files_upload(
                                 channels=dm_channel,
                                 file=path,
@@ -477,6 +488,8 @@ def _send_assignee_dm(
         text=f"🛒 Purchase Request ({dm_state.capitalize()})",
         blocks=dm_blocks,
     )
+    if dm_res:
+        log.info("📨 DM card posted to %s (card %s)", assignee_id, card_ts)
     if not dm_res:
         slack_io.alert_admins(
             client,
@@ -2986,13 +2999,10 @@ def upload_archived_bom(
     that approved it.
     """
     try:
-        with open(file_path, "rb") as f:
-            content = f.read()
         if hasattr(client, "files_upload_v2"):
             kwargs = {
                 "channel": channel,
                 "file": file_path,
-                "content": content,
                 "filename": filename,
                 "title": filename,
             }
@@ -3000,6 +3010,8 @@ def upload_archived_bom(
                 kwargs["thread_ts"] = thread_ts
             client.files_upload_v2(**kwargs)
         else:
+            with open(file_path, "rb") as f:
+                content = f.read()
             kwargs = {
                 "channels": channel,
                 "file": file_path,
