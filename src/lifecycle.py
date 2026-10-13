@@ -214,6 +214,12 @@ Per ADR 0018 / Ticket 111:
   _finalize_bare_thread_epif therefore no longer stamps `route`: the payment method the
   requester chose on the EPIF form already records the path.
 
+Per Ticket 117 (ADR 0018, ADR 0007 decisions 5-7):
+- Submitting the Switch to EPIF form (a `switch` context in the modal metadata) hands to
+  _finalize_switch_to_epif, which rewrites the same workbook row and archives the filled EPIF
+  in one queued write, refuses if Date Processed is already set, and then moves the thread card
+  to the EPIF path (the payment method is the record) and sends the buyer the EPIF DM.
+
 Per Ticket 112 (ADR 0018 decision 3):
 - slack_sdk's WebClient.files_upload_v2 raises SlackRequestError ("You cannot specify both
   the file and the content argument.") before sending anything. _send_assignee_dm and
@@ -2423,6 +2429,235 @@ def _finalize_bare_thread_epif(ack, client, bare: dict, parsed: dict,
     )
 
 
+class SwitchRefused(Exception):
+    """The Switch to EPIF write was refused (the row is already processed); nothing was written."""
+
+
+# Columns a Switch to EPIF must never touch: who asked and when, and every later stage.
+_SWITCH_KEEP_COLUMNS = (
+    config.COLUMN_REQUESTER,
+    config.COLUMN_DATE_OF_REQUEST,
+    config.COLUMN_DATE_PROCESSED,
+    config.COLUMN_DATE_CONFIRMED,
+    config.COLUMN_DATE_DELIVERY,
+    config.COLUMN_RECEIVED_BY,
+    config.COLUMN_NOTES,
+)
+
+
+def _finalize_switch_to_epif(ack, client, switch: dict, parsed: dict,
+                             requester: str | None, user_id: str | None, stage2: dict):
+    """Move an approved Workday-path request onto the EPIF path: same row, one queued write.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0007 decision 5 / ADR 0018 / Ticket 117. A buyer finds the vendor is not on Workday
+    and presses Switch to EPIF; approval is never asked twice, so there is no new card and no
+    new row. This rewrites the SAME workbook row and archives the filled EPIF inside ONE
+    queued task (invariant 2, trap 12), then moves the thread card to the EPIF path by
+    changing its payment method (ADR 0018 decision 1) and sends the assigned buyer the EPIF DM.
+
+    The write re-reads the row first: if Date Processed (column U) is set by the time the
+    queue runs it, the order has been placed and its path must not change, so it raises
+    SwitchRefused and writes nothing. Requester, date of request, every stage date, Received
+    By and Notes are never rewritten (_SWITCH_KEEP_COLUMNS). The fill happens before the row
+    is touched, and if archiving the PDF still fails the row's raw cells are put back
+    (log_writer.restore_row), so a failure leaves the row as it was.
+
+    build_row does not write column L (How Buying); a switched row is the first place the
+    payment method is recorded there, because it is the one fact that changed.
+    A link that the new form leaves blank is left as it was (update_row never blanks a cell).
+    """
+    try:
+        from . import epif_filler
+    except ImportError:
+        import epif_filler
+
+    channel = switch["channel"]
+    thread_ts = switch["thread_ts"]
+    card_ts = switch["card_ts"]
+    row = switch["row"]
+
+    ack()
+
+    def say(text, thread_ts=thread_ts, **kw):
+        client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, **kw)
+
+    card = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
+    if not card:
+        slack_io.notify(
+            client, actor_id=user_id, text="I couldn't find this request's card, so I can't switch it.",
+            channel=channel, link_ts=thread_ts,
+        )
+        return
+    card_state = card.get("state")
+    if card_state in ("processed", "confirmed", "delivered"):
+        slack_io.notify(client, actor_id=user_id, text=config.SWITCH_REFUSED_PROCESSED,
+                        channel=channel, link_ts=thread_ts)
+        return
+    if card_state != "approved":
+        slack_io.notify(client, actor_id=user_id, text="This request is no longer approved, so I can't switch it.",
+                        channel=channel, link_ts=thread_ts)
+        return
+
+    new_parsed = dict(parsed)
+    actor_name = slack_io.resolve_requester(client, user_id) or (f"<@{user_id}>" if user_id else "Someone")
+
+    def write_action():
+        info = log_writer.get_row_info(row)
+        if info.get("date_processed"):
+            raise SwitchRefused(config.SWITCH_REFUSED_PROCESSED)
+
+        values = {
+            col: val for col, val in log_writer.build_row(new_parsed, requester).items()
+            if col not in _SWITCH_KEEP_COLUMNS
+        }
+        if new_parsed.get("payment_method"):
+            values[config.COLUMN_HOW_BUYING] = new_parsed["payment_method"]
+
+        # Fill first: it touches nothing outside memory, so a missing template leaves the row alone.
+        with open(config.EPIF_TEMPLATE_PATH, "rb") as f:
+            template_bytes = f.read()
+        filled_bytes = epif_filler.fill_epif(template_bytes, new_parsed)
+
+        snapshot = log_writer.snapshot_row(row)
+        log_writer.update_row(row, values)
+        try:
+            existing_files = os.listdir(config.EPIFS_DIR) if os.path.exists(config.EPIFS_DIR) else []
+            archive_name = log_writer.epif_archive_name(
+                new_parsed.get("vendor") or "Vendor",
+                new_parsed.get("total_price") or 0.0,
+                new_parsed.get("project_id") or "NoProject",
+                existing_files,
+            )
+            saved_epif_path = log_writer.save_epif(filled_bytes, archive_name)
+        except Exception:
+            try:
+                log_writer.restore_row(row, snapshot)
+            except Exception as restore_err:
+                log.error("Failed to restore row %s after a failed switch to EPIF: %s", row, restore_err)
+            raise
+        return row, saved_epif_path
+
+    def on_success(result):
+        _row, saved_path = result
+        saved_name = os.path.basename(saved_path.replace("\\", "/"))
+        log.info("🔁 Row %s switched to EPIF by %s (%s, saved %s)", row, actor_name, requester, saved_name)
+
+        history = list(card.pop("history", None) or [])
+        line = f"🔁 Switched to EPIF by {actor_name}"
+        history.append(line)
+        say(text=line)
+
+        req_payload = dict(card)
+        parsed_date = new_parsed.get("date_of_purchase")
+        req_payload["parsed"] = {
+            **new_parsed,
+            "date_of_purchase": parsed_date.isoformat() if hasattr(parsed_date, "isoformat") else (parsed_date or None),
+        }
+        req_payload["epif_file"] = saved_name
+
+        try:
+            client.chat_update(
+                channel=channel,
+                ts=card_ts,
+                text="🛒 Purchase Request (Approved)",
+                blocks=blocks.build_request_blocks("approved", req_payload, history=history, items=req_payload.get("items")),
+                metadata={"event_type": "purchase_request", "event_payload": req_payload},
+            )
+        except Exception as e:
+            log.error("Failed to update card after switch to EPIF: %s", e)
+            slack_io.alert_admins(
+                client,
+                text_rules.format_card_failure_alert(
+                    step="update the card after the switch to EPIF",
+                    channel=channel, thread_ts=thread_ts, file_name=saved_name, error=str(e),
+                ),
+            )
+
+        assignee_id = req_payload.get("assignee_id")
+        assignee_name = req_payload.get("assignee") or switch.get("assignee_name") or "Buyer"
+        if not assignee_id:
+            return
+
+        if req_payload.get("dm_channel") and req_payload.get("dm_ts"):
+            sync_dm_card(
+                client=client, request=card, state="replaced", channel=channel,
+                thread_ts=thread_ts, card_ts=card_ts, history=history, note="Switched to EPIF",
+            )
+
+        draft_data = dict(req_payload["parsed"])
+        for k, v in log_writer.get_row_info(row).items():
+            if k not in draft_data or not draft_data[k]:
+                draft_data[k] = v
+        bom_fname = req_payload.get("bom_file")
+        bom_path = os.path.join(config.BOMS_DIR, bom_fname) if bom_fname else None
+        quote_paths: list[str] = []
+        if req_payload.get("quote_count"):
+            quote_vendor = draft_data.get("vendor") or "Vendor"
+            quote_paths = [
+                os.path.join(config.QUOTES_DIR, bom.quote_filename(row, quote_vendor, k))
+                for k in range(1, int(req_payload["quote_count"]) + 1)
+            ]
+        email_draft = text_rules.generate_email_draft(draft_data, assignee_name, bom_filename=bom_fname)
+        dm_ref = _send_assignee_dm(
+            client=client,
+            assignee_id=assignee_id,
+            assignee_name=assignee_name,
+            email_draft=email_draft,
+            item_desc=draft_data.get("item_description") or "supplies",
+            row=row,
+            bom_path=bom_path,
+            bom_fname=bom_fname,
+            quote_paths=quote_paths,
+            epif_path=saved_path,
+            epif_fname=saved_name,
+            route=interview.get_request_route(req_payload),
+            parsed=req_payload["parsed"],
+            thread_channel=channel,
+            thread_ts=thread_ts,
+            card_ts=card_ts,
+            request=req_payload,
+            state="approved",
+            history=history,
+        )
+        if dm_ref:
+            req_payload["dm_channel"], req_payload["dm_ts"] = dm_ref
+            try:
+                client.chat_update(
+                    channel=channel,
+                    ts=card_ts,
+                    text="🛒 Purchase Request (Approved)",
+                    blocks=blocks.build_request_blocks("approved", req_payload, history=history, items=req_payload.get("items")),
+                    metadata={"event_type": "purchase_request", "event_payload": req_payload},
+                )
+            except Exception as e:
+                log.error("Failed to update thread card with DM reference after switch: %s", e)
+
+    def on_failure(error):
+        if isinstance(error, SwitchRefused):
+            log.info("Switch to EPIF refused for row %s: %s", row, error)
+            slack_io.notify(client, actor_id=user_id, text=str(error), channel=channel, link_ts=thread_ts)
+            return
+        if isinstance(error, log_writer.StorageLocationError):
+            say(text=text_rules.storage_problem_message(error.setting, error.path, error.reason))
+            return
+        log.error("Failed to switch row %s to EPIF: %s", row, error)
+        say(text=f"Couldn't switch this request to EPIF: {error}. Nothing was changed.")
+
+    queue_worker.submit_write_task(
+        action_fn=write_action,
+        channel=channel,
+        thread_ts=thread_ts,
+        user_id=user_id or "",
+        task_type="update",
+        description=f"Switch row {row} to EPIF: {new_parsed.get('item_description', 'Order')}",
+        success_callback=on_success,
+        failure_callback=on_failure,
+        client=client,
+    )
+
+
 def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, stage3: dict | None = None):
     """Validate staged inputs, report errors or finalize and post to purchasing channel."""
     stage1 = {
@@ -2487,6 +2722,13 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     bare = meta.get("bare_thread")
     if bare:
         _finalize_bare_thread_epif(ack, client, bare, parsed, requester, user_id, stage2)
+        return
+
+    switch = meta.get("switch")
+    if switch:
+        # The person who submitted the form is not necessarily the requester (meta["user_id"]).
+        submitter = body.get("user", {}).get("id") or user_id
+        _finalize_switch_to_epif(ack, client, switch, parsed, requester, submitter, stage2)
         return
 
     ack()

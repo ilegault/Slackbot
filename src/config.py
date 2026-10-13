@@ -187,6 +187,9 @@ PAYMENT_METHOD_HINT = (
     "(get 3 quotes), or whenever a vendor only accepts a PO."
 )
 
+# Ticket 117: said to the person who submits a Switch to EPIF after the buyer has processed the row.
+SWITCH_REFUSED_PROCESSED = "Already processed — the path can't change now."
+
 COLUMN_HOW_BUYING = "L"     # P-card / Req is NOT the same as Workday / Out-of-Network
 COLUMN_DATE_OF_REQUEST = "M"# Date of Purchase / Request
 COLUMN_URGENCY = "N"        # not on the EPIF
