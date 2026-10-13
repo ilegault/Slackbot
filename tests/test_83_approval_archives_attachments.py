@@ -102,11 +102,10 @@ def _parsed(route_epif=False):
         "fund": "133",
         "category": "Research/Lab Supplies (3105)",
         "delivery_room": "ERB 212",
-        "payment_method": "Workday",
+        "payment_method": "P-card" if route_epif else "Workday",
         "link": "https://swagelok.com",
         "name_of_system": "",
         "asset_id": "",
-        **({"route": "epif"} if route_epif else {}),
     }
 
 

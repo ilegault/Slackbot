@@ -12,7 +12,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLES = os.path.join(PROJECT_ROOT, "samples")
 FIXTURES = os.path.join(PROJECT_ROOT, "tests", "fixtures")
 
-def _valid_request(total_price=50.0, category="Supplies"):
+def _valid_request(total_price=50.0, category="Supplies", payment_method="Workday"):
     return {
         "item_description": "Shaft Couplings",
         "purpose": "Motor test stand alignment",
@@ -25,7 +25,7 @@ def _valid_request(total_price=50.0, category="Supplies"):
         "fund": "133",
         "category": category,
         "delivery_room": "ERB 212",
-        "payment_method": "Workday",
+        "payment_method": payment_method,
         "link": "https://ruland.com",
         "name_of_system": "",
         "asset_id": ""
@@ -244,13 +244,11 @@ def test_handle_assign_uploads_epif(temp_epifs_dir, temp_boms_dir, sync_queue, m
     req_data = {
         "state": "approved",
         "epif_file": fake_epif_fname,
-        "parsed": _valid_request(total_price=50.0, category="Supplies")
+        "parsed": _valid_request(total_price=50.0, category="Supplies", payment_method="P-card")
     }
 
     monkeypatch.setattr(slack_io, "find_row_in_thread", lambda *a, **k: 1)
     monkeypatch.setattr(slack_io, "resolve_requester", lambda *a, **k: "Dylan")
-    from src import interview
-    monkeypatch.setattr(interview, "get_request_route", lambda *a, **k: "epif")
 
     lifecycle.handle_assign(
         client=client,

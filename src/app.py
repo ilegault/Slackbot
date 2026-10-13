@@ -639,7 +639,6 @@ def handle_workday_details_submit(ack, body, client, view):
         "project_id": project,
         "fund": fund,
         "category": category,
-        "route": "workday",
         "vendor_contact_name": "",
         "vendor_contact_email": "workday@workday.com",
         "payment_method": "Workday",
@@ -1275,7 +1274,7 @@ def handle_req_edit_action(ack, body, respond, client):
     items = card_payload.get("items") or []
     shipping = float(card_payload.get("shipping") or 0.0)
 
-    route = "workday" if parsed.get("payment_method") == config.WORKDAY_PAYMENT_METHOD else "epif"
+    route = interview.get_request_route(card_payload)
     total_price_val = parsed.get("total_price")
     total_price_str = f"{total_price_val:.2f}" if isinstance(total_price_val, (int, float)) else str(total_price_val or "")
 

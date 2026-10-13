@@ -330,6 +330,7 @@ def test_buyer_self_assigns_unassigned_request():
         "vendor": "Thorlabs",
         "vendor_contact_email": "sales@thorlabs.com",
         "total_price": 50.0,
+        "payment_method": "Workday",
     }
     history = ["Posted on 09/16"]
 
