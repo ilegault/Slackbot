@@ -1,6 +1,6 @@
 # 115: On the Workday path the DM card is the whole DM
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -41,11 +41,11 @@ carries the History and the path header.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_115_workday_dm_is_the_card.py`, test `test_workday_approval_sends_one_dm_card_and_no_plain_text`: a Workday-path approval through `lifecycle.finalize_purchase_request` (request `payment_method="Workday"`, buyer set, `card_ts` known) sends exactly **one** `chat_postMessage` to the buyer's id. That call has `blocks`, its section starts with `🛒 *Place this in Workday*`, it contains `• *Total:*` and `• *Row:*`, and a `context` block holds `Approved by` and `Assigned to`. No call to the buyer has text starting with `Place this in Workday:`.
-- [ ] Same file, test `test_epif_approval_sends_the_draft_then_the_card`: an EPIF-path approval (`payment_method="P-card"`) sends the buyer the draft message (text contains `Send this email to purchasing`) and then a DM card whose section starts with `📧 *Email the EPIF to purchasing*`, in that order.
-- [ ] Same file, test `test_assigning_a_workday_card_sends_one_card_only_dm`: `lifecycle.handle_assign` on an approved Workday-path card sends the new buyer one card-only DM whose History block contains the `Assigned to` line.
-- [ ] Same file, **same test function** as the first criterion (`test_workday_approval_sends_one_dm_card_and_no_plain_text`; it passes on today's code alone): calling `_send_assignee_dm(route="workday", card_ts=None, ...)` sends one plain-text DM containing `• *Item:*` and logs the `No card_ts` warning.
-- [ ] Rewritten in place, keeping the same test names and number of assertions (`test_workday_path_approval_dm_and_thread` and `test_buyer_self_assigns_unassigned_request`):
+- [x] New `tests/test_115_workday_dm_is_the_card.py`, test `test_workday_approval_sends_one_dm_card_and_no_plain_text`: a Workday-path approval through `lifecycle.finalize_purchase_request` (request `payment_method="Workday"`, buyer set, `card_ts` known) sends exactly **one** `chat_postMessage` to the buyer's id. That call has `blocks`, its section starts with `🛒 *Place this in Workday*`, it contains `• *Total:*` and `• *Row:*`, and a `context` block holds `Approved by` and `Assigned to`. No call to the buyer has text starting with `Place this in Workday:`.
+- [x] Same file, test `test_epif_approval_sends_the_draft_then_the_card`: an EPIF-path approval (`payment_method="P-card"`) sends the buyer the draft message (text contains `Send this email to purchasing`) and then a DM card whose section starts with `📧 *Email the EPIF to purchasing*`, in that order.
+- [x] Same file, test `test_assigning_a_workday_card_sends_one_card_only_dm`: `lifecycle.handle_assign` on an approved Workday-path card sends the new buyer one card-only DM whose History block contains the `Assigned to` line.
+- [x] Same file, **same test function** as the first criterion (`test_workday_approval_sends_one_dm_card_and_no_plain_text`; it passes on today's code alone): calling `_send_assignee_dm(route="workday", card_ts=None, ...)` sends one plain-text DM containing `• *Item:*` and logs the `No card_ts` warning.
+- [x] Rewritten in place, keeping the same test names and number of assertions (`test_workday_path_approval_dm_and_thread` and `test_buyer_self_assigns_unassigned_request`):
   - in `tests/test_38_workday_path_approval.py`, the Workday DM assertions now read the buyer's single DM card blocks (section starts with `🛒 *Place this in Workday*`, contains `• *Item:*`, `• *Vendor:*`, `• *Total:* $149.99`, `• *Link:*`, `• *Row:* 21`, and no `Subject:`);
   - in `tests/test_08_assignment.py`, the `Place this in Workday:` text-call assertion reads the card instead.
 
@@ -65,3 +65,5 @@ Run all four, in CI's order, and all must pass:
 Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-test-not-a-real-token` and `PYTHONUTF8=1` in the environment, as `.github/workflows/tests.yml` sets.
 
 ## Comments
+
+2026-10-13: `_send_assignee_dm` takes `history` and passes `history` and `route` to the DM card; the Workday `Place this in Workday:` text is gone (a single `slack_io.tell` site remains, used for the EPIF draft and for the Workday no-`card_ts` fallback, which keeps `test_108`'s exactly-two-tell-calls ratchet intact). Both callers pass the History. Tests: `tests/test_115_workday_dm_is_the_card.py` (criteria 1-4); `test_38`/`test_08` rewritten in place (same names and assertion counts; `test_08`'s DM-count value is now 1 because the text message no longer exists). `tests/test_67_dm_card.py` found the Mark button at `blocks[1]`; with the History block present it is now located by `type == "actions"` (harness defect: positional index, same assertions). Gate: ruff, check_tests_first, type_gate, pytest all green except `test_docs_adr_is_unmodified` (stale local master ref in the shared clone).

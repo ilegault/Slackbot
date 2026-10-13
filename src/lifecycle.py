@@ -229,6 +229,13 @@ Per Ticket 112 (ADR 0018 decision 3):
 - The EPIF-path email draft says "Send this email to purchasing". It no longer offers
   Workday, because there is no Workday on this path.
 
+Per Ticket 115 (ADR 0018 decision 3):
+- On the Workday path the DM card is the whole buyer DM: the separate "Place this in Workday:"
+  text message is gone, and the card carries every request line, the History and the button.
+  The EPIF path still sends the email draft, then the files, then the card. Both callers
+  (finalize_purchase_request, handle_assign) pass the History to _send_assignee_dm. With no
+  card_ts the Workday buyer gets the request lines as plain text and a WARNING is logged.
+
 
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, slack_io, store, text_rules, validators
@@ -340,6 +347,7 @@ def _send_assignee_dm(
     request: dict | None = None,
     state: str | None = None,
     quote_paths: list[str] | None = None,
+    history: list | None = None,
 ) -> tuple[str, str] | None:
     """Send the email-draft DM to the assigned buyer, optionally attaching the archived BOM,
     and post the linked DM card with the next-step button.
@@ -356,29 +364,22 @@ def _send_assignee_dm(
     Per ADR 0010 decisions 2 & 3 & Ticket 67:
     After the email draft and file uploads, posts a linked DM card as its own message
     and returns (dm_channel, dm_ts) so the thread card can record the location.
+
+    Ticket 115 / ADR 0018 decision 3 (replaces ADR 0007 decision 8):
+    - Workday path: the DM card IS the whole DM. It is headed "Place this in Workday", carries
+      every request line and the History, and holds the Mark Processed button, so the old
+      separate "Place this in Workday:" text message is gone. Only when no card_ts is known
+      (no card can be built) does the buyer get the request lines as one plain-text DM, with a
+      WARNING, so they are never left with nothing.
+    - EPIF path: the email-draft message first (the buyer copies text out of it), then the
+      filled EPIF/BOM/quote uploads, then the DM card, which now gets `history` and `route`.
     """
     row_dm_str = f" in *Row {row}*" if row else ""
+    dm_text = None
     if route == "workday":
-        vendor = (parsed or {}).get("vendor") or "Vendor"
-        price = (parsed or {}).get("total_price")
-        if isinstance(price, (int, float)):
-            price_str = f"${price:,.2f}"
-        elif price:
-            price_str = str(price)
-            if not price_str.startswith("$"):
-                price_str = f"${price_str}"
-        else:
-            price_str = "$0.00"
-        link = (parsed or {}).get("link") or "No link"
-        dm_text = (
-            f"Place this in Workday:\n"
-            f"• *Item:* {item_desc}\n"
-            f"• *Vendor:* {vendor}\n"
-            f"• *Price:* {price_str}\n"
-            f"• *Link:* {link}\n"
-            f"• *Row:* {row or 'None'}\n\n"
-            f"Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
-        )
+        if not card_ts:
+            # No card can be built, so the request lines go as one plain-text DM (never nothing).
+            dm_text = "\n".join(blocks.request_summary_lines(request or {"parsed": parsed}, state or "approved"))
     else:
         dm_text = (
             f"Hi {assignee_name}! You've been assigned the purchase request for *{item_desc}*{row_dm_str}.\n\n"
@@ -393,12 +394,16 @@ def _send_assignee_dm(
             dm_text += f"\n\n📊 The BOM spreadsheet *{bom_fname}* is attached."
         if quote_paths:
             dm_text += f"\n\n📎 {len(quote_paths)} vendor quote(s) attached."
-    try:
-        slack_io.tell(client, assignee_id, dm_text)
-    except Exception as e:
-        log.warning("Could not DM assignee %s: %s", assignee_id, e)
-        return None
-    log.info("📨 Buyer DM sent to %s for row %s (%s path)", assignee_id, row, route)
+    if dm_text is not None:
+        try:
+            slack_io.tell(client, assignee_id, dm_text)
+        except Exception as e:
+            log.warning("Could not DM assignee %s: %s", assignee_id, e)
+            return None
+        if route == "workday":
+            log.warning("No card_ts; sent the Workday DM as text to %s", assignee_id)
+            return None
+        log.info("📨 Buyer DM sent to %s for row %s (%s path)", assignee_id, row, route)
 
     if route == "epif":
         files_to_upload = []
@@ -480,6 +485,8 @@ def _send_assignee_dm(
         thread_ts=thread_ts or "",
         card_ts=card_ts,
         thread_link=thread_link,
+        history=history,
+        route=route,
     )
 
     dm_res = slack_io.post_dm_card(
@@ -489,6 +496,8 @@ def _send_assignee_dm(
         blocks=dm_blocks,
     )
     if dm_res:
+        if route == "workday":
+            log.info("📨 Buyer DM sent to %s for row %s (%s path)", assignee_id, row, route)
         log.info("📨 DM card posted to %s (card %s)", assignee_id, card_ts)
     if not dm_res:
         slack_io.alert_admins(
@@ -1044,6 +1053,7 @@ def finalize_purchase_request(
                 card_ts=actual_card_ts,
                 request=req_payload,
                 state="approved",
+                history=hist,
             )
             if dm_ref and actual_card_ts:
                 dm_chan, dm_ts = dm_ref
@@ -1781,6 +1791,7 @@ def handle_assign(
         card_ts=msg_ts,
         request=req_data,
         state=current_state,
+        history=history,
     )
     if dm_ref and msg_ts:
         dm_chan, dm_ts = dm_ref

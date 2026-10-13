@@ -272,7 +272,7 @@ def test_approval_with_buyer_posts_card_after_draft_and_records_where(
     # The DM card's button value holds card_ts equal to the thread card's ts ("5.5")
     dm_card_call = calls[dm_card_idx]
     dm_blocks = dm_card_call[2]["blocks"]
-    btn_val = json.loads(dm_blocks[1]["elements"][0]["value"])
+    btn_val = json.loads(next(b for b in dm_blocks if b["type"] == "actions")["elements"][0]["value"])
     assert btn_val["card_ts"] == "5.5"
     assert btn_val["thread_channel"] == "C123"
 
@@ -401,7 +401,7 @@ def test_handle_assign_posts_dm_card_and_cardless_thread_does_not(caplog):
         if c[1].get("channel") == "U_BUYER2" and c[1].get("blocks")
     ]
     assert len(dm_card_calls) == 1
-    dm_btn_val = json.loads(dm_card_calls[0][1]["blocks"][1]["elements"][0]["value"])
+    dm_btn_val = json.loads(next(b for b in dm_card_calls[0][1]["blocks"] if b["type"] == "actions")["elements"][0]["value"])
     assert dm_btn_val["card_ts"] == "44.44"
 
     # Thread card updated with DM reference
