@@ -23,6 +23,7 @@ Ticket 82: Adds bom_inputs (optional BOM file + one-vendor tick box on Screen 2,
 Ticket 96: Adds nudge_summary_text (built from nudge_settings.load()) rendered under a Nudges header on App Home and inside get_help_message, so the words always match what the bot does (ADR 0013 decisions 3, 6); the stage text says the requester can mark Delivered.
 Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
 Ticket 86: keep_quotes_input lists a card's current quotes as pre-ticked checkboxes on both edit forms (Edit, Edit items); Edit also gains the BOM and quotes fields (ADR 0012 Decision 6). Current quotes never ride in private_metadata.
+Ticket 120: Screen 2's Purpose asks only why (the link has its own field and is added to the EPIF), and request_summary_lines drops the Link line when the URL is already in Purpose (text_rules.link_in_purpose), so both cards show a link once.
 
 Imports:
     - bom, config, interview, nudge_settings, roster, text_rules
@@ -35,13 +36,14 @@ import json
 from datetime import date, datetime
 
 try:
-    from . import bom, config, interview, nudge_settings, roster
+    from . import bom, config, interview, nudge_settings, roster, text_rules
 except ImportError:
     import bom
     import config
     import interview
     import nudge_settings  # type: ignore[no-redef]
     import roster
+    import text_rules
 
 # ---------------------------------------------------------------------------
 # Shared text constants — the single source for content rendered by both
@@ -621,7 +623,7 @@ def request_summary_lines(request: dict, state: str, requester: str | None = Non
         f"• *Purpose:* {purpose}",
     ]
     link = parsed.get("link")
-    if link:
+    if link and not text_rules.link_in_purpose(purpose, link):
         summary_lines.append(f"• *Link:* {link}")
     assignee_id = request.get("assignee_id")
     assignee = request.get("assignee")
@@ -1531,12 +1533,16 @@ def build_stage2_view(meta: dict) -> dict:
             "block_id": "block_purpose",
             "element": _text_elem(
                 "purpose",
-                "Why needed for research, and product URL (https://...)",
+                "Why this is needed for the research",
                 max_len=getattr(config, "MAX_PURPOSE_LEN", 900),
                 multiline=True,
                 prefill_key="purpose",
             ),
-            "label": {"type": "plain_text", "text": "Purpose / Why Necessary & Link"},
+            "label": {"type": "plain_text", "text": "Purpose / Why Necessary"},
+            "hint": {
+                "type": "plain_text",
+                "text": "Put the product page or quote link in the field below. It's added to the end of the EPIF's purpose for you.",
+            },
         },
         {
             "type": "input",
@@ -1547,7 +1553,7 @@ def build_stage2_view(meta: dict) -> dict:
                 "https://... (vendor product page or quote link)",
                 prefill_key="link",
             ),
-            "label": {"type": "plain_text", "text": "Product Page / Quote Link"},
+            "label": {"type": "plain_text", "text": "Product Page / Quote Link (added to the EPIF)"},
         },
         {
             "type": "input",

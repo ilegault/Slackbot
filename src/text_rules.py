@@ -14,6 +14,11 @@ Ticket 81 / ADR 0012:
 Adds `extract_modal_files`: extracts file descriptors (id and truncated name)
 from a file_input element in modal view submission state.
 
+Ticket 120 (.scratch/purpose-and-link/spec.md):
+Adds `link_in_purpose`: True when the Link URL is already written in the Purpose
+text, so the cards do not print it twice. Blocks, epif_filler and epif_parser
+share it, which is why it lives here and not in blocks.
+
 Imports:
     - config (only)
 May NOT import:
@@ -31,6 +36,21 @@ try:
 except ImportError:
     import config
 
+
+
+def link_in_purpose(purpose: str | None, link: str | None) -> bool:
+    """Return True when the stripped ``link`` already appears in ``purpose``.
+
+    WHY THIS EXISTS:
+    ----------------
+    Requesters used to paste the product URL into both Purpose and the Link field,
+    so a card showed it twice (.scratch/purpose-and-link/spec.md). This keeps a link
+    from showing twice. The match is exact and case-sensitive on purpose: no
+    trailing-slash or ``www.`` normalisation, so two different URLs never count
+    as one.
+    """
+    link = (link or "").strip()
+    return bool(link) and link in (purpose or "")
 
 
 def parse_mentions(text: str, bot_user_id: str | None = None) -> tuple[str, list[str], list[str]]:

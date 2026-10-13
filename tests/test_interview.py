@@ -398,8 +398,9 @@ def test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url(monkeypatch
     assert parsed["link"] == "https://fishersci.com/purpose-gloves"
 
     card_text = call_kwargs["blocks"][0]["text"]["text"]
-    assert "• *Link:* https://fishersci.com/purpose-gloves" in card_text
-    assert "• *Link:* https://fishersci.com/purpose-gloves" in call_kwargs["text"]
+    assert "*Link:*" not in card_text
+    assert "*Link:*" not in call_kwargs["text"]
+    assert "• *Purpose:* Supplies https://fishersci.com/purpose-gloves" in card_text
 
 
 def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch):

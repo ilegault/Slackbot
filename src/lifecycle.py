@@ -121,6 +121,9 @@ Per Ticket 29:
 - Totals mismatch between line items and request total refuses approval like a validation rejection.
 - upload_archived_bom provides the single implementation for uploading archived BOM spreadsheets.
 
+Per Ticket 120:
+- The channel post (and its plain-text fallback) leaves out the Link line when the URL is already in Purpose (text_rules.link_in_purpose), matching blocks.request_summary_lines.
+
 Per Ticket 30:
 - The buyer's DM carries the archived BOM when one exists.
 - _send_assignee_dm is the single implementation of the assignee email-draft DM (invariant 1),
@@ -2765,7 +2768,11 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
 
     req_blocks = blocks.build_request_blocks("posted", req_payload, items=items, attachments=attachments)
 
-    link_line = f"\n• *Link:* {parsed['link']}" if parsed.get("link") else ""
+    link_line = (
+        f"\n• *Link:* {parsed['link']}"
+        if parsed.get("link") and not text_rules.link_in_purpose(parsed["purpose"], parsed["link"])
+        else ""
+    )
     items_line = f"\n📋 {len(items)} line items (BOM attached in thread)" if (items and bom.needs_bom(items)) else ""
     quote_count = sum(1 for a in (attachments or []) if a.get("role") == "quote")
     quotes_line = f"\n📎 Quotes: {quote_count}" if quote_count > 0 else ""
