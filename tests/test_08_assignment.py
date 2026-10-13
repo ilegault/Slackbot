@@ -351,15 +351,15 @@ def test_buyer_self_assigns_unassigned_request():
         section = update_blocks[0]["text"]["text"]
         assert "• *Buyer:* <@U_DYLAN> (Dylan)" in section
 
-        # DM sent to Dylan: draft text and ticket 67 DM card
+        # DM sent to Dylan: the Workday-path DM card is the whole DM (ticket 115)
         dm_calls = [
             call for call in client.chat_postMessage.call_args_list
             if call[1].get("channel") == "U_DYLAN"
         ]
-        assert len(dm_calls) == 2
-        dm_text_call = next(c for c in dm_calls if not c[1].get("blocks"))
-        assert "Place this in Workday:" in dm_text_call[1]["text"]
-        assert "Subject:" not in dm_text_call[1]["text"]
+        assert len(dm_calls) == 1
+        dm_text_call = next(c for c in dm_calls if c[1].get("blocks"))
+        assert dm_text_call[1]["blocks"][0]["text"]["text"].startswith("🛒 *Place this in Workday*")
+        assert "Subject:" not in dm_text_call[1]["blocks"][0]["text"]["text"]
 
 
 # 12. Approver reassigning assigned request succeeds and leaves both in history
