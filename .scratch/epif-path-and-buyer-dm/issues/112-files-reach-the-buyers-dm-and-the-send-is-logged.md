@@ -1,6 +1,6 @@
 # 112: Files reach the buyer's DM, and the send is logged
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
