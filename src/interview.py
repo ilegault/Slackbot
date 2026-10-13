@@ -254,11 +254,26 @@ def match_faq(text: str) -> Optional[str]:
 def get_request_route(payload: dict, has_file: bool = False) -> str:
     """Determine whether a request is on the Workday or EPIF path.
 
-    Returns 'epif' if the payload explicitly specifies it, or if there is
-    an uploaded file. Otherwise returns 'workday'.
+    WHY THIS READS ONLY THE PAYMENT METHOD (ADR 0018 decision 1, Ticket 111):
+    Screen 1's vendor pick decides the path, but it lived only in modal metadata and
+    was never written onto the posted card. At approval the old rule found no `route`
+    and fell back to Workday, so no /new-purchase request on the EPIF path ever got
+    its EPIF. The interview already turns the pick into a payment method (`Workday`
+    on the Workday path, P-card or Req/PO on the EPIF path), so the payment method IS
+    the record. There is no second record: no `route` key on a request or card is
+    written or read, and `source == "epif"` decides nothing.
+
+    Order: an uploaded file means 'epif'. Otherwise the payment method (read from
+    payload["parsed"] when that is a dict, else from the payload itself) decides:
+    equal to config.WORKDAY_PAYMENT_METHOD -> 'workday'; anything else, blank
+    included -> 'epif'. Pure: works on a request dict or a card payload.
     """
-    if payload and payload.get("route"):
-        return payload["route"]
-    if has_file or (payload and payload.get("source") == "epif"):
+    if has_file:
         return "epif"
-    return "workday"
+    source = payload or {}
+    parsed = source.get("parsed")
+    if isinstance(parsed, dict):
+        source = parsed
+    if source.get("payment_method") == config.WORKDAY_PAYMENT_METHOD:
+        return "workday"
+    return "epif"

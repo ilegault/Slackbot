@@ -108,7 +108,7 @@ def sync_queue(monkeypatch):
     return _sync_submit
 
 
-def _valid_request(total_price=150.0, route="epif"):
+def _valid_request(total_price=150.0, payment_method="P-card"):
     return {
         "item_description": "Shaft Couplings",
         "purpose": "Motor test stand alignment",
@@ -121,11 +121,10 @@ def _valid_request(total_price=150.0, route="epif"):
         "fund": "133",
         "category": "Research/Lab Supplies (3105)",
         "delivery_room": "ERB 212",
-        "payment_method": "Workday",
+        "payment_method": payment_method,
         "link": "https://ruland.com",
         "name_of_system": "",
         "asset_id": "",
-        "route": route,
     }
 
 
@@ -135,7 +134,7 @@ def test_epif_approval_generates_and_archives_filled_epif(temp_workbook, temp_ep
 
     client = MagicMock()
     say = MagicMock()
-    parsed = _valid_request(total_price=150.0, route="epif")
+    parsed = _valid_request(total_price=150.0, payment_method="P-card")
 
     lifecycle.finalize_purchase_request(
         client=client,
@@ -178,7 +177,7 @@ def test_epif_approval_fails_if_template_missing(temp_workbook, temp_epifs_dir, 
 
     client = MagicMock()
     say = MagicMock()
-    parsed = _valid_request(total_price=150.0, route="epif")
+    parsed = _valid_request(total_price=150.0, payment_method="P-card")
 
     lifecycle.finalize_purchase_request(
         client=client,
@@ -209,7 +208,7 @@ def test_workday_approval_adds_no_file(temp_workbook, temp_epifs_dir, sync_queue
 
     client = MagicMock()
     say = MagicMock()
-    parsed = _valid_request(total_price=150.0, route="workday")
+    parsed = _valid_request(total_price=150.0, payment_method="Workday")
 
     lifecycle.finalize_purchase_request(
         client=client,

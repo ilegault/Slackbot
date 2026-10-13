@@ -344,7 +344,7 @@ def test_assign_card_b_uploads_quotes_in_buyer_dm(temp_workbook, dirs, sync_queu
 
     card_b_req = {
         "item_description": "Vacuum Flanges",
-        "route": "epif",
+        "payment_method": "P-card",
         "source": "epif",
         "vendor": vendor_b,
         "total_price": 75.0,

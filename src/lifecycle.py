@@ -207,6 +207,17 @@ Per Ticket 105 (ADR 0015 decision 5, ADR 0010 decision 5):
   Each row archives its own copies named bom.quote_filename(row, vendor, k).
   The assign-time buyer DM then finds and uploads card B's quotes.
 
+Per ADR 0018 / Ticket 111:
+- The path is read from the request's payment method by interview.get_request_route,
+  and from nothing else. No code here writes or reads a `route` key on a request or card
+  (modal private_metadata keeps its own, because no payment method exists before Screen 2).
+  _finalize_bare_thread_epif therefore no longer stamps `route`: the payment method the
+  requester chose on the EPIF form already records the path.
+  Why: Screen 1's path was never written onto the posted card, so approval fell back to
+  Workday and no /new-purchase EPIF-path request ever got a filled EPIF.
+- The EPIF-path email draft says "Send this email to purchasing". It no longer offers
+  Workday, because there is no Workday on this path.
+
 
 Imports:
     - admin, blocks, bom, config, epif_parser, interview, log_writer, queue_worker, roster, slack_io, store, text_rules, validators
@@ -361,7 +372,7 @@ def _send_assignee_dm(
         dm_text = (
             f"Hi {assignee_name}! You've been assigned the purchase request for *{item_desc}*{row_dm_str}.\n\n"
             f"📋 *Next Steps:*\n"
-            f"1. Submit via Workday or send this email to purchasing (Tina / Ally / Lisa):\n\n"
+            f"1. Send this email to purchasing (Tina / Ally / Lisa):\n\n"
             f"```\n{email_draft}\n```\n\n"
             f"2. Use the buttons on your purchase request in the purchasing channel to update its status when processed, confirmed, and delivered!"
         )
@@ -2363,7 +2374,6 @@ def _finalize_bare_thread_epif(ack, client, bare: dict, parsed: dict,
         items, shipping, _ = bom.parse_line_items(line_items_text)
 
     parsed = dict(parsed)
-    parsed["route"] = "epif"
 
     def say(text, thread_ts=thread_ts, **kw):
         client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, **kw)

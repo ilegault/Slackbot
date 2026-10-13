@@ -737,9 +737,9 @@ def test_finalize_purchase_request_without_pdf(monkeypatch):
     stage1 = {
         "resolved_name": "Isaac",
         "user_id": "U123",
-        "vendor_choice": config.VENDOR_OTHER_OPTION,
-        "vendor_custom": "Thorlabs",
-        "route": "epif",
+        "vendor_choice": "Fisher Scientific",
+        "vendor_custom": "",
+        "route": "workday",
     }
     stage2 = {
         "item_description": "Laser Diode 532nm",

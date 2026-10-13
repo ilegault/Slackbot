@@ -175,7 +175,7 @@ def test_fill_in_details_writes_row_and_updates_card(monkeypatch):
 
     lifecycle.finalize_purchase_request.assert_called_once()
     kwargs = lifecycle.finalize_purchase_request.call_args[1]
-    assert kwargs["parsed"]["route"] == "workday"
+    assert kwargs["parsed"]["payment_method"] == config.WORKDAY_PAYMENT_METHOD
     assert kwargs["parsed"]["vendor"] == "Grainger"
     assert kwargs["parsed"]["item_description"] == "Widget"
     assert kwargs["requester"] == "Katarina"
