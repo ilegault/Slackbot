@@ -268,3 +268,4 @@ def test_switch_restores_the_row_when_the_epif_cannot_be_archived(temp_workbook,
     assert _sheet(temp_workbook) == before
     client.chat_update.assert_not_called()
     assert not any("🔁" in t for t in _texts(client))
+    assert any("couldn't switch" in t.lower() for t in _texts(client, CHANNEL))
