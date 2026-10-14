@@ -101,9 +101,23 @@ request on the Workday path. Admins add and remove vendors; requesters do not su
 them through the interview.
 
 **Filled EPIF** — an EPIF the bot fills in itself from a request's answers, created
-once at approval (or at a switch to the EPIF path). PI of Funding and end user are
-always Charles Hirst: the Slack approval is the approval. Archived under the same
-name as every other EPIF: `<vendor>_EPIF_$<price>_<project id>.pdf`.
+once at approval (or at a switch to the EPIF path), and filled again — same file
+name, replacing the archived copy — only when its **EPIF date** changes. PI of Funding
+and end user are always Charles Hirst: the Slack approval is the approval. Archived
+under the same name as every other EPIF: `<vendor>_EPIF_$<price>_<project id>.pdf`.
+
+**EPIF date** — the date printed in the EPIF's *Date of Purchase* field. It is
+purchasing's paperwork date, so it should be the day the buyer sends the EPIF in. It
+defaults to the approval date, and the assigned buyer can change it until the request
+is **processed**. It is not the **request date**.
+
+**Request date** — the day the lab asked for the purchase. Workbook column M. Never
+changed by a change to the EPIF date.
+
+**Category minimum** — the least an EPIF's Amount of Purchase may be for its category:
+Fabrication Component (4670) at least $200, Standalone Equipment (4602) more than
+$5,000. Below it the bot refuses the request and asks for another category; it never
+picks one itself.
 
 ### The four stages
 
@@ -192,25 +206,41 @@ control.** At `@Purchasing approved`, two or more EPIFs in a thread are a batch;
 from the same uploader for the same vendor collapse to the newest. A batch cannot carry
 a BOM file (ADR 0015).
 
-**Line item** — one row of an order: quantity, item name, part number, unit
-price, link, description. Entered in the paste box on interview Screen 2 or through
-**Add items** on a posted card. One line per item. Quantity is a field, not extra
-lines. Carried in the card message's Slack metadata, never in a button value.
-See ADR 0006.
+**Line item** — one row of an order: item name, description, product number, vendor,
+unit cost, quantity, notes, and the item's link if the requester hyperlinked it. Arrives
+only through a **BOM template** upload (interview Screen 2, **Add items**, **Edit**,
+**Replace BOM**); the paste box is gone. A one-item request has no line items — the
+ordinary Screen 2 fields describe it. Carried in the card message's Slack metadata,
+never in a button value. See ADR 0006, ADR 0019.
 
-**BOM** — bill of materials. The spreadsheet the bot makes from a request's line
-items when there are **two or more distinct lines**. It goes to purchasing alongside
-the EPIF, so Tina gets one file instead of a pile of links. **One EPIF per vendor is
-unchanged; a BOM belongs to exactly one EPIF.** A draft is posted to the thread
-before approval. At approval it is archived as `BOMS_DIR/NNNN_<Vendor>_BOM.xlsx`
-(`NNNN` = the log row), named in the row's Notes column, and attached to the
-assignee's email-draft DM. The items must add up to the EPIF amount (plus a
-shipping line). Frozen at approval. Laid out like the lab's hand-made BOM:
-item prices only, no shipping row, live formulas, an empty Notes column (ADR 0008).
-A BOM is either **made** — built by the bot from line items, as above — or
-**attached** — the requester's own `.xlsx` / `.csv`, given in the forms' BOM field. An
-attached BOM is carried, never read: the bot does not check it against the EPIF amount
-and does not re-lay it out. The Total Price the requester types is the amount.
+**BOM template** — the lab's standard BOM spreadsheet, `templates/HIRST_LAB_BOM_TEMPLATE.xlsx`.
+A header block (Order Description, BOM Creator, Total Cost), then the columns
+`Item | Description | Product # | Vendor | Unit Cost | Quantity | Total Cost | Notes`,
+then a Total row. `.xlsx` only. The only spreadsheet layout the bot reads (ADR 0019).
+
+**BOM check** — the screen a form moves to after a BOM is uploaded: the rows as the bot
+read them, the BOM total, and every problem by spreadsheet row. It will not go on while
+there is a problem or while the BOM total differs from the typed Total Price by a cent.
+Fixing means editing the spreadsheet and uploading it again.
+
+**BOM** — bill of materials. The spreadsheet that breaks one EPIF's amount into its
+line items, for requests with **two or more** of them. **One EPIF per vendor is
+unchanged; a BOM belongs to exactly one EPIF**, and the one-vendor checkbox is required
+whenever a BOM is given. The bot always rebuilds it in the **BOM template** layout from
+the line items it read; the uploaded file is not kept. Named
+`HIRST_LAB_BOM_<Description>_<MM.DD.YYYY>.xlsx` (approval date), with `DRAFT_` in front
+for the copy posted in the thread before approval. Archived in `BOMS_DIR`, named in the
+row's Notes column, sent to the assigned buyer's DM. On the form path its total equals
+the EPIF amount exactly (ADR 0019).
+
+**Off-template BOM** — an `.xlsx` taken from a thread at approval that is not the BOM
+template, has row problems, or does not add up to the EPIF amount. Approval goes ahead;
+the file is archived as given, the thread asks the requester to **Replace BOM**, and the
+buyer's DM card says so until it is replaced. Never blocks Mark Processed.
+
+**Replace BOM** — swapping an approved request's BOM for one that passes the **BOM
+check**, from approval until the request is **processed**. The requester or a buyer may
+do it. Re-archives the BOM and sends it again to the assigned buyer.
 
 **Quote** — a vendor's price document for a request, a PDF. Given in the forms'
 Quotes field, with `@Purchasing quote` in the thread, or as any non-EPIF PDF a person
@@ -219,8 +249,9 @@ mistaken for an EPIF (ADR 0015).
 
 **Thread files at approval** — at `@Purchasing approved` in a thread with no posted
 card, the bot takes every file a person posted, by type: a PDF with the EPIF form
-fields is an EPIF, an `.xlsx` / `.csv` is the BOM, any other PDF is a quote; images and
-the bot's own files are skipped (ADR 0015).
+fields is an EPIF, an `.xlsx` is the BOM (read if it is the **BOM template**, otherwise
+an **Off-template BOM**), any other PDF is a quote; images and the bot's own files are
+skipped (ADR 0015, ADR 0019).
 
 **P-card** — the lab's university credit card. For orders **under $5,000**; the bot
 refuses a P-card at $5,000.00 or more (ADR 0017).
@@ -233,7 +264,8 @@ and allowed below that when a vendor only accepts a PO.
 buyer or an admin may edit. A modal-born card reopens the full Screen 2 form. A
 PDF-born card edits line items only, because the PDF is the source for everything
 else. Every edit posts one thread line saying what changed. Not available after
-approval; the way to change an approved request is **cancel** and resubmit. Since
+approval; the way to change an approved request is **cancel** and resubmit — except
+its BOM, which **Replace BOM** changes until it is processed. Since
 ADR 0015 a dropped EPIF posts no card, so PDF-born cards exist only from before then.
 
 **Superseded** — a posted card replaced by a corrected EPIF from the same requester
