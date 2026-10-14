@@ -1,6 +1,6 @@
 # 131: Read the lab BOM template
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
