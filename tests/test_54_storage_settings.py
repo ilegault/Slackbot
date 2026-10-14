@@ -148,8 +148,10 @@ def test_startup_and_blank_template_agree_missing_and_real(monkeypatch, tmp_path
     client.reset_mock()
     say.reset_mock()
     ops.handle_template_command(client, say, "C123", "ts", "U123")
-    assert client.files_upload_v2.call_count == 1
-    call_kwargs = client.files_upload_v2.call_args[1]
+    # Ticket 133: /blank-template sends the BOM template after the EPIF, so two uploads.
+    assert client.files_upload_v2.call_count == 2
+    assert client.files_upload_v2.call_args_list[1][1]["filename"] == "HIRST_LAB_BOM_TEMPLATE.xlsx"
+    call_kwargs = client.files_upload_v2.call_args_list[0][1]
     assert call_kwargs["file"] == str(real_pdf)
     assert call_kwargs["filename"] == "EPIF_TEMPLATE_HIRST.pdf"
 

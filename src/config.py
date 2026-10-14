@@ -125,6 +125,13 @@ EPIF_TEMPLATE_PATH = os.environ.get("EPIF_TEMPLATE_PATH", "")
 # The lab BOM template (ADR 0019): the one spreadsheet layout the bot reads. Committed
 # in the repo, so it resolves against BASE_DIR like the other repo-relative paths.
 BOM_TEMPLATE_PATH = os.path.join(BASE_DIR, "templates", "HIRST_LAB_BOM_TEMPLATE.xlsx")
+# Ticket 133: PyInstaller's onedir build unpacks `datas` under sys._MEIPASS (the _internal
+# folder), not beside the executable where BASE_DIR points. p_bot.spec carries the template
+# in `datas`, so in a frozen build fall back to the bundle when the exe-side copy is absent.
+if getattr(sys, "frozen", False) and not os.path.isfile(BOM_TEMPLATE_PATH):
+    _bundled = os.path.join(getattr(sys, "_MEIPASS", BASE_DIR), "templates", "HIRST_LAB_BOM_TEMPLATE.xlsx")
+    if os.path.isfile(_bundled):
+        BOM_TEMPLATE_PATH = _bundled
 
 # Column headers of the template, in order. The reader matches these exactly (case and
 # surrounding spaces ignored) and never guesses.
@@ -371,6 +378,7 @@ ACTION_OPEN_ROSTER_SET_NAME = "open_roster_set_name"
 ACTION_OPEN_NUDGE_SETTINGS = "open_nudge_settings"
 NUDGE_SETTINGS_CALLBACK_ID = "nudge_settings_submit"
 ACTION_REQ_ITEMS = "req_items"
+ACTION_SEND_BOM_TEMPLATE = "send_bom_template"  # Ticket 133 / ADR 0019: DMs the BOM template from Screen 2
 ACTION_REQ_EDIT = "req_edit"
 ACTION_REQ_SWITCH_EPIF = "req_switch_epif"
 ACTION_NUDGE_DELIVERED = "nudge_delivered"  # ADR 0013 decision 4 / Ticket 90: the nudge card's Delivered button
