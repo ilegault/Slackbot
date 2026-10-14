@@ -1148,6 +1148,10 @@ def bom_inputs() -> list[dict]:
     cannot check that the sheet is one vendor; the tick box is the requester's word for
     it (one EPIF per vendor). Both blocks are always shown because a Slack form cannot
     reveal a block when a file is picked. The rules live in bom.attachment_errors.
+
+    Ticket 133 / ADR 0019: an `actions` block directly after the file field offers "Send me the
+    BOM template", so a requester learns the template exists at the moment they need it. The
+    click DMs the file and never touches the open form (see app.handle_send_bom_template_action).
     """
     return [
         {
@@ -1163,8 +1167,19 @@ def bom_inputs() -> list[dict]:
             "label": {"type": "plain_text", "text": "BOM spreadsheet (optional)"},
             "hint": {
                 "type": "plain_text",
-                "text": "Your own BOM, sent to purchasing as-is. The Total Price above is the amount.",
+                "text": "Two or more items? Fill in the lab BOM template.",
             },
+        },
+        {
+            "type": "actions",
+            "block_id": "block_bom_template",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": config.ACTION_SEND_BOM_TEMPLATE,
+                    "text": {"type": "plain_text", "text": "Send me the BOM template"},
+                }
+            ],
         },
         {
             "type": "input",

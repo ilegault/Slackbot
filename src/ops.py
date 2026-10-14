@@ -539,6 +539,42 @@ def handle_remove_member(
             log.warning("Could not send orphaned entry alert to %s: %s", config.ADMIN_ALERT_CHANNEL, e)
 
 
+def send_bom_template(client, user_id: str) -> bool:
+    """DM the lab BOM template (config.BOM_TEMPLATE_PATH) to a user.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 133 / ADR 0019: requesters with two or more items fill in the lab BOM template, and
+    must be able to get it from the form (Screen 2 button) or /blank-template. The DM is opened
+    with conversations_open so it works from a modal click, where there is no channel. A missing
+    file alerts admins naming BOM_TEMPLATE_PATH (as the EPIF template does) and uploads nothing.
+    Returns True only when the upload was made.
+    """
+    path = str(getattr(config, "BOM_TEMPLATE_PATH", "") or "").strip()
+    if not path or not os.path.isfile(path):
+        slack_io.alert_admins(
+            client,
+            text_rules.storage_problem_message("BOM_TEMPLATE_PATH", path, "does not exist" if path else "not set"),
+        )
+        log.warning("BOM template missing at %r; admins alerted", path)
+        return False
+    try:
+        dm = client.conversations_open(users=user_id)
+        channel = dm["channel"]["id"]
+        client.files_upload_v2(
+            channel=channel,
+            file=path,
+            title=os.path.basename(path),
+            filename=os.path.basename(path),
+            initial_comment="Here is the lab BOM template. Fill it in and attach it on the form.",
+        )
+    except Exception as e:
+        log.warning("Could not DM the BOM template to %s: %s", user_id, e)
+        return False
+    log.info("Sent BOM template to %s", user_id)
+    return True
+
+
 def handle_template_command(client, say, channel: str, thread_ts: str | None, user_id: str):
     """Provide the blank EPIF form and guide for users who prefer manual submission (Phase 3).
 
@@ -609,6 +645,9 @@ def handle_template_command(client, say, channel: str, thread_ts: str | None, us
             say(text=err_msg, thread_ts=thread_ts)
         else:
             say(text=err_msg)
+
+    # Ticket 133 / ADR 0019: the BOM template travels with the EPIF template.
+    send_bom_template(client, user_id)
 
 
 def handle_approve_new_requester(client, approver_id: str, channel_id: str, msg_ts: str, slack_id: str, name: str):

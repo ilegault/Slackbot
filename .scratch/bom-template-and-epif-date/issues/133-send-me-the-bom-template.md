@@ -1,6 +1,6 @@
 # 133: "Send me the BOM template" button, and /blank-template sends it too
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -38,14 +38,14 @@ Requesters need to learn the template exists at the moment they need it.
 
 ## Acceptance criteria
 
-- [ ] New file `tests/test_133_send_bom_template.py`, `test_screen2_offers_the_template`:
+- [x] New file `tests/test_133_send_bom_template.py`, `test_screen2_offers_the_template`:
   - `blocks.build_stage2_view` (new-request meta) has an element with `action_id == "send_bom_template"` in the block directly after `block_bom`.
   - The `block_bom` hint contains `lab BOM template`.
-- [ ] `test_button_dms_the_template`: dispatching the action through the real Bolt app's listener registry (find the listener as `tests/test_15_purchasing_channel.py` or an existing action test does) results in:
+- [x] `test_button_dms_the_template`: dispatching the action through the real Bolt app's listener registry (find the listener as `tests/test_15_purchasing_channel.py` or an existing action test does) results in:
   - one `files_upload_v2` whose `filename` is `HIRST_LAB_BOM_TEMPLATE.xlsx`, to the DM channel the fake `conversations_open` returned;
   - zero `views_update` and zero `views_open` calls.
-- [ ] `test_blank_template_sends_both`: `ops.handle_template_command` uploads both the EPIF template and `HIRST_LAB_BOM_TEMPLATE.xlsx`.
-- [ ] `test_missing_template_alerts_admin`: with `config.BOM_TEMPLATE_PATH` pointing at a missing file, the click uploads nothing and posts one admin alert naming `BOM_TEMPLATE_PATH`.
+- [x] `test_blank_template_sends_both`: `ops.handle_template_command` uploads both the EPIF template and `HIRST_LAB_BOM_TEMPLATE.xlsx`.
+- [x] `test_missing_template_alerts_admin`: with `config.BOM_TEMPLATE_PATH` pointing at a missing file, the click uploads nothing and posts one admin alert naming `BOM_TEMPLATE_PATH`.
 
 May fake: the Slack client. Must be real: the committed template file (assert the uploaded `file` path exists and opens with openpyxl), the real Bolt listener registry.
 
@@ -63,3 +63,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-14: Added config.ACTION_SEND_BOM_TEMPLATE, the actions block after block_bom in blocks.bom_inputs (with the new hint), ops.send_bom_template (DM via conversations_open + files_upload_v2; missing file alerts admins naming BOM_TEMPLATE_PATH), the app listener (acks, never touches the view), /blank-template now sends both, and p_bot.spec carries the template (config falls back to sys._MEIPASS when frozen, since onedir puts datas there). Tests in tests/test_133_send_bom_template.py cover each criterion. Existing tests edited because the behaviour they pinned changed by design: test_82 (hint text), test_onboarding_and_commands::test_template_command and test_54::test_startup_and_blank_template_agree_missing_and_real (now two uploads, EPIF first).

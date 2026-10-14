@@ -918,6 +918,20 @@ def _picked_buyer_id(action: dict) -> str | None:
     return action.get("selected_user")
 
 
+@app.action(config.ACTION_SEND_BOM_TEMPLATE)
+def handle_send_bom_template_action(ack, body, client):
+    """DM the requester the BOM template; the open form is left untouched.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 133 / ADR 0019: the button beside the BOM file field on Screen 2. It never calls
+    views_update or views_open, so what the requester has typed stays in the modal.
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    ops.send_bom_template(client, user_id)
+
+
 @app.action("req_assign_select")
 def handle_req_assign_select_action(ack, body, respond, client):
     """Handle selecting a buyer from the buyer picker (static_select of buyers, ADR 0014) on the posted or approved card.

@@ -17,6 +17,7 @@ a = Analysis(
     datas=[d for d in [
         ('.env', '.') if os.path.exists('.env') else None,
         ('roster.json', '.') if os.path.exists('roster.json') else None,
+        ('templates/HIRST_LAB_BOM_TEMPLATE.xlsx', 'templates'),
     ] if d is not None],
     hiddenimports=[
         'src',
