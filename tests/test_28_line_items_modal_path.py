@@ -344,7 +344,7 @@ def test_items_box_1500_char_with_fabrication_completes_screen3_and_posts(monkey
     total_val = 0.0
     for i in range(12):
         qty = 1
-        price = 10.00
+        price = 20.00  # Ticket 123: Fabrication needs a total of at least $200 (12 x 20 + 5).
         total_val += qty * price
         line = f"{qty} | Part Name {i:02d} | PART-{i:02d} | {price:.2f} | https://example.com/parts/{i:02d} | Description {i:02d}"
         lines.append(line)

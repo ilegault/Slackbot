@@ -568,6 +568,14 @@ def handle_stage2_submit(ack, body, client, view):
         ack(response_action="errors", errors={"block_payment_method": pcard_msg})
         return
 
+    # Same reason (ticket 123): Screen 3 has no category field, so refuse here.
+    minimum_msg = validators.category_minimum_problem(
+        stage2.get("category"), epif_parser.parse_money(str(stage2.get("total_price") or ""))
+    )
+    if minimum_msg:
+        ack(response_action="errors", errors={"block_category": minimum_msg})
+        return
+
     category = stage2.get("category")
     if interview.needs_asset_details(category):
         meta["stage2"] = stage2
