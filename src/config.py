@@ -243,6 +243,13 @@ CHECKBOX_TO_CATEGORY = {
         "Fabrication Component (4670) > $200",
 }
 
+# Category minimums, read off the form's own wording (ticket 123): category value ->
+# (amount, inclusive). Fabrication is "at least $200"; Standalone is "more than 5k".
+CATEGORY_MINIMUMS = {
+    "Fabrication Component (4670) > $200": (200.00, True),
+    "Standalone Equipment >$5k (4602)": (5000.00, False),
+}
+
 PAYMENT_CHECKBOXES = ("PCard", "Req")
 
 # --- Allowed values, mirrored from the 'Roles & Lists' sheet -------------------

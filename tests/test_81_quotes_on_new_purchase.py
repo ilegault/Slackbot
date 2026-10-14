@@ -298,6 +298,7 @@ def test_quotes_survive_screen3_fabrication(monkeypatch):
     view2 = _make_stage2_view_submission(
         meta,
         category="Fabrication Component (4670) > $200",
+        total_price="250.00",  # Ticket 123: Fabrication needs a total of at least $200.
         quotes_files=quotes_files,
     )
 

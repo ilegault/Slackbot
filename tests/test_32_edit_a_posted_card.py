@@ -635,7 +635,8 @@ def test_edit_fabrication_category_accepted_with_asset_fields():
 
     body = _make_edit_view_submission(
         meta,
-        stage2_overrides={"category": "Fabrication Component (4670) > $200"},
+        # Ticket 123: Fabrication needs a total of at least $200.
+        stage2_overrides={"category": "Fabrication Component (4670) > $200", "total_price": "250.00"},
         stage3_overrides={"asset_id": "TAG-99", "name_of_system": "Laser System"},
     )
     view = body["view"]

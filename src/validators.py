@@ -2,6 +2,9 @@
 
 Every rule returns a sentence a grad student can act on. If the list comes back
 empty, the row is safe to write.
+
+Two money rules sit beside the field checks, both pure so every way in refuses alike:
+pcard_problem (ADR 0017) and category_minimum_problem (ticket 123).
 """
 try:
     from . import config, roster
@@ -26,6 +29,37 @@ def pcard_problem(payment_method, total_price):
     ):
         return config.PCARD_LIMIT_MESSAGE
     return None
+
+
+def category_minimum_problem(category, total_price):
+    """Return the category-minimum sentence, or None (ticket 123).
+
+    WHY: the form says Fabrication Component (4670) is "at least $200" and Standalone
+    Equipment (4602) is "more than 5k", but nothing compared the amount with the category
+    and a $109.00 fabrication EPIF was approved. The bot refuses; it never changes the
+    category itself. One pure rule so dropped EPIFs, the interview, Edit and the Screen 2
+    submit all refuse the same way.
+    """
+    minimum = config.CATEGORY_MINIMUMS.get(category)
+    if (
+        minimum is None
+        or not isinstance(total_price, (int, float))
+        or isinstance(total_price, bool)
+    ):
+        return None
+    amount, inclusive = minimum
+    if total_price > amount or (inclusive and total_price >= amount):
+        return None
+    this_is = f"${total_price:,.2f}"
+    if inclusive:
+        return (
+            f"Fabrication Component (4670) needs a total of at least ${amount:,.2f} — this is "
+            f"{this_is}. Pick another category (usually Research/Lab Supplies or Repair & Maintenance)."
+        )
+    return (
+        f"Standalone Equipment (4602) needs a total of more than ${amount:,.2f} — this is "
+        f"{this_is}. Pick another category."
+    )
 
 
 def validate(parsed: dict, requester_name=None) -> list:
@@ -93,6 +127,10 @@ def validate(parsed: dict, requester_name=None) -> list:
     pcard = pcard_problem(parsed["payment_method"], parsed["total_price"])
     if pcard is not None:
         problems.append(pcard)
+
+    minimum = category_minimum_problem(parsed.get("category"), parsed["total_price"])
+    if minimum is not None:
+        problems.append(minimum)
 
     # --- the Slack side --------------------------------------------------------
     valid_requesters = roster.get_valid_requesters() if hasattr(roster, "get_valid_requesters") else set()

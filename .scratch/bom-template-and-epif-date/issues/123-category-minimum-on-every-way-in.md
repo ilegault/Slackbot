@@ -1,6 +1,6 @@
 # 123: Category minimum on every way in
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -52,7 +52,7 @@ was approved.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_123_category_minimum.py`, one table-driven test `test_category_minimum_problem`, asserts:
+- [x] New `tests/test_123_category_minimum.py`, one table-driven test `test_category_minimum_problem`, asserts:
   - (Fabrication, 109.00) → the exact sentence in step 2 with `$109.00`;
   - (Fabrication, 199.99) → a sentence;
   - (Fabrication, 200.00) → `None`;
@@ -60,15 +60,15 @@ was approved.
   - (Standalone, 5000.01) → `None`;
   - ("Research/Lab Supplies (3105)", 5.00) → `None`;
   - (Fabrication, None) → `None`.
-- [ ] `test_screen2_refuses_fabrication_under_200` drives `app.handle_stage2_submit` with a Screen 2 view state (build it the way `tests/test_109_pcard_limit.py` builds its Screen 2 submission), with category Fabrication and Total Price `109`.
+- [x] `test_screen2_refuses_fabrication_under_200` drives `app.handle_stage2_submit` with a Screen 2 view state (build it the way `tests/test_109_pcard_limit.py` builds its Screen 2 submission), with category Fabrication and Total Price `109`.
   - The fake `ack` receives `response_action="errors"` with `errors["block_category"]` equal to the step 2 sentence.
   - `views_open`, `views_update` and `chat_postMessage` are never called.
   - The same test, with Total Price `200`, does not receive an errors ack.
-- [ ] `test_edit_refuses_fabrication_under_200` drives `app.handle_edit_submit` (build the edit view state as `tests/test_32_edit_a_posted_card.py` does).
+- [x] `test_edit_refuses_fabrication_under_200` drives `app.handle_edit_submit` (build the edit view state as `tests/test_32_edit_a_posted_card.py` does).
   - `errors["block_category"]` is the sentence.
   - The card is not updated: no `chat_update` call.
-- [ ] `test_dropped_epif_with_fabrication_under_200_is_refused` fills the real template (`tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`) with `epif_filler.fill_epif`, ticking Fabrication at `total_price=109.0`, parses it with `epif_parser.parse_epif`, and calls `validators.validate`. The returned problems include the sentence.
-- [ ] `test_screen2_refuses_standalone_at_5000`: through `app.handle_stage2_submit`, Standalone Equipment at Total Price `5000` gets `errors["block_category"]` containing `$5,000.00`, and no view is opened or updated.
+- [x] `test_dropped_epif_with_fabrication_under_200_is_refused` fills the real template (`tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`) with `epif_filler.fill_epif`, ticking Fabrication at `total_price=109.0`, parses it with `epif_parser.parse_epif`, and calls `validators.validate`. The returned problems include the sentence.
+- [x] `test_screen2_refuses_standalone_at_5000`: through `app.handle_stage2_submit`, Standalone Equipment at Total Price `5000` gets `errors["block_category"]` containing `$5,000.00`, and no view is opened or updated.
 
 May fake: the Slack client and `ack`. Must be real: `validators`, `epif_filler.fill_epif` and `epif_parser.parse_epif` on the committed fixture. Patching `category_minimum_problem` or `validate` does not count.
 
@@ -86,3 +86,7 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-14 — Landed. `config.CATEGORY_MINIMUMS`, `validators.category_minimum_problem`, wired into `validators.validate` (dropped/thread EPIFs, interview completion, workday-details, Edit → `block_category`) and into `app.handle_stage2_submit` straight after the P-card refusal. All tests in `tests/test_123_category_minimum.py` fail on the base commit and pass now; breaking the Screen 2 refusal turns `test_screen2_refuses_fabrication_under_200` red.
+Harness defect fixed in three older tests (32 accepted-with-asset-fields, 28 1500-char box, 81 quotes survive Screen 3): each built a Fabrication request under $200, which is now correctly refused. The amount was incidental, so it is raised to ≥ $200; no assertion was touched.
+Local note: `test_docs_adr_is_unmodified` fails in a worktree whose local `master` ref is stale (it diffs against `master` before `origin/master`); `git diff origin/master -- docs/adr` is empty, and it fails identically on the base commit.
