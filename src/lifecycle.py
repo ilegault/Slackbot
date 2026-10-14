@@ -742,16 +742,21 @@ def finalize_purchase_request(
                 content = _fetch_attachment(client, a, row_num)
                 if content is not None:
                     ext = os.path.splitext(a.get("name") or "")[1].lstrip(".").lower() or "xlsx"
-                    bom_fname = bom.bom_filename(row_num, vendor, ext=ext)
-                    saved_bom_path = log_writer.save_bom(content, bom_fname)
+                    saved_bom_path = log_writer.save_bom(
+                        content,
+                        bom.bom_filename(parsed.get("item_description"), datetime.now().date(), ext=ext),
+                    )
+                    bom_fname = os.path.basename(saved_bom_path)
                     log_writer.update_row(row_num, {config.COLUMN_NOTES: f"BOM: {bom_fname} (attached)"})
             elif items and bom.needs_bom(items):
-                bom_fname = bom.bom_filename(row_num, vendor)
                 req_for_bom = dict(parsed)
                 if requester and not req_for_bom.get("requester"):
                     req_for_bom["requester"] = requester
                 xlsx_bytes = bom.build_bom_workbook(req_for_bom, items)
-                saved_bom_path = log_writer.save_bom(xlsx_bytes, bom_fname)
+                saved_bom_path = log_writer.save_bom(
+                    xlsx_bytes, bom.bom_filename(parsed.get("item_description"), datetime.now().date())
+                )
+                bom_fname = os.path.basename(saved_bom_path)
                 notes_text = f"BOM: {bom_fname} ({len(items)} items)"
                 log_writer.update_row(row_num, {config.COLUMN_NOTES: notes_text})
 
@@ -3142,14 +3147,13 @@ def upload_draft_bom(
     Used by:
     1. handle_items_update (dropped EPIF path and Edit modal path)
     2. _process_interview_completion (interview /new-purchase path)
-    The draft workbook is generated in-memory with row=None and uploaded directly
+    The draft workbook is generated in-memory (draft=True name, ADR 0019) and uploaded directly
     to the thread without saving to BOMS_DIR (only approved requests are archived).
     """
     if not bom.needs_bom(items):
         return False
 
-    vendor = (parsed or {}).get("vendor") or "Vendor"
-    draft_filename = bom.bom_filename(None, vendor)
+    draft_filename = bom.bom_filename((parsed or {}).get("item_description") or "", draft=True)
     xlsx_bytes = bom.build_bom_workbook(parsed or {}, items)
     try:
         if hasattr(client, "files_upload_v2"):

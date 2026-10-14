@@ -228,7 +228,7 @@ def test_epif_path_with_bom_uploads_both(temp_epifs_dir, temp_boms_dir, sync_que
     dm_calls = [call for call in client.files_upload_v2.call_args_list if call[1].get("channel") == "D_BUYER"]
     assert len(dm_calls) == 2
     filenames = [call[1]["filename"] for call in dm_calls]
-    assert any("_BOM.xlsx" in f for f in filenames)
+    assert any(f.startswith("HIRST_LAB_BOM_") and f.endswith(".xlsx") for f in filenames)
     assert any(f.endswith("_TestVendor_EPIF.pdf") or "_EPIF_" in f for f in filenames)
 
 def test_handle_assign_uploads_epif(temp_epifs_dir, temp_boms_dir, sync_queue, monkeypatch):

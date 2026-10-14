@@ -8,6 +8,7 @@ Acceptance criteria:
 - [ ] One failed fetch does not stop approval
 - [ ] Decline archives nothing
 """
+import datetime
 import io
 import json
 import os
@@ -158,7 +159,7 @@ def test_attached_bom_archived_as_is(temp_workbook, dirs, sync_queue, downloads,
 
     xml, row = _row(temp_workbook)
     assert row == 17
-    name = f"{row:04d}_Swagelok_BOM.xlsx"
+    name = f"HIRST_LAB_BOM_Tube-fittings_{datetime.date.today():%m.%d.%Y}.xlsx"
     with open(os.path.join(dirs["BOMS_DIR"], name), "rb") as f:
         assert f.read() == BOM_BYTES
     assert log_writer.get_cell_value(xml, f"{config.COLUMN_NOTES}{row}") == f"BOM: {name} (attached)"
@@ -170,7 +171,7 @@ def test_attached_bom_archived_as_is(temp_workbook, dirs, sync_queue, downloads,
 def test_attached_csv_keeps_extension(temp_workbook, dirs, sync_queue, downloads):
     downloads["data"]["F_CSV"] = b"a,b\n1,2\n"
     _approve(_client({}), [{"id": "F_CSV", "name": "Order.CSV", "role": "bom"}])
-    assert os.listdir(dirs["BOMS_DIR"]) == ["0017_Swagelok_BOM.csv"]
+    assert os.listdir(dirs["BOMS_DIR"]) == [f"HIRST_LAB_BOM_Tube-fittings_{datetime.date.today():%m.%d.%Y}.csv"]
 
 
 def test_quotes_numbered_and_card_carries_count(temp_workbook, dirs, sync_queue, downloads):
@@ -188,7 +189,7 @@ def test_quotes_numbered_and_card_carries_count(temp_workbook, dirs, sync_queue,
     actions = next(b for b in kwargs["blocks"] if b.get("type") == "actions")
     assert json.loads(actions["elements"][0]["value"])["request"]["quote_count"] == 3
     assert "attachments" not in kwargs["metadata"]["event_payload"]
-    assert bom.quote_filename(7, "Swagelok", 2) == bom.bom_filename(7, "Swagelok").replace("_BOM.xlsx", "_Quote_2.pdf")
+    assert bom.quote_filename(7, "Swagelok", 2) == "0007_Swagelok_Quote_2.pdf"
 
 
 def test_buyer_gets_bom_and_quotes_at_approval_and_on_later_assign(temp_workbook, dirs, sync_queue, downloads):
@@ -201,7 +202,7 @@ def test_buyer_gets_bom_and_quotes_at_approval_and_on_later_assign(temp_workbook
     _approve(client, atts, assignee=True, route_epif=True)
     dm = [u for u in _uploads(client) if u.get("channel") == "D_BUYER"]
     names = sorted(u["filename"] for u in dm)
-    assert "0017_Swagelok_BOM.xlsx" in names
+    assert f"HIRST_LAB_BOM_Tube-fittings_{datetime.date.today():%m.%d.%Y}.xlsx" in names
     assert [n for n in names if "_Quote_" in n] == [f"0017_Swagelok_Quote_{k}.pdf" for k in (1, 2, 3)]
 
     # Later assignment through the picker: approve unassigned, then pick the buyer.
@@ -281,5 +282,5 @@ def test_decline_archives_nothing(temp_workbook, dirs, sync_queue, downloads):
     # Control: the very same card, approved instead, does archive both files, so the
     # emptiness above is the decline's doing and not a broken fixture.
     _approve(_client({}), atts)
-    assert os.listdir(dirs["BOMS_DIR"]) == ["0017_Swagelok_BOM.xlsx"]
+    assert os.listdir(dirs["BOMS_DIR"]) == [f"HIRST_LAB_BOM_Tube-fittings_{datetime.date.today():%m.%d.%Y}.xlsx"]
     assert os.listdir(dirs["QUOTES_DIR"]) == ["0017_Swagelok_Quote_1.pdf"]

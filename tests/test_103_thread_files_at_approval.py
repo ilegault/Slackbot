@@ -212,7 +212,7 @@ def test_thread_files_archived_at_keyword_approval(temp_workbook, dirs, sync_que
         assert f.read() == quote_bytes
 
     # BOMS_DIR holds archived BOM with .xlsx, byte-identical
-    expected_bom_name = f"{row:04d}_{vendor}_BOM.xlsx"
+    expected_bom_name = f"HIRST_LAB_BOM_Tube-fittings_{datetime.date.today():%m.%d.%Y}.xlsx"
     assert expected_bom_name in os.listdir(dirs["BOMS_DIR"])
     with open(os.path.join(dirs["BOMS_DIR"], expected_bom_name), "rb") as f:
         assert f.read() == bom_bytes
