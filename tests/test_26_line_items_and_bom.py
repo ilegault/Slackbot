@@ -356,6 +356,8 @@ def test_build_bom_workbook_content_and_numbers():
     text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
     for banned in ("PG000025831", "2026-09-22", "Shipping", "DRAFT", "Purchasing Log"):
         assert not any(banned in t for t in text), banned
+    # Only B3 (the BOM Creator) is filled in the header block's third row.
+    assert all(c.value is None for c in ws[3][2:])
 
 
 def test_build_bom_workbook_draft_header():
@@ -403,6 +405,7 @@ def test_bom_filename():
     fn = bom.bom_filename("Very Long Description " * 10, d)
     part = fn[len("HIRST_LAB_BOM_"):-len("_10.14.2026.xlsx")]
     assert len(part) <= 60
+    assert part.startswith("Very-Long-Description-Very-Long")
 
     # Nothing usable falls back to a placeholder rather than an empty name part.
     assert bom.bom_filename("", d) == "HIRST_LAB_BOM_Order_10.14.2026.xlsx"
