@@ -63,7 +63,6 @@ def _make_stage2_view_submission(
     delivery_room: str = "ERB 212",
     vendor_contact_name: str = "Rep",
     vendor_contact_email: str = "rep@digikey.com",
-    date_of_purchase: str = "2026-10-05",
     payment_method: str = "Workday",
     line_items: str = "",
     quotes_files: list[dict] | None = None,
@@ -86,9 +85,6 @@ def _make_stage2_view_submission(
         },
         "block_vendor_contact_email": {
             "vendor_contact_email": {"type": "plain_text_input", "value": vendor_contact_email}
-        },
-        "block_date_of_purchase": {
-            "date_of_purchase": {"type": "datepicker", "selected_date": date_of_purchase}
         },
         "block_delivery_room": {
             "delivery_room": {"type": "static_select", "selected_option": {"value": delivery_room}}

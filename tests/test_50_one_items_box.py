@@ -71,7 +71,6 @@ def test_bad_paste_in_workday_modal_shows_the_error(monkeypatch):
             "block_vendor": {"vendor": {"selected_option": {"value": "Grainger"}}},
             "block_item_description": {"item_description": {"value": "Widget"}},
             "block_total_price": {"total_price": {"value": "10.00"}},
-            "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-24"}},
             "block_category": {"category": {"selected_option": {"value": "Lab Consumable"}}},
             "block_line_items": {"line_items": {"value": "2 EA | Flask | FL-1 | 10.00"}},
         }},

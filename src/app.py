@@ -514,7 +514,6 @@ def handle_stage2_submit(ack, body, client, view):
         "total_price": text_rules._extract_modal_field(values, "block_total_price", "total_price"),
         "vendor_contact_name": text_rules._extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
         "vendor_contact_email": text_rules._extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),
-        "date_of_purchase": text_rules._extract_modal_field(values, "block_date_of_purchase", "date_of_purchase", field_type="selected_date"),
         "delivery_room": text_rules._extract_modal_field(values, "block_delivery_room", "delivery_room", field_type="selected_option"),
         "project_id": text_rules._extract_modal_field(values, "block_project_id", "project_id", field_type="selected_option"),
         "fund": text_rules._extract_modal_field(values, "block_fund", "fund", field_type="selected_option"),
@@ -614,7 +613,6 @@ def handle_workday_details_submit(ack, body, client, view):
             total_price = float(str(total_price).replace('$', '').replace(',', '').strip())
         except ValueError:
             pass
-    date_str = state_vals.get("block_date_of_purchase", {}).get("date_of_purchase", {}).get("selected_date")
     room = state_vals.get("block_delivery_room", {}).get("delivery_room", {}).get("value")
     project = state_vals.get("block_project_id", {}).get("project_id", {}).get("value")
     fund = state_vals.get("block_fund", {}).get("fund", {}).get("value")
@@ -642,7 +640,7 @@ def handle_workday_details_submit(ack, body, client, view):
         "purpose": purpose,
         "link": link,
         "total_price": total_price,
-        "date_of_purchase": date_str,
+        "request_date": interview.today(),
         "delivery_room": room,
         "project_id": project,
         "fund": fund,
@@ -670,8 +668,6 @@ def handle_workday_details_submit(ack, body, client, view):
                 errors["block_purpose"] = p
             elif "amt" in p_lower or "price" in p_lower or "number" in p_lower or "amount" in p_lower:
                 errors["block_total_price"] = p
-            elif "date" in p_lower:
-                errors["block_date_of_purchase"] = p
             elif "project id" in p_lower:
                 errors["block_project_id"] = p
             elif "fund" in p_lower:
@@ -692,9 +688,6 @@ def handle_workday_details_submit(ack, body, client, view):
         client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, **kw)
 
     # Use the finalized details
-    from . import epif_parser
-    parsed["date_of_purchase"] = epif_parser.parse_date(date_str) if date_str else None
-
     # Note: we need to use the original approver
     approver = card_payload.get("approver")
 
@@ -1208,7 +1201,6 @@ def handle_req_switch_epif(ack, body, respond, client):
     shipping = float(card_payload.get("shipping") or 0.0)
     price = parsed.get("total_price")
     price_str = f"{price:.2f}" if isinstance(price, (int, float)) else str(price or "")
-    date_val = parsed.get("date_of_purchase")
     meta = {
         "route": "epif",
         "vendor_choice": config.VENDOR_OTHER_OPTION,
@@ -1221,7 +1213,6 @@ def handle_req_switch_epif(ack, body, respond, client):
         "total_price": price_str,
         "vendor_contact_name": parsed.get("vendor_contact_name", "") or "",
         "vendor_contact_email": parsed.get("vendor_contact_email", "") or "",
-        "date_of_purchase": str(date_val) if date_val else "",
         "delivery_room": parsed.get("delivery_room", "") or "",
         "project_id": parsed.get("project_id", "") or "",
         "fund": parsed.get("fund", "") or "",
@@ -1357,10 +1348,6 @@ def handle_req_edit_action(ack, body, respond, client):
     total_price_val = parsed.get("total_price")
     total_price_str = f"{total_price_val:.2f}" if isinstance(total_price_val, (int, float)) else str(total_price_val or "")
 
-    date_val = parsed.get("date_of_purchase")
-    if date_val and not isinstance(date_val, str):
-        date_val = str(date_val)
-
     meta = {
         "is_edit": True,
         "channel": channel_id,
@@ -1376,7 +1363,6 @@ def handle_req_edit_action(ack, body, respond, client):
         "total_price": total_price_str,
         "vendor_contact_name": parsed.get("vendor_contact_name", "") or "",
         "vendor_contact_email": parsed.get("vendor_contact_email", "") or "",
-        "date_of_purchase": date_val or "",
         "delivery_room": parsed.get("delivery_room", "") or "",
         "project_id": parsed.get("project_id", "") or "",
         "fund": parsed.get("fund", "") or "",
@@ -1420,7 +1406,6 @@ def handle_edit_submit(ack, body, client, view):
         "total_price": text_rules._extract_modal_field(values, "block_total_price", "total_price"),
         "vendor_contact_name": text_rules._extract_modal_field(values, "block_vendor_contact_name", "vendor_contact_name"),
         "vendor_contact_email": text_rules._extract_modal_field(values, "block_vendor_contact_email", "vendor_contact_email"),
-        "date_of_purchase": text_rules._extract_modal_field(values, "block_date_of_purchase", "date_of_purchase", field_type="selected_date"),
         "delivery_room": text_rules._extract_modal_field(values, "block_delivery_room", "delivery_room", field_type="selected_option"),
         "project_id": text_rules._extract_modal_field(values, "block_project_id", "project_id", field_type="selected_option"),
         "fund": text_rules._extract_modal_field(values, "block_fund", "fund", field_type="selected_option"),
@@ -1481,8 +1466,6 @@ def handle_edit_submit(ack, body, client, view):
                 errors["block_vendor_contact_name"] = p
             elif "email" in p_lower:
                 errors["block_vendor_contact_email"] = p
-            elif "date" in p_lower:
-                errors["block_date_of_purchase"] = p
             elif "project id" in p_lower:
                 errors["block_project_id"] = p
             elif "fund" in p_lower:

@@ -5,6 +5,7 @@ Pure Python logic separated from Slack API plumbing for testability.
 The p-card / req/po FAQ answers reuse config.PAYMENT_METHOD_HINT so the form hint and the
 FAQ cannot drift apart (ADR 0017 decision 4).
 """
+import datetime
 import difflib
 import re
 from typing import Any, Dict, Optional
@@ -108,6 +109,11 @@ def validate_stage1(vendor_choice: str, vendor_custom: str) -> Dict[str, str]:
     return errors
 
 
+def today() -> datetime.date:
+    """Today's date; the one place request and EPIF dates read the clock (tests patch it)."""
+    return datetime.date.today()
+
+
 def build_parsed_from_stages(
     stage1: Dict[str, Any],
     stage2: Dict[str, Any],
@@ -115,7 +121,7 @@ def build_parsed_from_stages(
 ) -> Dict[str, Any]:
     """Convert accumulated stage answers into a dict matching epif_parser.parse_epif().
 
-    Returns exactly 19 keys matching the AcroForm parser.
+    Returns the AcroForm parser's keys plus `request_date` (the posting day, workbook column M).
     """
     purpose = str(stage2.get("purpose") or "").strip()
     raw_link = stage2.get("link")
@@ -131,12 +137,6 @@ def build_parsed_from_stages(
     else:
         price_raw = str(raw_price).strip()
         price_num = epif_parser.parse_money(price_raw)
-
-    raw_date = stage2.get("date_of_purchase")
-    if isinstance(raw_date, str):
-        parsed_date = epif_parser.parse_date(raw_date)
-    else:
-        parsed_date = raw_date
 
     # Determine final vendor name
     vendor_choice = str(stage1.get("vendor_choice") or "").strip()
@@ -170,7 +170,11 @@ def build_parsed_from_stages(
         "vendor": final_vendor,
         "vendor_contact_name": str(stage2.get("vendor_contact_name") or "").strip(),
         "vendor_contact_email": str(stage2.get("vendor_contact_email") or "").strip(),
-        "date_of_purchase": parsed_date,
+        # No form asks for a date (ticket 124): the request date is the posting day and the
+        # EPIF date is stamped when the Filled EPIF is made. date_of_purchase stays only for
+        # an EPIF that was uploaded, where the parser reads it off the PDF.
+        "date_of_purchase": None,
+        "request_date": today(),
         "name_of_system": name_of_system,
         "delivery_room": str(stage2.get("delivery_room") or "").strip(),
         "project_id": str(stage2.get("project_id") or "").strip(),

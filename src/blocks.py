@@ -33,7 +33,7 @@ May NOT import:
     - lifecycle/ops handlers
 """
 import json
-from datetime import date, datetime
+from datetime import date
 
 try:
     from . import bom, config, interview, nudge_settings, roster, text_rules
@@ -1517,14 +1517,6 @@ def build_stage2_view(meta: dict) -> dict:
                 elem["initial_option"] = initial
         return elem
 
-    # Date picker initial_date: today for new, stored value for edit
-    date_initial = datetime.now().strftime("%Y-%m-%d")
-    if prefill and meta.get("date_of_purchase"):
-        raw_date = str(meta["date_of_purchase"])
-        # Stored as "YYYY-MM-DD" (isoformat) or a date object str
-        if len(raw_date) >= 10 and raw_date[4] == "-":
-            date_initial = raw_date[:10]
-
     blocks = [
         {
             "type": "context",
@@ -1610,17 +1602,6 @@ def build_stage2_view(meta: dict) -> dict:
                 prefill_key="vendor_contact_email",
             ),
             "label": {"type": "plain_text", "text": "Vendor Contact Email"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_date_of_purchase",
-            "element": {
-                "type": "datepicker",
-                "action_id": "date_of_purchase",
-                "initial_date": date_initial,
-                "placeholder": {"type": "plain_text", "text": "Select date"},
-            },
-            "label": {"type": "plain_text", "text": "Date of Request / Purchase"},
         },
         {
             "type": "input",
@@ -1874,12 +1855,6 @@ def build_workday_details_view(channel: str, thread_ts: str, card_ts: str, vendo
             "block_id": "block_total_price",
             "label": {"type": "plain_text", "text": "Total price including shipping ($)"},
             "element": {"type": "plain_text_input", "action_id": "total_price"},
-        },
-        {
-            "type": "input",
-            "block_id": "block_date_of_purchase",
-            "label": {"type": "plain_text", "text": "Date of Purchase"},
-            "element": {"type": "datepicker", "action_id": "date_of_purchase", "initial_date": datetime.now().strftime("%Y-%m-%d")},
         },
         {
             "type": "input",

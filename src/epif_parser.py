@@ -87,6 +87,19 @@ def parse_date(raw: str):
     return None
 
 
+def as_date(value):
+    """A date, an ISO/EPIF date string, or None -> a date or None.
+
+    The request payload on the card carries dates as strings (button and metadata values are
+    JSON), while freshly built requests carry date objects. Writers accept either.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if hasattr(value, "isoformat") and not isinstance(value, str):
+        return value
+    return parse_date(value) if value else None
+
+
 def first_url(text: str):
     match = _URL_RE.search(text or "")
     return match.group(0) if match else None
@@ -124,6 +137,7 @@ def parse_epif(pdf_bytes: bytes) -> dict:
     fields = read_fields(pdf_bytes)
     category, category_error = selected_category(fields)
     purpose, trailing_link = text_rules.split_trailing_link(fields.get("Purpose", ""))
+    date_of_purchase = parse_date(fields.get("Date of Purchase", ""))
 
     return {
         "raw_fields": fields,
@@ -135,7 +149,10 @@ def parse_epif(pdf_bytes: bytes) -> dict:
         "vendor": fields.get("Vendor", "").strip(),
         "vendor_contact_name": fields.get("Vendor Name", "").strip(),
         "vendor_contact_email": fields.get("Email add", "").strip(),
-        "date_of_purchase": parse_date(fields.get("Date of Purchase", "")),
+        "date_of_purchase": date_of_purchase,
+        # An uploaded EPIF is dated by whoever filled it in, so it logs as today's request:
+        # the same date feeds workbook column M (ticket 124).
+        "request_date": date_of_purchase,
         "name_of_system": fields.get("Name of System", "").strip(),
         "delivery_room": fields.get("room address", "").strip(),
         "project_id": fields.get("Project ID Number", "").strip(),

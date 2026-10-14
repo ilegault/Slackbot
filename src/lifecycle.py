@@ -624,6 +624,12 @@ def _fetch_attachment(client, attachment: dict, row_num) -> bytes | None:
         return None
 
 
+def _date_iso(value) -> str | None:
+    """A date (or date string) -> ISO string for the card payload; the payload is JSON."""
+    d = epif_parser.as_date(value)
+    return d.isoformat() if d else None
+
+
 def finalize_purchase_request(
     client, say, channel: str, thread_ts: str, event_ts: str,
     parsed: dict, requester: str | None, notify_target: str | None,
@@ -691,6 +697,9 @@ def finalize_purchase_request(
             say(text=f"Not logged - {len(problems)} problem(s), requester DM'd.", thread_ts=thread_ts)
         return
 
+    # Set when this approval makes a Filled EPIF; the card then carries it (ticket 124).
+    made_epif_date: list[str] = []
+
     # Define atomic write action for the queue (invariant 2)
     def write_action():
         row_num = log_writer.append_row(log_writer.build_row(parsed, requester))
@@ -725,8 +734,11 @@ def finalize_purchase_request(
                 try:
                     with open(config.EPIF_TEMPLATE_PATH, "rb") as f:
                         template_bytes = f.read()
-                    filled_bytes = epif_filler.fill_epif(template_bytes, parsed)
+                    # The Filled EPIF is dated the day it is made, not the day it was asked for.
+                    epif_day = interview.today()
+                    filled_bytes = epif_filler.fill_epif(template_bytes, {**parsed, "epif_date": epif_day})
                     saved_epif_path = log_writer.save_epif(filled_bytes, archive_name)
+                    made_epif_date[:] = [epif_day.isoformat()]
                 except FileNotFoundError:
                     # Reraise so blank_row executes as this is an all-or-nothing step
                     raise
@@ -881,16 +893,11 @@ def finalize_purchase_request(
         if target_card_ts:
             req_payload = dict(target_req)
         else:
-            parsed_date = parsed.get("date_of_purchase")
-            iso_date = (
-                parsed_date.isoformat()
-                if hasattr(parsed_date, "isoformat")
-                else (parsed_date or None)
-            )
             req_payload = {
                 "parsed": {
                     **parsed,
-                    "date_of_purchase": iso_date,
+                    "date_of_purchase": _date_iso(parsed.get("date_of_purchase")),
+                    "request_date": _date_iso(parsed.get("request_date")),
                     "payment_method": parsed.get("payment_method") or "EPIF",
                 },
                 "requester": requester,
@@ -909,6 +916,8 @@ def finalize_purchase_request(
         req_payload["assignee"] = assignee_name
         if saved_path:
             req_payload["epif_file"] = os.path.basename(saved_path.replace("\\", "/"))
+        if made_epif_date:
+            req_payload["epif_date"] = made_epif_date[0]
         if bom_fname:
             req_payload["bom_file"] = bom_fname
         # After approval the card carries a count, not the attachment list (button values are
@@ -2509,6 +2518,13 @@ def _finalize_switch_to_epif(ack, client, switch: dict, parsed: dict,
         return
 
     new_parsed = dict(parsed)
+    # The request was asked for on its original day; only the EPIF is dated today.
+    old_parsed: dict = card["parsed"] if isinstance(card.get("parsed"), dict) else {}
+    new_parsed["request_date"] = (
+        epif_parser.as_date(old_parsed.get("request_date") or old_parsed.get("date_of_purchase"))
+        or new_parsed.get("request_date")
+    )
+    epif_day = interview.today()
     actor_name = slack_io.resolve_requester(client, user_id) or (f"<@{user_id}>" if user_id else "Someone")
 
     def write_action():
@@ -2526,7 +2542,7 @@ def _finalize_switch_to_epif(ack, client, switch: dict, parsed: dict,
         # Fill first: it touches nothing outside memory, so a missing template leaves the row alone.
         with open(config.EPIF_TEMPLATE_PATH, "rb") as f:
             template_bytes = f.read()
-        filled_bytes = epif_filler.fill_epif(template_bytes, new_parsed)
+        filled_bytes = epif_filler.fill_epif(template_bytes, {**new_parsed, "epif_date": epif_day})
 
         snapshot = log_writer.snapshot_row(row)
         log_writer.update_row(row, values)
@@ -2558,12 +2574,13 @@ def _finalize_switch_to_epif(ack, client, switch: dict, parsed: dict,
         say(text=line)
 
         req_payload = dict(card)
-        parsed_date = new_parsed.get("date_of_purchase")
         req_payload["parsed"] = {
             **new_parsed,
-            "date_of_purchase": parsed_date.isoformat() if hasattr(parsed_date, "isoformat") else (parsed_date or None),
+            "date_of_purchase": _date_iso(new_parsed.get("date_of_purchase")),
+            "request_date": _date_iso(new_parsed.get("request_date")),
         }
         req_payload["epif_file"] = saved_name
+        req_payload["epif_date"] = epif_day.isoformat()
 
         try:
             client.chat_update(
@@ -2709,8 +2726,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
                 errors["block_vendor_contact_email"] = p
             elif "vendor" in p_lower:
                 errors["block_vendor"] = p
-            elif "date" in p_lower:
-                errors["block_date_of_purchase"] = p
             elif "project id" in p_lower:
                 errors["block_project_id"] = p
             elif "fund" in p_lower:
@@ -2757,7 +2772,8 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     req_payload = {
         "parsed": {
             **parsed,
-            "date_of_purchase": parsed["date_of_purchase"].isoformat() if parsed["date_of_purchase"] else None,
+            "date_of_purchase": _date_iso(parsed.get("date_of_purchase")),
+            "request_date": _date_iso(parsed.get("request_date")),
         },
         "requester": requester,
         "user_id": user_id,
@@ -3463,12 +3479,16 @@ def handle_request_edit(
         stage1, stage2, stage3 if stage3 and any(stage3.values()) else None
     )
 
-    # Serialize date for metadata storage
-    new_parsed_stored = dict(new_parsed)
-    if new_parsed_stored.get("date_of_purchase") and not isinstance(new_parsed_stored["date_of_purchase"], str):
-        new_parsed_stored["date_of_purchase"] = new_parsed_stored["date_of_purchase"].isoformat()
-
     old_parsed = card_payload.get("parsed") or {}
+
+    # Edit never asks for a date and never re-stamps it: the card keeps the dates it has.
+    new_parsed_stored = dict(new_parsed)
+    new_parsed_stored["date_of_purchase"] = _date_iso(old_parsed.get("date_of_purchase"))
+    new_parsed_stored["request_date"] = (
+        _date_iso(old_parsed.get("request_date") or old_parsed.get("date_of_purchase"))
+        or _date_iso(new_parsed.get("request_date"))
+    )
+
     old_items = card_payload.get("items") or []
     old_shipping = float(card_payload.get("shipping") or 0.0)
 

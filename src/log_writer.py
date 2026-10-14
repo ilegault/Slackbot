@@ -48,9 +48,10 @@ from datetime import date, datetime
 from xml.sax.saxutils import escape
 
 try:
-    from . import config
+    from . import config, epif_parser
 except ImportError:
     import config
+    import epif_parser  # type: ignore[no-redef]
 
 log = logging.getLogger(__name__)
 
@@ -584,7 +585,15 @@ def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
 
 
 def build_row(parsed: dict, requester_name: str) -> dict:
-    """Parsed EPIF -> {column_letter: value}, ready for append_row."""
+    """Parsed EPIF -> {column_letter: value}, ready for append_row.
+
+    Column M is the *request date*: the day the lab asked for the purchase. It is not the
+    date printed on the Filled EPIF (`epif_date`), which is purchasing's paperwork date and
+    moves with the day the buyer sends the EPIF in; changing that date must never rewrite
+    this column (ticket 124). `date_of_purchase` is the fallback for a parsed dict that
+    predates the split.
+    """
+    request_date = epif_parser.as_date(parsed.get("request_date")) or parsed.get("date_of_purchase")
     values = {
         config.COLUMN_REQUESTER: requester_name,
         "C": parsed["item_description"],
@@ -593,7 +602,7 @@ def build_row(parsed: dict, requester_name: str) -> dict:
         "I": parsed["vendor"],
         "J": parsed["vendor_contact_name"],
         "K": parsed["vendor_contact_email"],
-        config.COLUMN_DATE_OF_REQUEST: parsed["date_of_purchase"],
+        config.COLUMN_DATE_OF_REQUEST: request_date,
         "P": parsed["name_of_system"],
         "Q": parsed["delivery_room"],
         "R": parsed["project_id"],

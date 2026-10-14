@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-from datetime import date
 from unittest.mock import MagicMock
 
 # Determine project root and src directory
@@ -68,7 +67,6 @@ def test_build_parsed_from_stages_workday_non_fabrication():
         "total_price": "$145.50",
         "vendor_contact_name": "Sales Rep",
         "vendor_contact_email": "sales@fishersci.com",
-        "date_of_purchase": "09/14/26",
         "delivery_room": "ERB 212",
         "project_id": "PG000025831",
         "fund": "133",
@@ -82,7 +80,7 @@ def test_build_parsed_from_stages_workday_non_fabrication():
         "total_price_raw", "vendor", "vendor_contact_name", "vendor_contact_email",
         "date_of_purchase", "name_of_system", "delivery_room", "project_id",
         "fund", "asset_id", "pi_of_funding", "end_user", "category",
-        "category_error", "payment_method",
+        "category_error", "payment_method", "request_date",
     }
     assert set(parsed.keys()) == expected_keys
     assert parsed["item_description"] == "Box of Nitrile Gloves (Medium)"
@@ -90,7 +88,9 @@ def test_build_parsed_from_stages_workday_non_fabrication():
     assert parsed["total_price"] == 145.50
     assert parsed["total_price_raw"] == "$145.50"
     assert parsed["link"] == "https://fishersci.com/gloves"
-    assert parsed["date_of_purchase"] == date(2026, 9, 14)
+    # No form asks for a date (ticket 124): the request date is the posting day.
+    assert parsed["date_of_purchase"] is None
+    assert parsed["request_date"] == interview.today()
     assert parsed["delivery_room"] == "ERB 212"
     assert parsed["project_id"] == "PG000025831"
     assert parsed["fund"] == "133"
@@ -328,7 +328,6 @@ def test_stage2_modal_submit_routes_link_to_card_and_channel_summary(monkeypatch
                 "block_total_price": {"total_price": {"value": "120.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
                 "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
                 "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
                 "block_fund": {"fund": {"selected_option": {"value": "133"}}},
@@ -374,7 +373,6 @@ def test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url(monkeypatch
                 "block_total_price": {"total_price": {"value": "120.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
                 "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
                 "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
                 "block_fund": {"fund": {"selected_option": {"value": "133"}}},
@@ -420,7 +418,6 @@ def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch
                 "block_total_price": {"total_price": {"value": "120.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
                 "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
                 "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
                 "block_fund": {"fund": {"selected_option": {"value": "133"}}},
