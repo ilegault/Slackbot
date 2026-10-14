@@ -1,6 +1,6 @@
 # 123: Category minimum on every way in
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
