@@ -1,44 +1,45 @@
-# Active work: EPIF-path requests get their EPIF, and the buyer's DM shows the request (111–119)
+# Active work: BOMs come in through the lab template, the EPIF date is the buyer's, categories have minimums (123–137)
 
 This is a pointer, not the work. The work is the spec and the tickets below.
 
-- Spec: `.scratch/epif-path-and-buyer-dm/spec.md`
-- Tickets: `.scratch/epif-path-and-buyer-dm/issues/111-…` through `119-…` (9 tickets: 7 agent, 2 developer)
-- **Read before starting:** `docs/adr/0018-the-path-is-the-payment-method-and-the-dm-card-shows-the-request.md` (new)
-- Also binding: ADR 0007 (decisions 1, 5–7; decision 8 replaced by 0018), ADR 0010 (decision 2 amended by 0018), ADR 0016 (refusals via `slack_io.notify`), ADR 0001 (tests first)
-- Glossary: `CONTEXT.md`. Updated: **Workday path / EPIF path** (the payment method records the path) and **DM card** (the thread card's fields)
+- Spec: `.scratch/bom-template-and-epif-date/spec.md`
+- Tickets: `.scratch/bom-template-and-epif-date/issues/123-…` through `137-…` (15 tickets, all agent)
+- Binding: ADR 0019 (BOMs come in through the lab template and are read; it supersedes parts of 0006, 0008 and 0012), ADR 0007 (the bot fills the EPIF), ADR 0010 (linked cards), ADR 0015 (thread files at approval), ADR 0001 (tests first)
+- Glossary: `CONTEXT.md`. New: **EPIF date**, **Request date**, **Category minimum**, **BOM template**, **BOM check**, **Off-template BOM**, **Replace BOM**. Rewritten: **Line item**, **BOM**, **Filled EPIF**, **Thread files at approval**, **Edit**
+- Committed data: `templates/HIRST_LAB_BOM_TEMPLATE.xlsx` (the standard), `tests/fixtures/BOM_TEMPLATE_FILLED_EXAMPLE.xlsx` (a real filled BOM, $858.50)
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Next:** 111 and 113 have no blockers. **Start with 111.** It fixes a live production bug:
-no `/new-purchase` request on the EPIF path has ever produced an EPIF; the bot treats it
-as Workday at approval. 113 touches only `src/blocks.py` and can run alongside it.
+**Next:** once 121 and 122 are done, these are unblocked: 123, 124, 127, 129, 130, 131, 133. 127, 130 and 131 have no blockers at all. **Start with 131** (the pure BOM reader). The whole BOM chain (132 → 134 → 135, 136 → 137) waits on it, and it touches no file that another open ticket edits.
 
 ## Dependency graph
 
-    Deploy 1   111 ──► 112 ──► 118 (ready-for-developer: deploy)
-               111 ───────────► 118
-    Deploy 2   113 ──► 114 ──► 115 ──► 117 ──► 119 (ready-for-developer: deploy)
-               111 ──► 114     112 ──► 115
-               111 ──► 116 ──► 117     115 ──► 119
-               113 ──► 116
+    121 ──► 123                          (A: category minimum)
+    121 ──► 124 ──► 125 ──► 126          (B: EPIF date, Change date)
+            127 ──► 128                  (C: DM upload retry, Resend EPIF)
+    122 ──► 129                          (D: button values fit)
+            130                          (D: failed update tells the editor)
+            131 ──► 132 ──┬──► 134 ──► 135
+    121 ──► 133 ──────────┘     │
+                  132 ──► 136 ──┴──► 137 (E: BOM template)
 
-Some edges exist only so that two tickets never edit the same function at once:
-112 waits on 111 because both edit `lifecycle._send_assignee_dm`. Keep them.
-118 and 119 are `ready-for-developer`; an agent must not claim them.
+No ticket is `ready-for-developer` and none is held. After the set merges, the developer deploys (`@Purchasing update`) and updates AGENTS.md traps 10 and 11 (paste box, shipping row), which go stale with 135.
 
 ## Requirements an implementer might treat as preferences — they are not
 
-- `interview.get_request_route` reads only the payment method (plus `has_file`). Nothing writes or reads a `route` key on a request or card; modal `meta["route"]` stays.
-- 111's end-to-end test starts from `lifecycle._process_interview_completion` and takes the Approve button's `value` off the posted card. A hand-built request dict or a patched `get_request_route` does not count; that is how this bug stayed hidden.
-- 112's upload tests use a real `slack_sdk.WebClient` with only its network methods patched. A `MagicMock` client does not count.
-- `blocks.request_summary_lines` is the one builder of request lines for both cards (113); the thread card's output stays byte-identical.
-- The switch (117) rewrites the **same** row in one queued write and refuses if the row is processed by the time the write runs.
-- No test is deleted in this set. Changed tests are rewritten in place under the same name with the same number of assertions.
-- A new test that already passes on today's code makes the gate hold the PR. Tickets say where such checks share a test function with ones that fail today; follow that.
+- `validators.category_minimum_problem`, `bom.read_bom_template`, `bom.check_bom_total`, `bom.bom_filename` and `epif_filler.redate_epif` are pure functions. They are tested on real files: the committed fixture and the EPIF template.
+- The BOM reader never reads formula cells and never guesses headers. `.xlsx` only.
+- The BOM total must equal the typed Total Price to the cent. There is no shipping anywhere.
+- The uploaded BOM file is never kept on the form path. The bot rebuilds it from the committed template.
+- The BOM check answers Slack immediately (`response_action="update"` to a reading view) and reads the file off the listener, then calls `views_update`. Line items never go in a button value.
+- On the thread path a BOM never blocks approval, and Replace BOM never gates Mark Processed.
+- Change date and Replace BOM never change workbook column M. Only Replace BOM may touch the Notes column, and only when the file name changes.
+- Every DM upload goes through the one retry helper from 127.
+- Tests named in criteria must fail on the base commit unless the criterion says "rewrite in place". Test functions are deleted only where a ticket's `Deletes tests:` line lists them.
 
 ## Deliberately not in this set
 
-- Changing how Approve reads the buyer picker (production shows assignment at approval works).
-- A tool to repair requests already approved without an EPIF (done by hand in 118).
-- The legacy `files_upload` fallback branches.
-- The ticket-engine change that should have refused ticket 42's empty PR (taken to ticket-engine separately).
+- Reading any spreadsheet layout other than the template, or reading quotes.
+- Tracking shipping or tax.
+- Re-dating, renaming or rebuilding EPIFs and BOMs approved before the deploy.
+- A Slack table editor for BOM rows.
+- A BOM on a batch (several EPIFs in one thread).
