@@ -122,6 +122,23 @@ BOMS_DIR = os.environ.get("BOMS_DIR", "")
 
 EPIF_TEMPLATE_PATH = os.environ.get("EPIF_TEMPLATE_PATH", "")
 
+# The lab BOM template (ADR 0019): the one spreadsheet layout the bot reads. Committed
+# in the repo, so it resolves against BASE_DIR like the other repo-relative paths.
+BOM_TEMPLATE_PATH = os.path.join(BASE_DIR, "templates", "HIRST_LAB_BOM_TEMPLATE.xlsx")
+
+# Column headers of the template, in order. The reader matches these exactly (case and
+# surrounding spaces ignored) and never guesses.
+BOM_TEMPLATE_HEADERS = (
+    "Item", "Description", "Product #", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes",
+)
+
+# Most data rows a BOM may hold. The line items ride in the card message's Slack metadata
+# (never in a button value). The Slack message-metadata page (https://docs.slack.dev/messaging/message-metadata/)
+# could not be read when this was written, so no documented limit is cited: 50 is the
+# fallback, and 50 rows of compact item dicts is well inside any size the page has
+# described. Revisit if Slack's documented limit is found to be lower.
+BOM_MAX_ROWS = 50
+
 # One registry of storage settings: (env setting name, config attribute name, "file" | "folder")
 # Order: PURCHASING_LOG_PATH, EPIFS_DIR, CONFIRMATIONS_DIR, QUOTES_DIR, BOMS_DIR, EPIF_TEMPLATE_PATH
 STORAGE_SETTINGS: tuple[tuple[str, str, str], ...] = (

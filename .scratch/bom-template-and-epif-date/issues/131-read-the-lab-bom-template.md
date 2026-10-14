@@ -1,6 +1,6 @@
 # 131: Read the lab BOM template
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -55,21 +55,21 @@ code.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_131_read_bom_template.py`, `test_reads_the_real_lab_bom`: reading `tests/fixtures/BOM_TEMPLATE_FILLED_EXAMPLE.xlsx` gives:
+- [x] New `tests/test_131_read_bom_template.py`, `test_reads_the_real_lab_bom`: reading `tests/fixtures/BOM_TEMPLATE_FILLED_EXAMPLE.xlsx` gives:
   - 4 items and no problems;
   - the first item `quantity == 2`, `unit_price == 23.75`, `part_number == "G-0133"`, `link == "https://www.duniway.com/part/g-0133"`;
   - `bom_total(items) == 858.50`.
-- [ ] `test_not_the_template` builds three inputs in the test, each returning exactly the single "isn't the lab BOM template" problem:
+- [x] `test_not_the_template` builds three inputs in the test, each returning exactly the single "isn't the lab BOM template" problem:
   - an xlsx with headers `Qty | Part | Price` (via openpyxl);
   - a CSV's bytes with the template headers;
   - a PDF's bytes (the EPIF fixture).
-- [ ] `test_row_problems_by_row_number` copies the fixture in memory and edits it:
+- [x] `test_row_problems_by_row_number` copies the fixture in memory and edits it:
   - E7 = `"TBD"` gives `Row 7: Unit Cost 'TBD' isn't a number.`;
   - F8 = `2.5` gives the Quantity problem for row 8;
   - A9 = `None` gives `Row 9: Item is blank.`;
   - a fully blank inserted row and the stray A10 mark produce no problem.
-- [ ] `test_check_bom_total`: `(items, 858.50)` gives `None`; `(items, 858.49)` gives the exact mismatch sentence with `$858.50` and `$858.49`.
-- [ ] `test_row_cap`: an in-test template with `BOM_MAX_ROWS + 1` valid rows gives the cap problem.
+- [x] `test_check_bom_total`: `(items, 858.50)` gives `None`; `(items, 858.49)` gives the exact mismatch sentence with `$858.50` and `$858.49`.
+- [x] `test_row_cap`: an in-test template with `BOM_MAX_ROWS + 1` valid rows gives the cap problem.
 
 May fake: nothing needs faking. Must be real: openpyxl reading the committed fixture and in-test workbooks. A test that builds dicts instead of reading an `.xlsx` does not count.
 
@@ -87,3 +87,9 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-14 — Landed. `bom.read_bom_template`, `bom_total`, `check_bom_total` plus `config.BOM_TEMPLATE_PATH/HEADERS/BOM_MAX_ROWS`. All five criteria covered by `tests/test_131_read_bom_template.py` (real fixture, in-test workbooks, CSV and EPIF PDF bytes).
+- Items carry both the existing keys (`qty`, `name`) and the ticket's (`quantity`, `item_name`), plus `vendor`, `notes`.
+- `BOM_MAX_ROWS = 50`: the Slack metadata docs page could not be fetched from the sandbox, so no limit is cited.
+- `test_only_log_writer_opens_workbook_path` now exempts `load_workbook(io.BytesIO(...))` in bom.py only (harness defect: guard targets the log workbook path; paths still fail).
+- Local `test_docs_adr_is_unmodified` fails only because the shared checkout's local `master` is stale; `git diff origin/master -- docs/adr` is empty.

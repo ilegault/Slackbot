@@ -622,6 +622,18 @@ def test_only_log_writer_opens_workbook_path():
                     if isinstance(func, ast.Name) and func.id in ("ZipFile", "load_workbook"):
                         pytest.fail(f"{rel_path}:{node.lineno} calls {func.id}. Only log_writer may open workbook.")
                     if isinstance(func, ast.Attribute) and func.attr == "load_workbook":
+                        # ADR 0019: bom.py reads an uploaded BOM from in-memory bytes. That is
+                        # not the log workbook; only an io.BytesIO(...) argument is exempt, so
+                        # a path (WORKBOOK_PATH or otherwise) still fails here.
+                        first = node.args[0] if node.args else None
+                        in_memory = (
+                            fname == "bom.py"
+                            and isinstance(first, ast.Call)
+                            and isinstance(first.func, ast.Attribute)
+                            and first.func.attr == "BytesIO"
+                        )
+                        if in_memory:
+                            continue
                         pytest.fail(f"{rel_path}:{node.lineno} calls load_workbook. Only log_writer may open workbook.")
 
                     # Check open() calls: ensure WORKBOOK_PATH is not passed
