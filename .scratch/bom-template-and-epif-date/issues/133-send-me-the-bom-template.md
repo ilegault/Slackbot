@@ -1,6 +1,6 @@
 # 133: "Send me the BOM template" button, and /blank-template sends it too
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
