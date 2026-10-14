@@ -185,7 +185,7 @@ def test_approval_with_buyer_attaches_bom_to_dm(temp_workbook, temp_boms_dir, sy
     # 1. BOM file was archived
     saved_files = os.listdir(temp_boms_dir)
     assert len(saved_files) == 1
-    bom_fname = saved_files[0]  # e.g. "0017_Ruland_BOM.xlsx"
+    bom_fname = saved_files[0]  # e.g. "HIRST_LAB_BOM_Couplings_10.14.2026.xlsx"
 
     # 2. conversations_open called with assignee's user ID
     client.conversations_open.assert_called_once_with(users="U_DYLAN")
@@ -218,9 +218,9 @@ def test_email_draft_names_bom_file():
         {"vendor": "Ruland", "total_price": 150.0, "project_id": "PG000025831",
          "link": "https://ruland.com", "item_description": "Couplings"},
         "Dylan",
-        bom_filename="0017_Ruland_BOM.xlsx",
+        bom_filename="HIRST_LAB_BOM_Couplings_10.14.2026.xlsx",
     )
-    assert "Itemised BOM attached: 0017_Ruland_BOM.xlsx" in draft
+    assert "Itemised BOM attached: HIRST_LAB_BOM_Couplings_10.14.2026.xlsx" in draft
 
 
 def test_email_draft_without_bom_unchanged():
@@ -229,7 +229,7 @@ def test_email_draft_without_bom_unchanged():
         {"vendor": "Ruland", "total_price": 150.0, "project_id": "PG000025831",
          "link": "https://ruland.com", "item_description": "Couplings"},
         "Dylan",
-        bom_filename="0017_Ruland_BOM.xlsx",
+        bom_filename="HIRST_LAB_BOM_Couplings_10.14.2026.xlsx",
     )
     draft_without = text_rules.generate_email_draft(
         {"vendor": "Ruland", "total_price": 150.0, "project_id": "PG000025831",
@@ -237,7 +237,7 @@ def test_email_draft_without_bom_unchanged():
         "Dylan",
     )
     assert "Itemised BOM attached" not in draft_without
-    assert "Itemised BOM attached: 0017_Ruland_BOM.xlsx" in draft_with
+    assert "Itemised BOM attached: HIRST_LAB_BOM_Couplings_10.14.2026.xlsx" in draft_with
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +249,7 @@ def test_assign_after_unassigned_approval_attaches_bom(temp_boms_dir):
     from unittest.mock import patch
 
     # Create the archived BOM file in the temp BOMS_DIR
-    bom_fname = "0017_Ruland_BOM.xlsx"
+    bom_fname = "HIRST_LAB_BOM_Couplings_10.14.2026.xlsx"
     bom_path = os.path.join(temp_boms_dir, bom_fname)
     with open(bom_path, "wb") as f:
         f.write(b"fake xlsx content")
@@ -308,7 +308,7 @@ def test_reassign_new_buyer_gets_bom_dm(temp_boms_dir):
     """AC 4: reassignment to a different buyer attaches the BOM to the new buyer's DM."""
     from unittest.mock import patch
 
-    bom_fname = "0017_Ruland_BOM.xlsx"
+    bom_fname = "HIRST_LAB_BOM_Couplings_10.14.2026.xlsx"
     bom_path = os.path.join(temp_boms_dir, bom_fname)
     with open(bom_path, "wb") as f:
         f.write(b"fake xlsx")

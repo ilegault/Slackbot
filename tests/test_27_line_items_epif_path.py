@@ -17,6 +17,7 @@ Covers the line items capability on dropped EPIF cards (ADR 0006 decision 3):
 12. dropped EPIF sets source='epif'.
 13. Permission check: non-requester/non-buyer/non-admin denied ephemerally, card untouched.
 """
+import datetime
 import io
 import json
 import os
@@ -263,7 +264,7 @@ def test_two_or_more_items_upload_draft_spreadsheet_and_one_item_uploads_nothing
     upload_kwargs = client_2.files_upload_v2.call_args[1]
     assert upload_kwargs["channel"] == "C1"
     assert upload_kwargs["thread_ts"] == "1000.1000"
-    assert upload_kwargs["filename"] == "DRAFT_Ruland_BOM.xlsx"
+    assert upload_kwargs["filename"] == f"DRAFT_HIRST_LAB_BOM_Couplings_{datetime.date.today():%m.%d.%Y}.xlsx"
     xlsx_bytes = upload_kwargs["content"]
     assert isinstance(xlsx_bytes, bytes)
 
@@ -493,7 +494,7 @@ def test_resubmitting_different_items_replaces_stored_items_and_reposts_draft_sp
 
     # Re-posts draft spreadsheet
     client.files_upload_v2.assert_called_once()
-    assert client.files_upload_v2.call_args[1]["filename"] == "DRAFT_Ruland_BOM.xlsx"
+    assert client.files_upload_v2.call_args[1]["filename"] == f"DRAFT_HIRST_LAB_BOM_Couplings_{datetime.date.today():%m.%d.%Y}.xlsx"
 
     # Posts edit notice to thread
     client.chat_postMessage.assert_called_once()

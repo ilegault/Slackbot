@@ -7,6 +7,7 @@ Acceptance criteria:
 - [ ] Files only: attachments in card metadata, uploaded to thread, edit line, items unchanged
 - [ ] Approval archives them
 """
+import datetime
 import json
 import os
 from unittest.mock import MagicMock
@@ -143,7 +144,7 @@ def test_approval_archives_added_files(temp_workbook, dirs, sync_queue, download
         approver="U_CHARLIE", attachments=atts,
     )
     _, row = _row(temp_workbook)
-    with open(os.path.join(dirs["BOMS_DIR"], f"{row:04d}_Swagelok_BOM.xlsx"), "rb") as f:
+    with open(os.path.join(dirs["BOMS_DIR"], f"HIRST_LAB_BOM_Tube-fittings_{datetime.date.today():%m.%d.%Y}.xlsx"), "rb") as f:
         assert f.read() == BOM_BYTES
     assert sorted(os.listdir(dirs["QUOTES_DIR"])) == [
         f"{row:04d}_Swagelok_Quote_1.pdf", f"{row:04d}_Swagelok_Quote_2.pdf",

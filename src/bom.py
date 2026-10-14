@@ -12,13 +12,11 @@ This module provides the pure domain logic for multi-item orders:
    with precise per-line error reporting.
 2. Formatting line items back to standard text for pre-filling edit modals.
 3. Checking line item totals against request total ($0.01 tolerance).
-4. Building an in-memory openpyxl workbook (BOM) in the lab's hand-made layout (ADR 0008).
-   Totals are live formulas to match that sheet so purchasing can adjust a quantity; the
-   accepted cost is that Slack's preview shows the formula cells blank, because openpyxl
-   stores no cached results. The sheet has no shipping row, so its Total can be below the
-   EPIF amount by the shipping entered, and that is intended.
+4. Building the BOM by filling the committed lab template (ADR 0019 decision 6; it replaced
+   ADR 0008's hand-built layout). Totals are live formulas, so Slack's preview shows them
+   blank because openpyxl stores no cached results. The sheet has no shipping row.
 5. Hyperlinking the Item cell to the item's URL so Tina can click straight through to parts.
-6. Generating standardized file names (NNNN_<Vendor>_BOM.xlsx) with safe slugging.
+6. Generating the lab's file names, HIRST_LAB_BOM_<Description>_<MM.DD.YYYY>.xlsx.
 7. Computing concise change descriptions for card edit threads.
 
 8. Reading the lab BOM template (ADR 0019): `read_bom_template` parses an uploaded .xlsx
@@ -33,12 +31,14 @@ This module provides the pure domain logic for multi-item orders:
 All functions in this module are strictly pure (no Slack API, no filesystem I/O)
 to guarantee isolation and fast, deterministic testability.
 """
+import copy
+import datetime
 import io
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Font
 
 try:
     from . import config, epif_parser
@@ -374,19 +374,30 @@ def _vendor_slug(vendor: str) -> str:
     return v_slug or "Vendor"
 
 
-def bom_filename(row: Optional[int], vendor: str, ext: str = "xlsx") -> str:
-    """Generate standardized BOM filename.
+_FILENAME_BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_FILENAME_MAX = 60
 
-    Draft: DRAFT_{slug}_BOM.xlsx
-    Approved: NNNN_{slug}_BOM.xlsx (zero-padded to 4 digits)
-    ext: the suffix, for an attached BOM filed byte-for-byte under its own extension
-    (ADR 0012 decision 5); the made BOM is always xlsx.
+
+def bom_filename(
+    description: str,
+    approval_date: Optional[datetime.date] = None,
+    draft: bool = False,
+    ext: str = "xlsx",
+) -> str:
+    """Generate the lab's BOM file name (ADR 0019 decision 6).
+
+    `HIRST_LAB_BOM_<Description>_<MM.DD.YYYY>.xlsx`. Each whitespace-separated word of the
+    description keeps only characters a Windows file name can hold; the words are joined by
+    `-` and the result is cut to 60 characters. A draft is `DRAFT_` + the same name dated
+    today (it has no approval date yet). `ext` exists only so an attached BOM posted before
+    ADR 0019 shipped is filed under the new name with its own extension.
     """
-    v_slug = _vendor_slug(vendor)
+    words = [_FILENAME_BAD.sub("", w) for w in (description or "").split()]
+    part = "-".join(w for w in words if w)[:_FILENAME_MAX].rstrip("-") or "Order"
+    day = datetime.date.today() if draft or approval_date is None else approval_date
     ext = re.sub(r"[^a-z0-9]", "", (ext or "xlsx").lower().lstrip(".")) or "xlsx"
-    if row is None:
-        return f"DRAFT_{v_slug}_BOM.{ext}"
-    return f"{int(row):04d}_{v_slug}_BOM.{ext}"
+    name = f"HIRST_LAB_BOM_{part}_{day.strftime('%m.%d.%Y')}.{ext}"
+    return f"DRAFT_{name}" if draft else name
 
 
 def quote_filename(row: int, vendor: str, k: int) -> str:
@@ -399,81 +410,62 @@ def quote_filename(row: int, vendor: str, k: int) -> str:
 
 
 def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> bytes:
-    """Build the BOM spreadsheet in the lab's hand-made layout (ADR 0008) and return its bytes.
+    """Fill the committed lab BOM template (ADR 0019 decision 6) and return its bytes.
 
-    Totals are live formulas. Shipping, requester, project, fund, date and log row are
-    deliberately not rendered.
+    The template is loaded from `config.BOM_TEMPLATE_PATH`, so the rebuilt file is the lab's
+    own sheet with its styles, not a look-alike. B2 is the order description, B3 the
+    requester's roster name, items start on row 6, then the Total row and B4 pointing at it.
+    The template ships with four item rows; rows below row 5 are rebuilt for any item count,
+    each copying the style of the template's first item row, and the Total row copies the
+    template's Total row. Totals stay live formulas (Slack's preview shows them blank; the
+    reader never trusts them). Shipping, project, fund and log row are not rendered.
     """
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "BOM"
+    # Read the template as bytes: this is the committed template, not the log workbook, and
+    # the only-log_writer-opens-a-workbook guard exempts in-memory loads only.
+    with open(config.BOM_TEMPLATE_PATH, "rb") as fh:
+        wb = openpyxl.load_workbook(io.BytesIO(fh.read()))
+    ws = wb.worksheets[0]
+    first_row, ncols = 6, 8
 
-    font_name, font_size = "Aptos Narrow", 12
-    money = '"$"#,##0.00'
+    item_styles = [copy.copy(ws.cell(row=first_row, column=c)._style) for c in range(1, ncols + 1)]
+    template_total = next(
+        r for r in range(first_row, ws.max_row + 1) if str(ws.cell(row=r, column=6).value or "").strip() == "Total"
+    )
+    total_styles = [copy.copy(ws.cell(row=template_total, column=c)._style) for c in range(1, ncols + 1)]
+    height = ws.row_dimensions[first_row].height
+    ws.delete_rows(first_row, ws.max_row)
 
-    def fnt(bold=False, color=None, underline=None):
-        return Font(name=font_name, size=font_size, bold=bold, color=color, underline=underline)
-
-    def fill(hex_rgb):
-        return PatternFill(start_color=hex_rgb, end_color=hex_rgb, fill_type="solid")
-
-    title_fill, block_fill, head_fill = fill("0B3041"), fill("DCEAF7"), fill("104862")
-    vendor = str(request.get("vendor") or "").strip() or "Unknown Vendor"
-
-    first_item_row = 5
-    total_row = first_item_row + len(items)
-
-    ws.merge_cells("A1:B1")
-    ws["A1"] = "BILL OF MATERIALS"
-    ws["A1"].font = fnt(bold=True, color="FFFFFF")
-    ws["A1"].fill = title_fill
-    ws["B1"].fill = title_fill
-
-    ws["A2"] = "Total Cost"
-    ws["A2"].font = fnt(bold=True)
-    ws["A2"].fill = block_fill
-    ws["B2"] = f"=G{total_row}"
-    ws["B2"].font = fnt()
-    ws["B2"].fill = block_fill
-    ws["B2"].number_format = money
-    ws["B2"].alignment = Alignment(horizontal="left")
-
-    headers = ["Item", "Description", "Product #", "Vendor", "Unit Cost",
-               "Quantity", "Total Cost", "Notes"]
-    for col, name in enumerate(headers, start=1):
-        c = ws.cell(row=4, column=col, value=name)
-        c.font = fnt(bold=True, color="FFFFFF")
-        c.fill = head_fill
+    default_vendor = str(request.get("vendor") or "").strip() or "Unknown Vendor"
+    ws["B2"] = str(request.get("item_description") or "").strip()
+    ws["B3"] = str(request.get("requester") or "").strip()
 
     for i, item in enumerate(items):
-        r = first_item_row + i
+        r = first_row + i
+        for c in range(1, ncols + 1):
+            ws.cell(row=r, column=c)._style = copy.copy(item_styles[c - 1])
+        if height:
+            ws.row_dimensions[r].height = height
         link = str(item.get("link") or "").strip()
         a = ws.cell(row=r, column=1, value=str(item.get("name", "")).strip())
         if link.startswith(("http://", "https://")):
             a.hyperlink = link
-            a.font = fnt(color="467886", underline="single")
-        else:
-            a.font = fnt()
-        ws.cell(row=r, column=2, value=str(item.get("description") or "").strip())
-        ws.cell(row=r, column=3, value=str(item.get("part_number") or "").strip())
-        ws.cell(row=r, column=4, value=vendor)
-        ws.cell(row=r, column=5, value=float(item.get("unit_price", 0.0))).number_format = money
+            a.font = Font(name=a.font.name, size=a.font.sz, color="467886", underline="single")
+        ws.cell(row=r, column=2, value=str(item.get("description") or "").strip() or None)
+        ws.cell(row=r, column=3, value=str(item.get("part_number") or "").strip() or None)
+        ws.cell(row=r, column=4, value=str(item.get("vendor") or "").strip() or default_vendor)
+        ws.cell(row=r, column=5, value=float(item.get("unit_price", 0.0))).number_format = '"$"#,##0.00'
         ws.cell(row=r, column=6, value=int(item.get("qty", 1)))
-        ws.cell(row=r, column=7, value=f"=E{r}*F{r}").number_format = money
-        ws.cell(row=r, column=8, value=None)
-        for col in range(2, 9):
-            ws.cell(row=r, column=col).font = fnt()
+        ws.cell(row=r, column=7, value=f"=F{r}*E{r}")
+        ws.cell(row=r, column=8, value=str(item.get("notes") or "").strip() or None)
 
-    for col in range(1, 9):
-        ws.cell(row=total_row, column=col).fill = head_fill
-    ws.cell(row=total_row, column=6, value="Total").font = fnt(bold=True, color="FFFFFF")
-    g = ws.cell(row=total_row, column=7, value=f"=SUM(G{first_item_row}:G{total_row - 1})")
-    g.font = fnt(bold=True, color="FFFFFF")
-    g.number_format = money
-
-    ws.freeze_panes = "A5"
-    for letter, width in {"A": 35, "B": 68, "C": 14, "D": 17, "E": 12, "F": 10, "G": 13, "H": 47}.items():
-        ws.column_dimensions[letter].width = width
+    total_row = first_row + len(items)
+    for c in range(1, ncols + 1):
+        ws.cell(row=total_row, column=c)._style = copy.copy(total_styles[c - 1])
+    if height:
+        ws.row_dimensions[total_row].height = height
+    ws.cell(row=total_row, column=6, value="Total")
+    ws.cell(row=total_row, column=7, value=f"=SUM(G{first_row}:G{total_row - 1})")
+    ws["B4"] = f"=G{total_row}"
 
     bio = io.BytesIO()
     wb.save(bio)

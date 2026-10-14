@@ -1,6 +1,6 @@
 # 132: The rebuilt BOM follows the lab template and is named HIRST_LAB_BOM_<Description>_<date>
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -46,19 +46,19 @@ follows the lab template exactly and gets the lab's file naming.
 
 ## Acceptance criteria
 
-- [ ] **Rewrite in place, same names**, to assert the ADR 0019 layout and names. In `tests/test_26_line_items_and_bom.py`: `test_build_bom_workbook_content_and_numbers`, `test_build_bom_workbook_draft_header`, `test_bom_filename`. In `tests/test_49_bom_lab_layout.py`: `test_layout`, `test_formulas_compute_right_total`, `test_unknown_vendor_fallback`, `test_nothing_the_adr_removed`. No test function is deleted.
-- [ ] New file `tests/test_132_bom_round_trip.py`, `test_rebuilt_bom_reads_back`:
+- [x] **Rewrite in place, same names**, to assert the ADR 0019 layout and names. In `tests/test_26_line_items_and_bom.py`: `test_build_bom_workbook_content_and_numbers`, `test_build_bom_workbook_draft_header`, `test_bom_filename`. In `tests/test_49_bom_lab_layout.py`: `test_layout`, `test_formulas_compute_right_total`, `test_unknown_vendor_fallback`, `test_nothing_the_adr_removed`. No test function is deleted.
+- [x] New file `tests/test_132_bom_round_trip.py`, `test_rebuilt_bom_reads_back`:
   - Read the fixture with `bom.read_bom_template`, rebuild it with `build_bom_workbook`, and read the result again.
   - The items are equal, including links.
   - B2 is the description and B3 the requester name.
   - The header row is on the row where the template has it.
-- [ ] `test_bom_filename_cases`:
+- [x] `test_bom_filename_cases`:
   - `("Copper gaskets for CF flanges", date(2026,10,14))` gives `HIRST_LAB_BOM_Copper-gaskets-for-CF-flanges_10.14.2026.xlsx`;
   - a description with `/:*?"<>|` drops those characters;
   - a 200-character description gives a name part of 60 characters;
   - `draft=True` starts with `DRAFT_`.
-- [ ] `test_save_bom_never_overwrites` (uses `tmp_path`): saving the same name twice yields `…_10.14.2026.xlsx` and `…_10.14.2026_2.xlsx`, both on disk.
-- [ ] The approval tests that assert BOM names (`tests/test_29_approval_archives_bom.py`, `tests/test_30_buyers_dm_carries_bom.py`, `tests/test_31_cancel_moves_bom.py`, `tests/test_83_approval_archives_attachments.py`) are rewritten in place under the same names to expect the new names. The Notes column written at approval names the returned file. (no test: the full suite in the gate proves it)
+- [x] `test_save_bom_never_overwrites` (uses `tmp_path`): saving the same name twice yields `…_10.14.2026.xlsx` and `…_10.14.2026_2.xlsx`, both on disk.
+- [x] The approval tests that assert BOM names (`tests/test_29_approval_archives_bom.py`, `tests/test_30_buyers_dm_carries_bom.py`, `tests/test_31_cancel_moves_bom.py`, `tests/test_83_approval_archives_attachments.py`) are rewritten in place under the same names to expect the new names. The Notes column written at approval names the returned file. (no test: the full suite in the gate proves it)
 
 May fake: the Slack client and the queue's workbook (capture the row). Must be real: openpyxl, the committed template and fixture, `log_writer.save_bom` into `tmp_path`.
 
@@ -76,3 +76,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-14: `bom.build_bom_workbook` now fills the committed template (rows rebuilt from row 6 with the template's styles; B2/B3/B4 set); `bom.bom_filename(description, approval_date, draft, ext)` gives `HIRST_LAB_BOM_<Description>_<MM.DD.YYYY>`; `log_writer.save_bom` adds `_2`, `_3` and returns the final path, which lifecycle uses for Notes and the card. Callers updated (both finalize branches, `upload_draft_bom`). Tests: `tests/test_132_bom_round_trip.py` (round trip, filename cases, never-overwrite); layout/name tests rewritten in place in tests 26, 49, 27, 28, 29, 30, 46, 83, 85, 103. Empty description falls back to `Order` in the name part. Test 31 uses names only as inputs and was left as is.

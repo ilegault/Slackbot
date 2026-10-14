@@ -542,7 +542,10 @@ def save_quote(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
 def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
     """Save BOM spreadsheet into BOMs directory atomically.
 
-    Returns the absolute path to the saved BOM file.
+    Never overwrites (ADR 0019 decision 6): the lab file name carries the approval date, not a
+    row number, so two orders with the same description on the same day clash. A taken name
+    gets `_2`, `_3`, ... before the extension. Returns the absolute path actually written;
+    callers must use its basename for the Notes column and the card.
     """
     directory = target_dir or getattr(config, "BOMS_DIR", "")
     if not directory:
@@ -558,9 +561,14 @@ def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
     if not os.path.splitext(clean_name)[1]:
         clean_name += ".xlsx"
 
+    stem, suffix = os.path.splitext(clean_name)
     dest_path = os.path.join(directory, clean_name)
+    n = 2
+    while os.path.exists(dest_path):
+        dest_path = os.path.join(directory, f"{stem}_{n}{suffix}")
+        n += 1
 
-    handle, temp_path = tempfile.mkstemp(suffix=os.path.splitext(clean_name)[1], dir=directory)
+    handle, temp_path = tempfile.mkstemp(suffix=suffix, dir=directory)
     try:
         with os.fdopen(handle, "wb") as f:
             f.write(file_bytes)

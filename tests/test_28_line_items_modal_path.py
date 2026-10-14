@@ -13,6 +13,7 @@ Covers the modal interview path for multi-item orders (ADR 0006 decisions 1-4):
 8. Maximum length is 1500 chars; a full box + Fabrication category completes Screen 3 and posts.
 9. One-item paste posts card with items in metadata but NO draft spreadsheet.
 """
+import datetime
 import io
 import json
 from unittest.mock import MagicMock
@@ -244,7 +245,7 @@ def test_valid_paste_stores_items_and_shipping_in_metadata_and_uploads_draft_bom
     upload_kw = upload_mock.call_args[1]
     assert upload_kw["thread_ts"] == "2000.2000"
     assert upload_kw["filename"].startswith("DRAFT_")
-    assert upload_kw["filename"].endswith("_BOM.xlsx")
+    assert upload_kw["filename"] == f"DRAFT_HIRST_LAB_BOM_Electronic-components_{datetime.date.today():%m.%d.%Y}.xlsx"
 
     # Verify openpyxl can read the uploaded bytes
     wb = openpyxl.load_workbook(io.BytesIO(upload_kw["content"]))
@@ -254,7 +255,7 @@ def test_valid_paste_stores_items_and_shipping_in_metadata_and_uploads_draft_bom
     # above); the sheet itself carries no DRAFT text, and is the lab layout.
     assert not any("DRAFT" in str(c.value) for row in ws.iter_rows() for c in row if c.value)
     assert ws["A1"].value == "BILL OF MATERIALS"
-    assert ws["D5"].value == "DigiKey"
+    assert ws["D6"].value == "DigiKey"
 
 
 # ---------------------------------------------------------------------------

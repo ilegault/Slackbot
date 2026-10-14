@@ -1,7 +1,7 @@
 """Tests for Ticket 29: Approval archives the BOM and the log points at it.
 
 Acceptance criteria:
-- [ ] Approving a three-item request writes one row, saves NNNN_<Vendor>_BOM.xlsx into the configured BOMs folder, and the saved file's header names that row
+- [ ] Approving a three-item request writes one row, saves HIRST_LAB_BOM_<Description>_<date>.xlsx into the configured BOMs folder, and the saved file's header names that row
 - [ ] The row's Notes cell reads BOM: <filename> (N items) — asserted by reading the workbook
 - [ ] The archived spreadsheet is uploaded into the thread
 - [ ] Approving a one-item request writes the row and produces no file, no Notes text and no upload
@@ -12,6 +12,7 @@ Acceptance criteria:
 - [ ] Every workbook write in this ticket goes through the existing write queue
 - [ ] ruff check ., python scripts/check_tests_first.py and pytest -q all pass
 """
+import datetime
 import json
 import os
 import zipfile
@@ -192,17 +193,20 @@ def test_approval_three_items_archives_bom_writes_notes_and_uploads(temp_workboo
     assert row_num == 17
 
     # 2. BOM file exists in BOMS_DIR with row NNNN
-    expected_fname = f"{row_num:04d}_Ruland_BOM.xlsx"
+    expected_fname = f"HIRST_LAB_BOM_Shaft-Couplings_{datetime.date.today():%m.%d.%Y}.xlsx"
     saved_bom_path = os.path.join(temp_boms_dir, expected_fname)
     assert os.path.exists(saved_bom_path), f"Expected {saved_bom_path} to exist"
 
-    # ADR 0008: the row number lives in the file name (asserted above), not in the sheet;
+    # ADR 0019: the name carries description and date, not the log row;
     # the sheet carries the vendor on every item row and no requester or log-row text.
     wb = openpyxl.load_workbook(saved_bom_path)
     ws = wb.active
     assert ws["A1"].value == "BILL OF MATERIALS"
-    assert [ws.cell(r, 4).value for r in (5, 6, 7)] == ["Ruland"] * 3
-    all_text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
+    assert [ws.cell(r, 4).value for r in (6, 7, 8)] == ["Ruland"] * 3
+    # ADR 0019: Order Description and BOM Creator (the requester) are in the header block.
+    assert ws["B2"].value == "Shaft Couplings" and ws["B3"].value == "Alex"
+    all_text = [str(c.value) for row in ws.iter_rows() for c in row
+                if c.value is not None and c.coordinate != "B3"]
     assert not any("Purchasing Log" in t or "Alex" in t for t in all_text)
 
     # 3. Notes column reads BOM: <filename> (N items)
@@ -481,13 +485,13 @@ def test_handle_epif_processing_button_path_gets_items_from_card(temp_workbook, 
     # 1. BOM file exists in BOMS_DIR
     saved_files = os.listdir(temp_boms_dir)
     assert len(saved_files) == 1
-    assert saved_files[0] == "0017_Ruland_BOM.xlsx"
+    assert saved_files[0] == f"HIRST_LAB_BOM_Shaft-Couplings_{datetime.date.today():%m.%d.%Y}.xlsx"
 
     # 2. Notes column in workbook
     with zipfile.ZipFile(temp_workbook) as zf:
         sheet_xml = zf.read(config.SHEET_XML).decode("utf-8")
     notes_val = log_writer.get_cell_value(sheet_xml, f"{config.COLUMN_NOTES}17")
-    assert notes_val == "BOM: 0017_Ruland_BOM.xlsx (3 items)"
+    assert notes_val == f"BOM: HIRST_LAB_BOM_Shaft-Couplings_{datetime.date.today():%m.%d.%Y}.xlsx (3 items)"
 
 
 def test_keyword_approval_modal_path_archives_bom(temp_workbook, temp_boms_dir, sync_queue):
@@ -531,9 +535,9 @@ def test_keyword_approval_modal_path_archives_bom(temp_workbook, temp_boms_dir, 
 
     saved_files = os.listdir(temp_boms_dir)
     assert len(saved_files) == 1
-    assert saved_files[0] == "0017_Ruland_BOM.xlsx"
+    assert saved_files[0] == f"HIRST_LAB_BOM_Shaft-Couplings_{datetime.date.today():%m.%d.%Y}.xlsx"
 
     with zipfile.ZipFile(temp_workbook) as zf:
         sheet_xml = zf.read(config.SHEET_XML).decode("utf-8")
     notes_val = log_writer.get_cell_value(sheet_xml, f"{config.COLUMN_NOTES}17")
-    assert notes_val == "BOM: 0017_Ruland_BOM.xlsx (3 items)"
+    assert notes_val == f"BOM: HIRST_LAB_BOM_Shaft-Couplings_{datetime.date.today():%m.%d.%Y}.xlsx (3 items)"
