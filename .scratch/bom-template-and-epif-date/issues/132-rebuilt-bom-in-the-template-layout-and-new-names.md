@@ -1,6 +1,6 @@
 # 132: The rebuilt BOM follows the lab template and is named HIRST_LAB_BOM_<Description>_<date>
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
