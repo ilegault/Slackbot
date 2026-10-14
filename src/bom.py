@@ -21,6 +21,15 @@ This module provides the pure domain logic for multi-item orders:
 6. Generating standardized file names (NNNN_<Vendor>_BOM.xlsx) with safe slugging.
 7. Computing concise change descriptions for card edit threads.
 
+8. Reading the lab BOM template (ADR 0019): `read_bom_template` parses an uploaded .xlsx
+   whose header row exactly matches `config.BOM_TEMPLATE_HEADERS`. It never guesses headers:
+   a sheet in any other layout is refused with one sentence pointing at the template, because
+   a wrong guess writes a wrong quantity into a purchase. It never reads formula cells (the
+   Total Cost column): a file written by openpyxl or any non-Excel tool holds no cached
+   formula results, so the reader would see None or the formula text. The total is
+   recomputed as quantity x unit cost, and `check_bom_total` compares it with the typed
+   Total Price to the cent. There is no shipping anywhere in this check.
+
 All functions in this module are strictly pure (no Slack API, no filesystem I/O)
 to guarantee isolation and fast, deterministic testability.
 """
@@ -32,8 +41,9 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 
 try:
-    from . import epif_parser
+    from . import config, epif_parser
 except ImportError:
+    import config  # type: ignore[no-redef]  # same fallback idiom as the other modules
     import epif_parser
 
 
@@ -468,3 +478,136 @@ def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> 
     bio = io.BytesIO()
     wb.save(bio)
     return bio.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Lab BOM template reader (ADR 0019)
+# ---------------------------------------------------------------------------
+
+_NOT_TEMPLATE = (
+    "This isn't the lab BOM template — get it with the “Send me the BOM template” "
+    "button. Vendor carts and quotes go in the Quotes field."
+)
+_HEADER_SCAN_ROWS = 10
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _whole_quantity(value: Any) -> Optional[int]:
+    """Return value as an int of 1 or more, or None when it is not a whole number."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        try:
+            number = float(_text(value))
+        except ValueError:
+            return None
+    if number != int(number) or number < 1:
+        return None
+    return int(number)
+
+
+def _unit_cost(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    cleaned = _text(value).replace("$", "").replace(",", "")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def read_bom_template(xlsx_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Read the lab BOM template from .xlsx bytes. Returns (items, problems).
+
+    Each item carries the existing line-item keys (`qty`, `name`, `part_number`,
+    `unit_price`, `link`, `description`) so the card, the BOM builder and the summary
+    lines keep working, plus `quantity`, `item_name`, `vendor` and `notes`.
+    """
+    not_template: Tuple[List[Dict[str, Any]], List[str]] = ([], [_NOT_TEMPLATE])
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), data_only=False)
+        ws = wb.worksheets[0]
+    except Exception:
+        return not_template
+
+    headers = [h.lower() for h in config.BOM_TEMPLATE_HEADERS]
+    width = len(headers)
+    header_row = None
+    for row_no in range(1, _HEADER_SCAN_ROWS + 1):
+        cells = [_text(ws.cell(row=row_no, column=c).value).lower() for c in range(1, width + 1)]
+        if cells == headers:
+            header_row = row_no
+            break
+    if header_row is None:
+        return not_template
+
+    items: List[Dict[str, Any]] = []
+    problems: List[str] = []
+    rows_seen = 0
+    for row_no in range(header_row + 1, ws.max_row + 1):
+        cell = {name: ws.cell(row=row_no, column=i + 1) for i, name in enumerate(headers)}
+        if _text(cell["quantity"].value).lower() == "total":
+            break
+        cost_raw, qty_raw = cell["unit cost"].value, cell["quantity"].value
+        if _text(cost_raw) == "" and _text(qty_raw) == "":
+            continue
+        rows_seen += 1
+
+        name = _text(cell["item"].value)
+        qty = _whole_quantity(qty_raw)
+        price = _unit_cost(cost_raw)
+        row_ok = True
+        if not name:
+            problems.append(f"Row {row_no}: Item is blank.")
+            row_ok = False
+        if qty is None:
+            problems.append(f"Row {row_no}: Quantity '{_text(qty_raw)}' isn't a whole number of 1 or more.")
+            row_ok = False
+        if price is None:
+            problems.append(f"Row {row_no}: Unit Cost '{_text(cost_raw)}' isn't a number.")
+            row_ok = False
+        if not row_ok:
+            continue
+
+        link = cell["item"].hyperlink.target if cell["item"].hyperlink else None
+        items.append({
+            "item_name": name,
+            "name": name,
+            "description": _text(cell["description"].value),
+            "part_number": _text(cell["product #"].value),
+            "vendor": _text(cell["vendor"].value),
+            "unit_price": price,
+            "quantity": qty,
+            "qty": qty,
+            "notes": _text(cell["notes"].value),
+            "link": link or "",
+        })
+
+    if rows_seen > config.BOM_MAX_ROWS:
+        problems.append(f"This BOM has {rows_seen} rows — the most is {config.BOM_MAX_ROWS}.")
+    return items, problems
+
+
+def bom_total(items: List[Dict[str, Any]]) -> float:
+    """Sum of quantity x unit price over the items, rounded to cents."""
+    return round(sum(int(i["quantity"]) * float(i["unit_price"]) for i in items), 2)
+
+
+def check_bom_total(items: List[Dict[str, Any]], total_price: Any) -> Optional[str]:
+    """None when the BOM total equals the typed Total Price to the cent, else a sentence."""
+    if isinstance(total_price, (int, float)):
+        typed = float(total_price)
+    else:
+        parsed = epif_parser.parse_money(str(total_price)) if total_price is not None else None
+        typed = parsed if parsed is not None else 0.0
+    total = bom_total(items)
+    if round(typed * 100) == round(total * 100):
+        return None
+    return f"The BOM totals ${total:,.2f} but you typed ${typed:,.2f} — they must match."
