@@ -1,6 +1,6 @@
 # 127: Uploads to the buyer's DM retry before alerting
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
