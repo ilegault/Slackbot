@@ -1215,11 +1215,14 @@ def bom_inputs() -> list[dict]:
 
     WHY THIS EXISTS:
     ----------------
-    Ticket 82 / ADR 0012 Decisions 1-4: a requester may attach their own BOM (.xlsx/.csv)
-    instead of pasting line items. The bot carries it and never opens it, so the form
-    cannot check that the sheet is one vendor; the tick box is the requester's word for
-    it (one EPIF per vendor). Both blocks are always shown because a Slack form cannot
-    reveal a block when a file is picked. The rules live in bom.attachment_errors.
+    Ticket 82 / ADR 0012 Decisions 1-4: a requester may attach a BOM instead of pasting line
+    items. The sheet's vendor column is never compared with anything, so the tick box is the
+    requester's word that it is one vendor (one EPIF per vendor). Both blocks are always shown
+    because a Slack form cannot reveal a block when a file is picked. The rules live in
+    bom.attachment_errors.
+
+    Ticket 134 / ADR 0019: the file is `.xlsx` only, in the lab BOM template; submitting the
+    form reads it and shows the BOM check (`build_bom_check_view`) before anything is posted.
 
     Ticket 133 / ADR 0019: an `actions` block directly after the file field offers "Send me the
     BOM template", so a requester learns the template exists at the moment they need it. The
@@ -1233,7 +1236,7 @@ def bom_inputs() -> list[dict]:
             "element": {
                 "type": "file_input",
                 "action_id": "bom",
-                "filetypes": ["xlsx", "csv"],
+                "filetypes": ["xlsx"],
                 "max_files": 1,
             },
             "label": {"type": "plain_text", "text": "BOM spreadsheet (optional)"},
@@ -1502,6 +1505,9 @@ def _bare_thread_vendor_blocks(meta: dict) -> list[dict]:
 def build_stage2_view(meta: dict) -> dict:
     """Generate Screen 2 (Details) Block Kit modal shaped by Screen 1 route.
 
+    Ticket 134 / ADR 0019: there is no line-items paste box. Two or more items arrive as the
+    lab BOM template in the BOM file field; submitting reads it and shows `build_bom_check_view`.
+
     When meta['is_edit'] is True, the view becomes an edit form:
     - callback_id switches to EDIT_CALLBACK_ID
     - title is 'Edit Request' and submit is 'Save changes'
@@ -1644,12 +1650,6 @@ def build_stage2_view(meta: dict) -> dict:
             ),
             "label": {"type": "plain_text", "text": "Total Price ($ Amount)"},
         },
-        line_items_input(
-            "line_items",
-            optional=True,
-            initial_value=meta.get("line_items") or None,
-            max_length=getattr(config, "MAX_LINE_ITEMS_LEN", 1500),
-        ),
         *(
             [*([keep] if (keep := keep_quotes_input(meta.get("quotes") or [])) else []), *bom_inputs(), quotes_input()]
             if is_edit
@@ -1783,6 +1783,85 @@ def build_stage2_view(meta: dict) -> dict:
         # never ride in private_metadata (3000-char cap). The submit re-reads the card.
         "private_metadata": json.dumps({k: v for k, v in meta.items() if k != "quotes"}),
         "blocks": blocks,
+    }
+
+
+def build_bom_reading_view(meta: dict) -> dict:
+    """The "Reading your BOM…" view a form submission is answered with (Ticket 134, ADR 0019 decision 5).
+
+    WHY THIS EXISTS: downloading and reading the file takes longer than Slack's 3-second
+    acknowledgement window, so the submission is answered at once with this view and the check
+    view replaces it via `views.update` when the reading is done.
+    """
+    return {
+        "type": "modal",
+        "callback_id": config.BOM_CHECK_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Checking your BOM"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(meta),
+        "blocks": [
+            {"type": "section", "block_id": "block_bom_reading",
+             "text": {"type": "mrkdwn", "text": "⏳ Reading your BOM…"}},
+        ],
+    }
+
+
+def _bom_row_line(item: dict) -> str:
+    qty = int(item.get("quantity") or item.get("qty") or 0)
+    price = float(item.get("unit_price") or 0.0)
+    name = str(item.get("name") or item.get("item_name") or "")[:60]
+    part = str(item.get("part_number") or "") or "no part #"
+    return f"{qty} × {name} — {part} — ${price:,.2f} = ${qty * price:,.2f}"
+
+
+def build_bom_check_view(meta: dict, items: list[dict], problems: list[str], total: float, typed_total: float | None) -> dict:
+    """The BOM check screen: the rows as read, both totals, every problem, and a re-upload field.
+
+    WHY THIS EXISTS (Ticket 134, ADR 0019 decision 5): nothing is posted until the requester has
+    seen what the bot read. The screen lists up to `config.BOM_CHECK_PREVIEW_ROWS` rows, the BOM
+    total beside the typed Total Price, and either every problem or a green line saying the
+    total matches. The flow's state rides in `private_metadata` (`bom_ok` says whether the
+    submit may continue; `bom_problems` is the text a refused submit shows, capped because
+    Slack allows 3,000 characters there). Items never go in a button value.
+    """
+    n = len(items)
+    shown = items[: config.BOM_CHECK_PREVIEW_ROWS]
+    blocks_list: list[dict] = []
+    for start in range(0, len(shown), 10):
+        blocks_list.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(_bom_row_line(i) for i in shown[start:start + 10])},
+        })
+    if n > len(shown):
+        blocks_list.append({"type": "context", "elements": [
+            {"type": "mrkdwn", "text": f"…and {n - len(shown)} more rows"}]})
+    typed_text = f"${typed_total:,.2f}" if typed_total is not None else "not a number yet"
+    blocks_list.append({"type": "section", "text": {"type": "mrkdwn",
+                        "text": f"*BOM total:* ${total:,.2f}   |   *Total Price you typed:* {typed_text}"}})
+    if problems:
+        blocks_list.append({"type": "section", "block_id": "block_bom_problems", "text": {
+            "type": "mrkdwn", "text": "\n".join(f"⚠️ {p}" for p in problems)}})
+    else:
+        blocks_list.append({"type": "section", "block_id": "block_bom_problems", "text": {
+            "type": "mrkdwn",
+            "text": f"✅ The bot read {n} item{'s' if n != 1 else ''} totalling ${total:,.2f}. This matches your total."}})
+    blocks_list.append({
+        "type": "input",
+        "block_id": "block_bom_reupload",
+        "optional": True,
+        "element": {"type": "file_input", "action_id": "bom_reupload", "filetypes": ["xlsx"], "max_files": 1},
+        "label": {"type": "plain_text", "text": "Upload a corrected BOM"},
+        "hint": {"type": "plain_text", "text": "Fix the spreadsheet, then attach it here. Leave this empty to continue."},
+    })
+    new_meta = {**meta, "bom_ok": not problems, "bom_problems": "\n".join(problems)[:500]}
+    return {
+        "type": "modal",
+        "callback_id": config.BOM_CHECK_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Check your BOM"},
+        "submit": {"type": "plain_text", "text": "Continue"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(new_meta),
+        "blocks": blocks_list,
     }
 
 

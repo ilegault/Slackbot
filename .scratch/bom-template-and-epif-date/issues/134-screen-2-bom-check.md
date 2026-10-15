@@ -1,6 +1,6 @@
 # 134: Interview Screen 2 reads the BOM and shows the BOM check; the paste box leaves Screen 2
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -59,18 +59,18 @@ what the bot read before anything is posted.
 
 ## Acceptance criteria
 
-- [ ] New file `tests/test_134_screen2_bom_check.py`, `test_screen2_has_no_paste_box`: `build_stage2_view` (new request and edit meta) has no `block_line_items` block, and `block_bom`'s file input accepts only `xlsx`.
-- [ ] `test_submit_with_the_real_bom_shows_the_check` drives `app.handle_stage2_submit` with a fake client whose file download returns the fixture bytes, Total Price `858.50`, one-vendor ticked. Run the background work synchronously by patching the thread starter only.
+- [x] New file `tests/test_134_screen2_bom_check.py`, `test_screen2_has_no_paste_box`: `build_stage2_view` (new request and edit meta) has no `block_line_items` block, and `block_bom`'s file input accepts only `xlsx`.
+- [x] `test_submit_with_the_real_bom_shows_the_check` drives `app.handle_stage2_submit` with a fake client whose file download returns the fixture bytes, Total Price `858.50`, one-vendor ticked. Run the background work synchronously by patching the thread starter only.
   - The ack is `response_action="update"` with `callback_id == "bom_check_submit"`.
   - `views_update` was called with that view id.
   - The updated view's text contains `4 items` and `$858.50`, and no `chat_postMessage` has happened yet.
-- [ ] `test_check_refuses_a_mismatch_then_accepts_a_fix`:
+- [x] `test_check_refuses_a_mismatch_then_accepts_a_fix`:
   - With Total Price `900`, the check view lists `The BOM totals $858.50 but you typed $900.00 — they must match.`
   - Submitting the check view with no new file gets `response_action="errors"` on `block_bom_reupload`, and no card is posted.
   - Submitting it with a corrected file that totals $900.00 posts the card. The card message's `metadata` holds 4+ line items, and a `DRAFT_HIRST_LAB_BOM_` file is uploaded to the thread.
   - All in this one function.
-- [ ] `test_non_template_file_is_refused_on_the_check_screen`: a CSV upload shows the "isn't the lab BOM template" sentence, and posting is refused until a template is uploaded.
-- [ ] `test_fabrication_bom_goes_to_screen3_after_the_check`: with category Fabrication and a clean BOM ≥ $200, submitting the check view acks `response_action="update"` with the Screen 3 view.
+- [x] `test_non_template_file_is_refused_on_the_check_screen`: a CSV upload shows the "isn't the lab BOM template" sentence, and posting is refused until a template is uploaded.
+- [x] `test_fabrication_bom_goes_to_screen3_after_the_check`: with category Fabrication and a clean BOM ≥ $200, submitting the check view acks `response_action="update"` with the Screen 3 view.
 
 May fake: the Slack client (including `views_update`, `files_info`/download), the thread starter (run inline). Must be real: `bom.read_bom_template` on the committed fixture, `bom.build_bom_workbook`, the `blocks` view builders, `app.handle_stage2_submit` and the new check-view listener found through the real Bolt registry.
 
@@ -88,3 +88,12 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. Screen 2 (and Edit, which shares it) lost the paste box; the BOM field is `.xlsx` only. Submitting Screen 2 with a BOM runs the existing checks, answers with `build_bom_reading_view` (`callback_id` `bom_check_submit`), and `lifecycle.run_bom_check` (started by `app._run_in_background`, which tests run inline) downloads and reads the file and calls `views_update` with `build_bom_check_view`. `app.handle_bom_check_submit`: a new file repeats the reading; problems and no file give `response_action="errors"` on `block_bom_reupload`; otherwise Screen 3 or `_process_interview_completion`. `origin: "interview"` is recorded in `private_metadata` for ticket 135.
+Design points for the developer:
+- The rows do not ride in `private_metadata` (Slack allows 3,000 characters and the form state already uses much of it). They are kept in a small in-memory cache keyed by the modal's view id and, after a restart, read again from the file (`lifecycle.stage2_with_bom_items`). The uploaded file is never kept as an attachment.
+- Submitting the check view with a corrected file shows the re-read check screen (clean or not); a second Continue posts. The ticket's "submitting it with a corrected file posts the card" is therefore two submits, because a single submit cannot both re-read within Slack's 3 seconds and decide whether to post.
+- Edit no longer has a paste box and has no BOM check until 135; an Edit without a new BOM keeps the card's current rows (`handle_edit_submit`), rather than clearing them.
+- Tests deleted as the ticket's `Deletes tests:` line lists (8). Tests rewritten in place because the removed Screen 2 box was part of their subject: `test_82::test_screen2_has_bom_fields_when_not_edit` (filetypes now `["xlsx"]`), `test_32::test_edit_form_is_pre_filled` (asserts no paste box instead of its pre-fill), and `test_50` (`test_the_example_we_show_parses`, `test_same_hint_and_placeholder_in_all_three` drop the Screen 2 view; ticket 135 deletes them).
+- `slack_io.tell_bom_reread_failed` exists because `tests/test_108` pins lifecycle to two direct `slack_io.tell` calls.
+Tests: `tests/test_134_screen2_bom_check.py` (all five).

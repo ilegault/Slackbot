@@ -47,7 +47,7 @@ def test_screen2_has_bom_fields_when_not_edit():
     assert bom_block["optional"] is True
     assert bom_block["element"]["type"] == "file_input"
     assert bom_block["element"]["action_id"] == "bom"
-    assert bom_block["element"]["filetypes"] == ["xlsx", "csv"]
+    assert bom_block["element"]["filetypes"] == ["xlsx"]  # Ticket 134 / ADR 0019: the lab template only
     assert bom_block["element"]["max_files"] == 1
     assert bom_block["label"]["text"] == "BOM spreadsheet (optional)"
     assert bom_block["hint"]["text"] == (
@@ -104,18 +104,6 @@ def _submit(monkeypatch, view_kwargs, files, ticked):
     return ack, client, draft_spy
 
 
-def test_form_rejects_bom_with_pasted_items(monkeypatch):
-    ack, client, _ = _submit(
-        monkeypatch,
-        {"total_price": "10.00", "line_items": "2 | Widget | | 5.00 | |"},
-        [{"id": "F1", "name": "order.xlsx"}],
-        True,
-    )
-    ack.assert_called_once_with(response_action="errors", errors={"block_bom": NOT_BOTH})
-    client.chat_postMessage.assert_not_called()
-    client.files_upload_v2.assert_not_called()
-
-
 def test_form_rejects_bom_without_one_vendor_box(monkeypatch):
     ack, client, _ = _submit(monkeypatch, {}, [{"id": "F1", "name": "order.xlsx"}], False)
     ack.assert_called_once_with(
@@ -125,51 +113,6 @@ def test_form_rejects_bom_without_one_vendor_box(monkeypatch):
 
 
 # 4. A BOM is carried, never read or rebuilt
-
-def test_bom_is_carried_with_quote(monkeypatch):
-    monkeypatch.setattr(config, "PURCHASING_CHANNEL", "C_PURCHASING")
-    roster.add_requester("U_ISAAC", "Isaac")
-    client = MagicMock()
-    client.chat_postMessage.return_value = {"ok": True, "ts": "1234.5678"}
-    client.files_info.side_effect = lambda file: {"ok": True, "file": {"id": file}}
-    monkeypatch.setattr(slack_io, "download_file", lambda f: b"bytes-" + f["id"].encode())
-    draft_spy = MagicMock()
-    monkeypatch.setattr(lifecycle, "upload_draft_bom", draft_spy)
-
-    ack = MagicMock()
-    view = _with_bom(
-        _make_stage2_view_submission(
-            _sample_stage1_meta(), quotes_files=[{"id": "FQ", "name": "q.pdf"}]
-        ),
-        [{"id": "FB", "name": "order.xlsx"}],
-        True,
-    )
-    app.handle_stage2_submit(ack, {"user": {"id": "U_ISAAC"}}, client, view)
-
-    ack.assert_called_once_with()
-    cards = [c for c in client.chat_postMessage.call_args_list if c[1].get("channel") == "C_PURCHASING"]
-    assert len(cards) == 1
-    kw = cards[0][1]
-    assert kw["metadata"]["event_payload"]["attachments"] == [
-        {"role": "bom", "id": "FB", "name": "order.xlsx"},
-        {"role": "quote", "id": "FQ", "name": "q.pdf"},
-    ]
-    assert "BOM attached: order.xlsx" in kw["text"]
-    assert "Quotes: 1" in kw["text"]
-
-    uploads = client.files_upload_v2.call_args_list
-    assert [(u.kwargs["filename"], u.kwargs["content"], u.kwargs["thread_ts"]) for u in uploads] == [
-        ("order.xlsx", b"bytes-FB", "1234.5678"),
-        ("q.pdf", b"bytes-FQ", "1234.5678"),
-    ]
-    draft_spy.assert_not_called()
-    for b in kw["blocks"]:
-        if b.get("type") == "actions":
-            for e in b["elements"]:
-                assert "attachments" not in e.get("value", "")
-
-
-# 5. Help text
 
 def test_help_text_teaches_bom_in_form():
     new = "Attach a BOM spreadsheet and quote PDFs in the purchase form"

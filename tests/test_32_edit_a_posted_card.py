@@ -277,9 +277,8 @@ def test_edit_form_is_pre_filled():
     item_desc_block = next(b for b in view["blocks"] if b.get("block_id") == "block_item_description")
     assert item_desc_block["element"].get("initial_value") == "Nitrile Gloves"
 
-    # Line items are pre-filled
-    line_items_block = next(b for b in view["blocks"] if b.get("block_id") == "block_line_items")
-    assert "Glove" in (line_items_block["element"].get("initial_value") or "")
+    # Ticket 134 / ADR 0019: the paste box is gone from the shared form (Edit takes a BOM file).
+    assert "block_line_items" not in [b.get("block_id") for b in view["blocks"]]
 
     # Asset fields are present (always included in edit form)
     block_ids = [b.get("block_id") for b in view["blocks"]]

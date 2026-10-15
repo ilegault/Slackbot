@@ -2926,6 +2926,87 @@ def _finalize_switch_to_epif(ack, client, switch: dict, parsed: dict,
     )
 
 
+# The BOM check reads the file once, in the background, and the form that follows may need the
+# rows again after Slack's 3-second window has closed. The rows are kept here by the modal's
+# view id (it stays the same as the form moves from screen to screen); a miss, such as after a
+# restart, reads the file again.
+_BOM_READ_CACHE: dict[str, list[dict]] = {}
+_BOM_READ_CACHE_MAX = 50
+
+
+def read_bom_file(client, file_ref: dict, typed_total) -> tuple[list[dict], list[str], float]:
+    """Fetch an uploaded BOM from Slack, read it with the template reader and check its total.
+
+    Returns (items, problems, total). Reading problems come first; the total is only compared
+    with the typed Total Price when the rows read cleanly, because a half-read BOM would report a
+    misleading mismatch. A file that cannot be fetched is a problem sentence, not an exception,
+    so the check screen can still ask for a new upload.
+    """
+    try:
+        info = client.files_info(file=file_ref.get("id"))
+        file_obj = info.get("file", info) if isinstance(info, dict) else info["file"]
+        data = slack_io.download_file(file_obj)
+    except Exception as e:
+        log.warning("Could not fetch BOM file %s for the check: %s", file_ref.get("name"), e)
+        return [], ["I couldn't download that file from Slack. Please upload it again."], 0.0
+    items, problems = bom.read_bom_template(data)
+    total = bom.bom_total(items) if items else 0.0
+    if not problems and not items:
+        problems = ["I found no item rows in that BOM."]
+    if not problems:
+        mismatch = bom.check_bom_total(items, typed_total)
+        if mismatch:
+            problems = [mismatch]
+    return items, problems, total
+
+
+def run_bom_check(client, view_id: str, meta: dict, file_ref: dict) -> None:
+    """Read the BOM off the listener and replace the "Reading your BOM…" view with the check view.
+
+    WHY THIS EXISTS (Ticket 134, ADR 0019 decision 5): a form submitted with a BOM is answered
+    within Slack's 3 seconds with a reading view; this does the slow part and then calls
+    `views.update` by the view's id. Rows that read cleanly are kept for the form's last step.
+    """
+    stage2 = meta.get("stage2") or {}
+    typed_raw = stage2.get("total_price")
+    typed = epif_parser.parse_money(str(typed_raw)) if typed_raw not in (None, "") else None
+    items, problems, total = read_bom_file(client, file_ref, typed_raw)
+    if view_id:
+        if problems:
+            _BOM_READ_CACHE.pop(view_id, None)
+        else:
+            while len(_BOM_READ_CACHE) >= _BOM_READ_CACHE_MAX:
+                _BOM_READ_CACHE.pop(next(iter(_BOM_READ_CACHE)))
+            _BOM_READ_CACHE[view_id] = items
+    try:
+        client.views_update(view_id=view_id, view=blocks.build_bom_check_view(meta, items, problems, total, typed))
+        log.info("BOM check shown: %d rows, %d problem(s), total $%.2f (view %s)", len(items), len(problems), total, view_id)
+    except Exception as e:
+        log.error("Could not show the BOM check view %s: %s", view_id, e)
+
+
+def stage2_with_bom_items(client, body: dict, stage2: dict) -> dict | None:
+    """Put the checked BOM's rows into `stage2["items"]` (the form's last step; None when they cannot be had).
+
+    The uploaded file is not kept (ADR 0019 decision 6): only its rows travel on, and the bot
+    rebuilds the BOM from them. `stage2` without a `bom_source` comes back unchanged.
+    """
+    source = stage2.get("bom_source")
+    if not source:
+        return stage2
+    out = {k: v for k, v in stage2.items() if k != "bom_source"}
+    view_id = (body.get("view") or {}).get("id")
+    items = _BOM_READ_CACHE.pop(view_id, None) if view_id else None
+    if items is None:
+        items, problems, _ = read_bom_file(client, source, stage2.get("total_price"))
+        if problems:
+            log.warning("BOM %s could not be read again after the check: %s", source.get("name"), problems)
+            return None
+    out["items"] = items
+    out["shipping"] = 0.0
+    return out
+
+
 def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, stage3: dict | None = None):
     """Validate staged inputs, report errors or finalize and post to purchasing channel."""
     stage1 = {
@@ -2984,6 +3065,13 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
 
         ack(response_action="errors", errors=errors)
         return
+
+    full_stage2 = stage2_with_bom_items(client, body, stage2)
+    if full_stage2 is None:
+        ack()
+        slack_io.tell_bom_reread_failed(client, user_id)
+        return
+    stage2 = full_stage2
 
     bare = meta.get("bare_thread")
     if bare:
