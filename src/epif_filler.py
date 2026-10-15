@@ -30,20 +30,45 @@ except ImportError:
     import epif_parser  # type: ignore[no-redef]
     import text_rules  # type: ignore[no-redef]
 
+def _writer_without_xmp(pdf_bytes: bytes) -> PdfWriter:
+    """A writer cloned from the PDF. The XMP metadata is dropped first because it breaks clone_from."""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    root = reader.trailer["/Root"]
+    if "/Metadata" in root:
+        del root["/Metadata"]
+    return PdfWriter(clone_from=reader)
+
+
+def _need_appearances(writer: PdfWriter) -> None:
+    """Ask the PDF viewer to draw the field values we set."""
+    if "/AcroForm" in writer.root_object:
+        writer.root_object["/AcroForm"][NameObject("/NeedAppearances")] = BooleanObject(True)
+
+
+def redate_epif(pdf_bytes: bytes, new_date: datetime.date) -> bytes:
+    """Return the EPIF with only its `Date of Purchase` field changed to `new_date`.
+
+    WHY THIS EXISTS (Ticket 126): a request approved from a hand-filled EPIF has no Filled EPIF
+    to re-fill, and rebuilding it from the template would overwrite what the requester wrote.
+    Change date therefore edits the uploaded file in place: every other field, and the
+    signature field, stays exactly as the requester left it.
+    """
+    writer = _writer_without_xmp(pdf_bytes)
+    value = {"Date of Purchase": new_date.strftime("%m/%d/%Y")}
+    for page in writer.pages:
+        writer.update_page_form_field_values(page, value, auto_regenerate=False)
+    _need_appearances(writer)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
 def fill_epif(template_bytes: bytes, parsed: dict) -> bytes:
     """
     Given the committed blank EPIF template bytes and a parsed request dictionary,
     return the filled PDF bytes that `epif_parser.parse_epif` can read back to the same values.
     """
-    reader = PdfReader(io.BytesIO(template_bytes))
-
-    # The template carries XMP metadata, which breaks clone_from=reader.
-    # We must delete it first.
-    root = reader.trailer["/Root"]
-    if "/Metadata" in root:
-        del root["/Metadata"]
-
-    writer = PdfWriter(clone_from=reader)
+    writer = _writer_without_xmp(template_bytes)
 
     values = {}
 
@@ -139,8 +164,7 @@ def fill_epif(template_bytes: bytes, parsed: dict) -> bytes:
         writer.update_page_form_field_values(page, values, auto_regenerate=False)
 
     # Set NeedAppearances
-    if "/AcroForm" in writer.root_object:
-        writer.root_object["/AcroForm"][NameObject("/NeedAppearances")] = BooleanObject(True)
+    _need_appearances(writer)
 
     out = io.BytesIO()
     writer.write(out)

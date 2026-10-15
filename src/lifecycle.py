@@ -2207,6 +2207,10 @@ def handle_change_epif_date(client, channel: str, thread_ts: str, card_ts: str, 
     cannot act after the request moved on or changed hands (the form listener checks too, but
     only this function is the gate). Returns True when the EPIF was re-dated. A failed upload
     to the DM alerts the admins but leaves the new archive and card in place.
+
+    A request approved from an uploaded (hand-filled) EPIF has no Filled EPIF to re-fill, so its
+    archived file gets only the Date of Purchase field rewritten (`epif_filler.redate_epif`),
+    keeping whatever the requester wrote everywhere else (Ticket 126).
     """
     card_info = slack_io.get_card_by_ts(client, channel=channel, thread_ts=thread_ts, card_ts=card_ts)
     if card_info is None:
@@ -2248,9 +2252,15 @@ def handle_change_epif_date(client, channel: str, thread_ts: str, card_ts: str, 
             from . import epif_filler
         except ImportError:
             import epif_filler  # type: ignore[no-redef]
-        with open(config.EPIF_TEMPLATE_PATH, "rb") as f:
-            template_bytes = f.read()
-        filled_bytes = epif_filler.fill_epif(template_bytes, {**parsed, "epif_date": chosen_date})
+        uploaded = req_data.get("source") == "epif" or parsed.get("source") == "epif"
+        if uploaded:
+            # Hand-filled by the requester: edit the date field in the archived file, nothing else.
+            with open(os.path.join(config.EPIFS_DIR, epif_fname), "rb") as f:
+                filled_bytes = epif_filler.redate_epif(f.read(), chosen_date)
+        else:
+            with open(config.EPIF_TEMPLATE_PATH, "rb") as f:
+                template_bytes = f.read()
+            filled_bytes = epif_filler.fill_epif(template_bytes, {**parsed, "epif_date": chosen_date})
         saved_path = log_writer.save_epif(filled_bytes, epif_fname, overwrite=True)
     except Exception as e:
         log.error("Could not re-date the EPIF for card %s: %s", card_ts, e)
