@@ -543,13 +543,16 @@ def save_quote(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
     return dest_path
 
 
-def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
+def save_bom(file_bytes: bytes, filename: str, target_dir: str = None, overwrite: bool = False) -> str:
     """Save BOM spreadsheet into BOMs directory atomically.
 
     Never overwrites (ADR 0019 decision 6): the lab file name carries the approval date, not a
     row number, so two orders with the same description on the same day clash. A taken name
     gets `_2`, `_3`, ... before the extension. Returns the absolute path actually written;
     callers must use its basename for the Notes column and the card.
+
+    `overwrite=True` replaces the file at exactly that name (Replace BOM, Ticket 137, keeps the
+    request's existing BOM name, so the Notes column still points at it).
     """
     directory = target_dir or getattr(config, "BOMS_DIR", "")
     if not directory:
@@ -568,7 +571,7 @@ def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
     stem, suffix = os.path.splitext(clean_name)
     dest_path = os.path.join(directory, clean_name)
     n = 2
-    while os.path.exists(dest_path):
+    while os.path.exists(dest_path) and not overwrite:
         dest_path = os.path.join(directory, f"{stem}_{n}{suffix}")
         n += 1
 
