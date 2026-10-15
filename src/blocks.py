@@ -1095,6 +1095,15 @@ def build_dm_card_blocks(
         ]
         if state == "confirmed":
             elements.append(_expected_delivery_button(thread_channel, thread_ts, card_ts))
+        if route == "epif":
+            # Ticket 128: a file that never arrived (or got lost in the DM) can be sent again from
+            # the archive in any state before delivered; the DM card has no button after that.
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Resend EPIF", "emoji": True},
+                "action_id": config.ACTION_RESEND_EPIF,
+                "value": btn_value,
+            })
         if state == "approved" and route == "epif":
             # Ticket 125: the buyer may re-date the Filled EPIF until the request is processed
             # (an approved card is never processed, so the state check is the "not yet" check).

@@ -1603,6 +1603,21 @@ def handle_expected_delivery_submission(ack, body, client, view):
     )
 
 
+@app.action(config.ACTION_RESEND_EPIF)
+def handle_resend_epif_action(ack, body, respond, client):
+    """Resend the archived EPIF, BOM and quotes to the buyer's DM; the work is lifecycle.handle_resend_epif (Ticket 128)."""
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    try:
+        pointer = json.loads(action.get("value") or "{}")
+    except Exception:
+        pointer = {}
+    lifecycle.handle_resend_epif(
+        client, pointer.get("thread_channel"), pointer.get("thread_ts"), pointer.get("card_ts"), user_id, respond,
+    )
+
+
 @app.action(config.ACTION_CHANGE_EPIF_DATE)
 def handle_change_epif_date_action(ack, body, respond, client):
     """Open the EPIF-date form from the buyer's DM card (Ticket 125).

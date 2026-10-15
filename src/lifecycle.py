@@ -2217,6 +2217,69 @@ def handle_set_expected_delivery(client, channel: str, thread_ts: str, card_ts: 
     return True
 
 
+def handle_resend_epif(client, channel: str, thread_ts: str, card_ts: str, user_id: str, respond) -> bool:
+    """Re-upload, from the archive, the files the buyer's DM is meant to carry (Ticket 128).
+
+    WHY THIS EXISTS:
+    ----------------
+    On 2026-10-13 the Filled EPIF never reached the buyer's DM and nobody could send it again
+    from Slack. The files are the ones `_send_assignee_dm` attaches (EPIF, BOM, quotes), found
+    the way `handle_assign` finds them (`epif_file`, `bom_file`, `quote_count` plus the row), and
+    go through the same `_upload_to_dm` retry. Allowed for the assigned buyer or an admin; the
+    card is re-read here so a stale click cannot act for someone else. A file missing from the
+    archive is named in the reply and does not stop the others. Returns True when at least one
+    file was sent.
+    """
+    card_info = slack_io.get_card_by_ts(client, channel=channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        slack_io.deny(respond, "⚠️ I can't find the request card in the thread any more, so nothing was sent.")
+        return False
+    req_data, _history, _state = card_info
+    assignee_id = req_data.get("assignee_id")
+    if not user_id or (user_id != assignee_id and not roster.is_admin(user_id)):
+        log.warning("User %s tried to resend the EPIF of a request assigned to %s", user_id, assignee_id)
+        slack_io.deny(respond, "🔒 Only the assigned buyer or an admin can resend the EPIF.")
+        return False
+    dm_channel = req_data.get("dm_channel")
+    if not dm_channel:
+        slack_io.deny(respond, "⚠️ This request has no buyer DM to send to.")
+        return False
+
+    wanted: list[tuple[str, str]] = []
+    if req_data.get("epif_file"):
+        wanted.append((os.path.join(config.EPIFS_DIR, req_data["epif_file"]), req_data["epif_file"]))
+    if req_data.get("bom_file"):
+        wanted.append((os.path.join(config.BOMS_DIR, req_data["bom_file"]), req_data["bom_file"]))
+    if req_data.get("quote_count"):
+        row = slack_io.find_row_in_thread(client, channel, thread_ts)
+        vendor = (req_data.get("parsed") or {}).get("vendor") or "Vendor"
+        for k in range(1, int(req_data["quote_count"]) + 1):
+            name = bom.quote_filename(row, vendor, k) if row else f"quote {k}"
+            wanted.append((os.path.join(config.QUOTES_DIR, name), name))
+
+    sent: list[str] = []
+    missing: list[str] = []
+    failed: list[str] = []
+    for path, fname in wanted:
+        if not os.path.exists(path):
+            missing.append(fname)
+        elif _upload_to_dm(client, dm_channel, path, fname, assignee_id or user_id, req_data.get("assignee") or "the buyer"):
+            sent.append(fname)
+        else:
+            failed.append(fname)
+
+    parts = []
+    if sent:
+        parts.append("Sent again: " + ", ".join(sent))
+    parts += [f"not found: {name}" for name in missing]
+    parts += [f"could not send: {name} (the admins have been told)" for name in failed]
+    respond(text=". ".join(parts) if parts else "There are no files to send for this request.",
+            response_type="ephemeral", replace_original=False)
+    log.info("Resent %d file(s) of card %s to DM %s for %s (missing %d, failed %d)",
+             len(sent), card_ts, dm_channel, user_id, len(missing), len(failed))
+    return bool(sent)
+
+
 def handle_change_epif_date(client, channel: str, thread_ts: str, card_ts: str, user_id: str, chosen_date) -> bool:
     """Re-date the Filled EPIF of an approved EPIF-path request (Ticket 125).
 
