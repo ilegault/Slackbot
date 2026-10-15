@@ -82,6 +82,10 @@ def test_attachment_errors_rules():
     assert bom.attachment_errors([{"id": "F"}], True) == {}
     assert bom.attachment_errors([], False) == {}
     assert bom.attachment_errors([], True) == {}
+    # Without a paste box, the rule is the same however many files a form passes in.
+    assert bom.attachment_errors([{"id": "F"}, {"id": "G"}], False) == {"block_bom_one_vendor": ONE_VENDOR}
+    assert bom.attachment_errors([{"id": "F"}, {"id": "G"}], True) == {}
+    assert set(bom.attachment_errors([{"id": "F"}], False)) == {"block_bom_one_vendor"}
 
 
 # 3. The rules, through the form
