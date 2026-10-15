@@ -841,6 +841,9 @@ def build_request_blocks(
                 "action_id": config.ACTION_REQ_SWITCH_EPIF,
                 "value": btn_value,
             })
+        if state == "approved" and request.get("bom_file"):
+            # Ticket 137 / ADR 0019 decision 8: until it is processed, the BOM can be uploaded again.
+            elements.append(_replace_bom_button(thread_channel, request.get("thread_ts"), card_ts))
         if state in secondary_buttons:
             sec_label, sec_action_id = secondary_buttons[state]
             elements.append({
@@ -916,6 +919,40 @@ def _expected_delivery_button(thread_channel, thread_ts, card_ts) -> dict:
         "text": {"type": "plain_text", "text": "Set expected delivery", "emoji": True},
         "action_id": config.ACTION_SET_EXPECTED_DELIVERY,
         "value": json.dumps({"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}),
+    }
+
+
+def _replace_bom_button(thread_channel, thread_ts, card_ts) -> dict:
+    """The Replace BOM button on an approved card (ADR 0019 decision 8); the value is a pointer, never the request."""
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Replace BOM", "emoji": True},
+        "action_id": config.ACTION_REPLACE_BOM,
+        "value": json.dumps({"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}),
+    }
+
+
+def build_replace_bom_view(thread_channel: str, thread_ts: str, card_ts: str) -> dict:
+    """The Replace BOM form: one required `.xlsx` field, which then goes through the BOM check (Ticket 137)."""
+    return {
+        "type": "modal",
+        "callback_id": config.REPLACE_BOM_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Replace BOM"},
+        "submit": {"type": "plain_text", "text": "Check BOM"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(
+            {"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}
+        ),
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "block_bom",
+                "element": {"type": "file_input", "action_id": "bom", "filetypes": ["xlsx"], "max_files": 1},
+                "label": {"type": "plain_text", "text": "BOM spreadsheet"},
+                "hint": {"type": "plain_text", "text": "The lab BOM template, with a total equal to the EPIF amount."},
+            },
+            send_bom_template_block(),
+        ],
     }
 
 
@@ -1121,6 +1158,13 @@ def build_dm_card_blocks(
         ]
         if state == "confirmed":
             elements.append(_expected_delivery_button(thread_channel, thread_ts, card_ts))
+        if state == "approved" and request.get("bom_file"):
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Replace BOM", "emoji": True},
+                "action_id": config.ACTION_REPLACE_BOM,
+                "value": btn_value,
+            })
         if route == "epif":
             # Ticket 128: a file that never arrived (or got lost in the DM) can be sent again from
             # the archive in any state before delivered; the DM card has no button after that.
@@ -1164,6 +1208,21 @@ def build_dm_card_blocks(
     return blocks
 
 
+def send_bom_template_block() -> dict:
+    """The "Send me the BOM template" button beside every BOM field (Ticket 133 / ADR 0019 decision 5)."""
+    return {
+        "type": "actions",
+        "block_id": "block_bom_template",
+        "elements": [
+            {
+                "type": "button",
+                "action_id": config.ACTION_SEND_BOM_TEMPLATE,
+                "text": {"type": "plain_text", "text": "Send me the BOM template"},
+            }
+        ],
+    }
+
+
 def bom_inputs() -> list[dict]:
     """Build the two optional blocks for attaching the requester's own BOM spreadsheet.
 
@@ -1199,17 +1258,7 @@ def bom_inputs() -> list[dict]:
                 "text": "Two or more items? Fill in the lab BOM template.",
             },
         },
-        {
-            "type": "actions",
-            "block_id": "block_bom_template",
-            "elements": [
-                {
-                    "type": "button",
-                    "action_id": config.ACTION_SEND_BOM_TEMPLATE,
-                    "text": {"type": "plain_text", "text": "Send me the BOM template"},
-                }
-            ],
-        },
+        send_bom_template_block(),
         {
             "type": "input",
             "block_id": "block_bom_one_vendor",

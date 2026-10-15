@@ -646,7 +646,10 @@ def handle_bom_check_submit(ack, body, client, view):
         view_id = _view_id(body, view)
         form = lifecycle.take_bom_form(view_id)
         items = lifecycle.take_checked_items(view_id)
-        replay = {"edit": _edit_submit, "items": _items_submit, "workday_details": _workday_details_submit}.get(origin)
+        replay = {
+            "edit": _edit_submit, "items": _items_submit, "workday_details": _workday_details_submit,
+            "replace": _replace_bom_submit,
+        }.get(origin)
         if not form or items is None or replay is None:
             ack(response_action="errors", errors={
                 "block_bom_reupload": "This form timed out. Close it and submit again."})
@@ -1669,6 +1672,90 @@ def handle_expected_delivery_submission(ack, body, client, view):
         user_id=user_id,
         chosen_date=chosen_date,
     )
+
+
+def _may_replace_bom(user_id, req_data: dict) -> bool:
+    """The requester, any buyer or an admin may replace a BOM (ADR 0019 decision 8)."""
+    return bool(user_id) and (
+        user_id == req_data.get("user_id") or roster.is_buyer(user_id) or roster.is_admin(user_id)
+    )
+
+
+@app.action(config.ACTION_REPLACE_BOM)
+def handle_replace_bom_action(ack, body, respond, client):
+    """Open the Replace BOM form from an approved card (Ticket 137).
+
+    The button value is only a pointer, so the thread card is read for the true state and the
+    request; the thread card's pointer may be blank (the approval builds it without one), in
+    which case the click's own message is the card, as for Set expected delivery.
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    try:
+        pointer = json.loads(action.get("value") or "{}")
+    except Exception:
+        pointer = {}
+    msg_ts = body.get("message", {}).get("ts")
+    thread_channel = pointer.get("thread_channel") or body.get("channel", {}).get("id")
+    thread_ts = pointer.get("thread_ts") or body.get("container", {}).get("thread_ts") or msg_ts
+    card_ts = pointer.get("card_ts") or msg_ts
+
+    card_info = slack_io.get_card_by_ts(client, channel=thread_channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        slack_io.deny(respond, "⚠️ I can't find the request card in the thread any more, so nothing was changed.")
+        return
+    req_data, _history, state = card_info
+    if not _may_replace_bom(user_id, req_data):
+        log.warning("Unauthorized user %s clicked replace_bom", user_id)
+        slack_io.deny(respond, "🔒 Only the requester, a buyer or an admin can replace the BOM.")
+        return
+    if state != "approved" or not req_data.get("bom_file"):
+        slack_io.deny(respond, "The BOM can only be replaced until the request is processed.")
+        return
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view=blocks.build_replace_bom_view(thread_channel, thread_ts, card_ts),
+    )
+    log.info("Opened Replace BOM form for card %s (user %s)", card_ts, user_id)
+
+
+@app.view(config.REPLACE_BOM_CALLBACK_ID)
+def handle_replace_bom_submit(ack, body, client, view):
+    """Submit of the Replace BOM form: the file goes through the BOM check (Ticket 137)."""
+    _replace_bom_submit(ack, body, client, view)
+
+
+def _replace_bom_submit(ack, body, client, view, checked_items=None):
+    """Re-check the card and the role, then read the file (or, replayed with `checked_items`, apply it)."""
+    values = view.get("state", {}).get("values", {})
+    meta = json.loads(view.get("private_metadata") or "{}")
+    channel, thread_ts, card_ts = meta.get("thread_channel"), meta.get("thread_ts"), meta.get("card_ts")
+    user_id = body.get("user", {}).get("id")
+
+    card_info = slack_io.get_card_by_ts(client, channel=channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        ack(response_action="errors", errors={"block_bom": "I can't find the request card any more."})
+        return
+    req_data, _history, state = card_info
+    if not _may_replace_bom(user_id, req_data):
+        ack(response_action="errors", errors={"block_bom": "Only the requester, a buyer or an admin can replace the BOM."})
+        return
+    if state != "approved":
+        ack(response_action="errors", errors={"block_bom": "The BOM can only be replaced until the request is processed."})
+        return
+
+    if checked_items is None:
+        files = text_rules.extract_modal_files(values, "block_bom", "bom")
+        if not files:
+            ack(response_action="errors", errors={"block_bom": "Attach the BOM spreadsheet."})
+            return
+        parsed = req_data.get("parsed") or {}
+        _begin_bom_check(ack, client, body, view, "replace", parsed.get("total_price"), files[0])
+        return
+
+    ack()
+    lifecycle.handle_replace_bom(client, channel, thread_ts, card_ts, user_id, checked_items)
 
 
 @app.action(config.ACTION_RESEND_EPIF)

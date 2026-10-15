@@ -2245,6 +2245,119 @@ def handle_set_expected_delivery(client, channel: str, thread_ts: str, card_ts: 
     return True
 
 
+def handle_replace_bom(client, channel: str, thread_ts: str, card_ts: str, user_id: str, items: list[dict]) -> bool:
+    """Replace the BOM of an approved request with a checked one (Ticket 137, ADR 0019 decision 8).
+
+    WHY THIS EXISTS:
+    ----------------
+    A BOM dropped in the thread can be Off-template and still be approved (Ticket 136); the
+    requester, a buyer or an admin can upload the lab template version until the request is
+    processed. This is the only implementation. The card is re-read here and the state
+    (`approved`) and the role re-checked, so a form opened before Mark Processed cannot change
+    anything after it. Steps: rebuild the BOM from the checked rows; overwrite the archive at the
+    card's existing `bom_file` name (an Off-template `.csv` is replaced by a new `.xlsx` name
+    instead); update the workbook Notes column through the queue only when the name changed (the
+    Notes column is the one cell Replace BOM may touch; column M never changes); store the rows
+    and clear `off_template_bom` on the card; re-render both linked cards; send the new file to the
+    buyer's DM; say so in the thread. It never gates Mark Processed. Returns True when replaced.
+    """
+    card_info = slack_io.get_card_by_ts(client, channel=channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        log.warning("Card %s not found in thread %s for Replace BOM", card_ts, thread_ts)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert("replace the BOM", channel, thread_ts, None, "card not found"),
+        )
+        return False
+    req_data, history, state = card_info
+    req_data = dict(req_data)
+    history = list(history)
+    if not (user_id and (user_id == req_data.get("user_id") or roster.is_buyer(user_id) or roster.is_admin(user_id))):
+        log.warning("User %s tried to replace the BOM of card %s", user_id, card_ts)
+        return False
+    if state != "approved":
+        slack_io.notify(
+            client, actor_id=user_id,
+            text="The BOM can only be replaced until the request is processed, so I left it as it was.",
+            channel=channel, link_ts=thread_ts,
+        )
+        return False
+    old_name = req_data.get("bom_file")
+    if not old_name:
+        log.warning("Replace BOM refused on card %s: no BOM on this request", card_ts)
+        return False
+
+    payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts) or {}
+    parsed = dict(req_data.get("parsed") or {})
+    req_for_bom = dict(parsed)
+    requester = req_data.get("requester") or payload.get("requester")
+    if requester and not req_for_bom.get("requester"):
+        req_for_bom["requester"] = requester
+    try:
+        xlsx_bytes = bom.build_bom_workbook(req_for_bom, items)
+        if old_name.lower().endswith(".xlsx"):
+            saved_path = log_writer.save_bom(xlsx_bytes, old_name, overwrite=True)
+        else:
+            new_name = bom.bom_filename(parsed.get("item_description") or "", datetime.now().date())
+            saved_path = log_writer.save_bom(xlsx_bytes, new_name)
+    except Exception as e:
+        log.error("Could not replace the BOM for card %s: %s", card_ts, e)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert("replace the BOM", channel, thread_ts, old_name, str(e)),
+        )
+        return False
+    new_name = os.path.basename(saved_path.replace("\\", "/"))
+
+    if new_name != old_name:
+        row = slack_io.find_row_in_thread(client, channel, thread_ts)
+        if row:
+            notes = f"BOM: {new_name} ({len(items)} items)"
+            queue_worker.submit_write_task(
+                action_fn=lambda: log_writer.update_row(row, {config.COLUMN_NOTES: notes}),
+                channel=channel,
+                thread_ts=thread_ts,
+                user_id=user_id,
+                task_type="update",
+                description=f"Replace BOM for row {row}",
+                client=client,
+            )
+        else:
+            log.warning("Replace BOM: no logged row found in thread %s, Notes not updated", thread_ts)
+
+    actor = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    history.append(f"BOM replaced by {actor}")
+    req_data["bom_file"] = new_name
+    req_data.pop("off_template_bom", None)
+    req_data.pop("off_template_problem", None)
+    new_payload = {k: v for k, v in payload.items() if k not in ("off_template_bom", "off_template_problem")}
+    new_payload.update({k: v for k, v in req_data.items()})
+    new_payload["items"] = items
+    new_payload["state"] = "approved"
+
+    client.chat_update(
+        channel=channel,
+        ts=card_ts,
+        text="🛒 Purchase Request (Approved)",
+        blocks=blocks.build_request_blocks(
+            "approved", req_data, history=history, items=items, thread_channel=channel, card_ts=card_ts,
+        ),
+        metadata={"event_type": "purchase_request", "event_payload": new_payload},
+    )
+    sync_dm_card(
+        client=client, request=req_data, state="approved", channel=channel,
+        thread_ts=thread_ts, card_ts=card_ts, history=history,
+    )
+    if req_data.get("dm_channel"):
+        _upload_to_dm(
+            client, req_data["dm_channel"], saved_path, new_name,
+            req_data.get("assignee_id") or user_id, req_data.get("assignee") or "the buyer",
+        )
+    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"📊 BOM replaced by {new_name}")
+    log.info("BOM for card %s replaced by %s (%s, %d items)", card_ts, user_id, new_name, len(items))
+    return True
+
+
 def handle_resend_epif(client, channel: str, thread_ts: str, card_ts: str, user_id: str, respond) -> bool:
     """Re-upload, from the archive, the files the buyer's DM is meant to carry (Ticket 128).
 
