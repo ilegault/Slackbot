@@ -1,6 +1,6 @@
 # 136: A thread's .xlsx is read at approval; an Off-template BOM is flagged, never blocking
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
