@@ -446,13 +446,14 @@ def test_bom_dm_upload_failure_leaves_approval_intact(
     client = _make_client_with_dm()
     say = MagicMock()
 
-    # Make the second files_upload_v2 call (the DM upload) raise
+    # Make the BOM's DM upload raise on every attempt (Ticket 127 retries a single failure)
     call_count = [0]
     def upload_side_effect(**kwargs):
         call_count[0] += 1
-        if call_count[0] == 2:  # DM upload is the second call
+        if call_count[0] >= 2 and kwargs.get("filename", "").endswith(".xlsx"):  # the BOM keeps failing: Ticket 127 retries, so one failure no longer alerts
             raise Exception("Slack upload error")
     client.files_upload_v2.side_effect = upload_side_effect
+    monkeypatch.setattr(lifecycle, "_sleep", lambda seconds: None)
 
     monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ADMIN")
 

@@ -79,6 +79,12 @@ APPROVER_SLACK_USER_IDS = {"U07L2RFEPJ9"}
 # Channel ID or Admin User ID where startup, crash, and system health alerts should be sent
 ADMIN_ALERT_CHANNEL = os.environ.get("ADMIN_ALERT_CHANNEL", "").strip()
 
+# A file upload to the buyer's DM is tried this many times before the admin is alerted (Ticket 127):
+# on 2026-10-13 one "read operation timed out" left a buyer without their EPIF. Seconds waited
+# before attempts 2 and 3.
+DM_UPLOAD_ATTEMPTS = 3
+DM_UPLOAD_WAITS = (2.0, 5.0)
+
 # Channel ID where new purchase requests are posted for lab review (Ticket 15)
 PURCHASING_CHANNEL = os.environ.get("PURCHASING_CHANNEL", "").strip()
 
