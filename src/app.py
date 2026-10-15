@@ -46,6 +46,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 import traceback
 from datetime import date, datetime, timedelta
@@ -539,12 +540,6 @@ def handle_stage2_submit(ack, body, client, view):
         "payment_method": payment_method_val,
     }
 
-    raw_line_items = (
-        text_rules._extract_modal_field(values, "block_line_items", "line_items")
-        or text_rules._extract_modal_field(values, "block_line_items", "action_line_items")
-        or ""
-    )
-
     raw_bom_files = text_rules.extract_modal_files(values, "block_bom", "bom")
     one_vendor_ticked = any(
         o.get("value") == "one_vendor"
@@ -553,26 +548,14 @@ def handle_stage2_submit(ack, body, client, view):
             or []
         )
     )
-    bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked, raw_line_items)
+    bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked, "")
     if bom_errors:
         ack(response_action="errors", errors=bom_errors)
         return
 
-    if raw_line_items.strip():
-        items, shipping, parse_errors = bom.parse_line_items(raw_line_items)
-        if parse_errors:
-            ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
-            return
-        total_error = bom.check_total(items, shipping, stage2.get("total_price"))
-        if total_error:
-            ack(response_action="errors", errors={"block_line_items": total_error})
-            return
-        stage2["line_items"] = raw_line_items
-
+    # Ticket 134 / ADR 0019: the BOM is read, not kept. Only quotes ride on as attachments.
     raw_quote_files = text_rules.extract_modal_files(values, "block_quotes", "quotes")
-    attachments = [{"role": "bom", **f} for f in raw_bom_files] + [
-        {"role": "quote", **f} for f in raw_quote_files
-    ]
+    attachments = [{"role": "quote", **f} for f in raw_quote_files]
     if attachments:
         stage2["attachments"] = attachments
 
@@ -593,11 +576,60 @@ def handle_stage2_submit(ack, body, client, view):
         ack(response_action="errors", errors={"block_category": minimum_msg})
         return
 
+    if raw_bom_files:
+        # Answer inside Slack's 3 seconds, then read the file and show the check view.
+        stage2["bom_source"] = raw_bom_files[0]
+        meta["stage2"] = stage2
+        meta["origin"] = "interview"
+        ack(response_action="update", view=blocks.build_bom_reading_view(meta))
+        _run_in_background(lifecycle.run_bom_check, client, _view_id(body, view), meta, raw_bom_files[0])
+        return
+
     category = stage2.get("category")
     if interview.needs_asset_details(category):
         meta["stage2"] = stage2
         stage3_view = blocks.build_stage3_view(meta)
         ack(response_action="update", view=stage3_view)
+    else:
+        lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=None)
+
+
+def _run_in_background(fn, *args) -> None:
+    """Run `fn(*args)` off the listener thread (tests replace this to run it inline)."""
+    threading.Thread(target=fn, args=args, daemon=True).start()
+
+
+def _view_id(body: dict, view: dict) -> str | None:
+    return view.get("id") or (body.get("view") or {}).get("id")
+
+
+@app.view(config.BOM_CHECK_CALLBACK_ID)
+def handle_bom_check_submit(ack, body, client, view):
+    """Submit of the BOM check screen: re-read a new file, refuse while problems remain, else carry on (Ticket 134).
+
+    WHY THIS EXISTS: nothing is posted until the requester has seen what the bot read
+    (ADR 0019 decision 5). A corrected file repeats the reading step; no file and a clean read
+    continues exactly where the form would have gone next (Screen 3 for asset categories,
+    otherwise posting). The rows themselves are not in `private_metadata`: see
+    `lifecycle.stage2_with_bom_items`.
+    """
+    values = view.get("state", {}).get("values", {})
+    meta = json.loads(view.get("private_metadata") or "{}")
+    new_files = text_rules.extract_modal_files(values, "block_bom_reupload", "bom_reupload")
+    if new_files:
+        meta.setdefault("stage2", {})["bom_source"] = new_files[0]
+        ack(response_action="update", view=blocks.build_bom_reading_view(meta))
+        _run_in_background(lifecycle.run_bom_check, client, _view_id(body, view), meta, new_files[0])
+        return
+    if not meta.get("bom_ok"):
+        ack(response_action="errors", errors={
+            "block_bom_reupload": meta.get("bom_problems") or "Upload a corrected BOM to continue."})
+        return
+    meta.pop("bom_ok", None)
+    meta.pop("bom_problems", None)
+    stage2 = meta.get("stage2", {})
+    if interview.needs_asset_details(stage2.get("category")):
+        ack(response_action="update", view=blocks.build_stage3_view(meta))
     else:
         lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=None)
 
@@ -1505,6 +1537,12 @@ def handle_edit_submit(ack, body, client, view):
     if not card_payload:
         ack(response_action="errors", errors={"block_item_description": "Could not find request details for this card."})
         return
+
+    # Ticket 134 / ADR 0019: the shared form has no paste box any more, so an Edit that does not
+    # bring a BOM keeps the card's current rows (ticket 135 puts Edit through the BOM check).
+    if not raw_line_items.strip():
+        items = list(card_payload.get("items") or [])
+        shipping = float(card_payload.get("shipping") or 0.0)
 
     if card_payload.get("state", "posted") != "posted":
         ack(response_action="errors", errors={"block_item_description": "This request was approved while you were editing — nothing was changed."})

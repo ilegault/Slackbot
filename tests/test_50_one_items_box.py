@@ -5,13 +5,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src import app, blocks, bom, config, lifecycle, slack_io, validators
+from src import app, blocks, bom, lifecycle, slack_io, validators
 
 
 def _views():
     return {
         "items": blocks.build_items_view("C1", "T1", "CT1"),
-        "stage2": blocks.build_stage2_view({}),
         "workday": blocks.build_workday_details_view("C1", "T1", "CT1", ["Grainger"]),
     }
 
@@ -22,7 +21,7 @@ def _box(view):
     return found[0]
 
 
-@pytest.mark.parametrize("name", ["items", "stage2", "workday"])
+@pytest.mark.parametrize("name", ["items", "workday"])  # Screen 2 lost its box in Ticket 134
 def test_the_example_we_show_parses(name):
     text = _box(_views()[name])["element"]["placeholder"]["text"]
     items, shipping, errors = bom.parse_line_items(text)
@@ -35,18 +34,14 @@ def test_same_hint_and_placeholder_in_all_three():
     boxes = [_box(v) for v in _views().values()]
     assert len({json.dumps(b["hint"]) for b in boxes}) == 1
     assert len({json.dumps(b["element"]["placeholder"]) for b in boxes}) == 1
-    stage2 = _box(_views()["stage2"])
-    assert stage2["element"]["max_length"] == config.MAX_LINE_ITEMS_LEN
     assert "max_length" not in _box(_views()["workday"])["element"]
 
     # Each view keeps its action id and optional flag, so no submit handler changes its lookup.
     v = _views()
     assert _box(v["items"])["element"]["action_id"] == "action_line_items"
-    assert _box(v["stage2"])["element"]["action_id"] == "line_items"
     assert _box(v["workday"])["element"]["action_id"] == "line_items"
     # Ticket 85: Add items may carry only a BOM / quotes, so its box is optional too.
     assert _box(v["items"])["optional"] is True
-    assert _box(v["stage2"])["optional"] is True
     assert _box(v["workday"])["optional"] is True
 
 

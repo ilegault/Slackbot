@@ -502,6 +502,23 @@ def tell_update_failed(client, user_id: str, item_description: str | None, error
         log.warning("Could not tell %s that their edit was not saved: %s", user_id, tell_err)
 
 
+def tell_bom_reread_failed(client, user_id: str) -> None:
+    """DM the requester that the BOM could not be read again after the check screen (Ticket 134). Never raises.
+
+    The check screen read the file moments earlier, so this is rare (the file went away, or the
+    bot restarted and could not fetch it). It is a DM because the form has already been
+    acknowledged. Lives here because lifecycle keeps exactly two direct `tell` calls (tests/test_108).
+    """
+    try:
+        tell(
+            client, user_id,
+            "⚠️ I couldn't read your BOM again after the check, so your purchase request was not posted. "
+            "Please submit it again.",
+        )
+    except Exception as tell_err:
+        log.warning("Could not tell %s that their BOM could not be re-read: %s", user_id, tell_err)
+
+
 def notice_recipients(
     actor_id: str | None,
     requester_id: str | None = None,
