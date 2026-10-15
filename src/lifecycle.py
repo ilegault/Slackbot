@@ -3607,6 +3607,7 @@ def handle_items_update(
         log.info("Updated line items on card %s in %s (thread: %s)", card_ts, channel, thread_ts)
     except Exception as e:
         log.error("Failed to chat_update card %s with new items: %s", card_ts, e)
+        slack_io.tell_update_failed(client, user_id, (card_payload.get("parsed") or {}).get("item_description"), e)
         return False
 
     try:
@@ -3739,6 +3740,7 @@ def handle_request_edit(
         log.info("Edited card %s in %s (user %s): %s", card_ts, channel, user_id, edit_line)
     except Exception as e:
         log.error("Failed to chat_update card %s with edits: %s", card_ts, e)
+        slack_io.tell_update_failed(client, user_id, new_parsed.get("item_description"), e)
         return
 
     try:
