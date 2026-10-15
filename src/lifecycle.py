@@ -665,7 +665,15 @@ def finalize_purchase_request(
     *,
     new_card: bool = False,
 ):
-    """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF/BOM if present, and notify."""
+    """Validate, enqueue row write to Purchasing-Log.xlsx, archive PDF/BOM if present, and notify.
+
+    Ticket 136 / ADR 0019 decision 7: when there is no posted card (the thread path), a BOM file
+    in the thread is read at approval. Clean and equal to the EPIF amount, its rows become the
+    request's line items and the bot rebuilds and archives the BOM. Otherwise (a CSV, not the
+    template, row problems, a total mismatch) it is an Off-template BOM: approval is never
+    blocked or delayed, the file is archived as given, `off_template_bom` and the problem are
+    stored on the card payload, and the thread asks the requester to use Replace BOM.
+    """
     display_file = file_name or "Purchase Request"
     if items:
         total_error = bom.check_total(items, shipping, parsed.get("total_price"))
@@ -717,6 +725,7 @@ def finalize_purchase_request(
 
     # The day the Filled EPIF is made; ticket 125 reads it back off the payload.
     epif_made: dict = {}
+    bom_read: dict = {}  # filled by write_action for a BOM dropped in the thread (Ticket 136)
 
     # Define atomic write action for the queue (invariant 2)
     def write_action():
@@ -765,29 +774,46 @@ def finalize_purchase_request(
             attached_boms = [a for a in (attachments or []) if a.get("role") == "bom"]
             attached_quotes = [a for a in (attachments or []) if a.get("role") == "quote"]
 
+            build_items = items if (items and bom.needs_bom(items)) else None
             if attached_boms:
-                # ADR 0012 decision 5: an attached BOM is filed byte-for-byte, never opened,
-                # and no made BOM is built for the same request.
                 a = attached_boms[0]
                 content = _fetch_attachment(client, a, row_num)
                 if content is not None:
-                    ext = os.path.splitext(a.get("name") or "")[1].lstrip(".").lower() or "xlsx"
-                    saved_bom_path = log_writer.save_bom(
-                        content,
-                        bom.bom_filename(parsed.get("item_description"), datetime.now().date(), ext=ext),
-                    )
-                    bom_fname = os.path.basename(saved_bom_path)
-                    log_writer.update_row(row_num, {config.COLUMN_NOTES: f"BOM: {bom_fname} (attached)"})
-            elif items and bom.needs_bom(items):
+                    read_items: list[dict] = []
+                    read_problems: list[str] = []
+                    if not card_ts:
+                        # Ticket 136 / ADR 0019 decision 7: a BOM dropped in the thread is read now.
+                        # Clean and equal to the EPIF amount: its rows become the line items and the
+                        # BOM is rebuilt. Anything else is filed as given and flagged, never blocking.
+                        read_items, read_problems = bom.read_bom_template(content)
+                        if not read_problems:
+                            mismatch = bom.check_bom_total(read_items, parsed.get("total_price"))
+                            read_problems = [mismatch] if mismatch else []
+                    if not card_ts and read_items and not read_problems:
+                        bom_read["items"] = read_items
+                        build_items = read_items
+                    else:
+                        # ADR 0012 decision 5 still holds for a card posted before ADR 0019: filed as given.
+                        ext = os.path.splitext(a.get("name") or "")[1].lstrip(".").lower() or "xlsx"
+                        saved_bom_path = log_writer.save_bom(
+                            content,
+                            bom.bom_filename(parsed.get("item_description"), datetime.now().date(), ext=ext),
+                        )
+                        bom_fname = os.path.basename(saved_bom_path)
+                        log_writer.update_row(row_num, {config.COLUMN_NOTES: f"BOM: {bom_fname} (attached)"})
+                        if not card_ts:
+                            bom_read["problem"] = read_problems[0] if read_problems else "no line items were found"
+                            log.warning("Off-template BOM %s for row %s: %s", a.get("name"), row_num, bom_read["problem"])
+            if build_items is not None:
                 req_for_bom = dict(parsed)
                 if requester and not req_for_bom.get("requester"):
                     req_for_bom["requester"] = requester
-                xlsx_bytes = bom.build_bom_workbook(req_for_bom, items)
+                xlsx_bytes = bom.build_bom_workbook(req_for_bom, build_items)
                 saved_bom_path = log_writer.save_bom(
                     xlsx_bytes, bom.bom_filename(parsed.get("item_description"), datetime.now().date())
                 )
                 bom_fname = os.path.basename(saved_bom_path)
-                notes_text = f"BOM: {bom_fname} ({len(items)} items)"
+                notes_text = f"BOM: {bom_fname} ({len(build_items)} items)"
                 log_writer.update_row(row_num, {config.COLUMN_NOTES: notes_text})
 
             for k, a in enumerate(attached_quotes, start=1):
@@ -845,6 +871,14 @@ def finalize_purchase_request(
                 thread_ts=thread_ts,
                 file_path=saved_bom_path,
                 filename=bom_fname,
+            )
+        if bom_read.get("problem"):
+            say(
+                text=(
+                    f"⚠️ {ping_user} — this BOM isn't ready for purchasing: {bom_read['problem']}. "
+                    "Use *Replace BOM* on the card to upload the lab template version before it's processed."
+                ),
+                thread_ts=thread_ts,
             )
 
         if assignee_id and assignee_name:
@@ -935,6 +969,12 @@ def finalize_purchase_request(
                 req_payload["shipping"] = float(shipping or 0.0)
 
         req_payload["state"] = "approved"
+        if bom_read.get("items"):
+            req_payload["items"] = bom_read["items"]
+            req_payload["shipping"] = 0.0
+        if bom_read.get("problem"):
+            req_payload["off_template_bom"] = True
+            req_payload["off_template_problem"] = bom_read["problem"]
         if epif_made.get("date"):
             req_payload["epif_date"] = epif_made["date"].isoformat()
         req_payload["assignee_id"] = assignee_id
@@ -952,7 +992,7 @@ def finalize_purchase_request(
         if requester and not req_payload.get("requester"):
             req_payload["requester"] = requester
 
-        next_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=items)
+        next_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=bom_read.get("items") or items)
 
         actual_card_ts = target_card_ts
         if target_card_ts:
@@ -1105,7 +1145,7 @@ def finalize_purchase_request(
                 dm_chan, dm_ts = dm_ref
                 req_payload["dm_channel"] = dm_chan
                 req_payload["dm_ts"] = dm_ts
-                updated_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=items)
+                updated_blks = blocks.build_request_blocks("approved", req_payload, history=hist, items=bom_read.get("items") or items)
                 try:
                     client.chat_update(
                         channel=channel,

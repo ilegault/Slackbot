@@ -1,6 +1,6 @@
 # 136: A thread's .xlsx is read at approval; an Off-template BOM is flagged, never blocking
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -39,17 +39,17 @@ picks up the thread's BOM today. Reuse that download.
 
 ## Acceptance criteria
 
-- [ ] New file `tests/test_136_thread_bom.py`, `test_clean_template_in_thread_is_read`:
+- [x] New file `tests/test_136_thread_bom.py`, `test_clean_template_in_thread_is_read`:
   - Approve a thread holding a Filled-EPIF PDF at $858.50 plus the fixture `.xlsx`, as `tests/test_103_thread_files_at_approval.py` sets up a thread.
   - The card metadata holds 4 items.
   - The archived BOM in the temp `BOMS_DIR` reads back with `read_bom_template` to those items.
   - No thread message contains `isn't ready for purchasing`.
-- [ ] `test_off_template_bom_still_approves_and_asks_for_a_replacement`:
+- [x] `test_off_template_bom_still_approves_and_asks_for_a_replacement`:
   - The same thread with a CSV instead of the xlsx: the workbook row is written (queue task captured), and the archived file keeps `.csv`.
   - A thread message mentions the requester and contains `Replace BOM`.
   - The DM card blocks contain `BOM not in the lab template`.
   - All in this one function.
-- [ ] `test_total_mismatch_is_off_template`: the fixture with an EPIF of $900.00 approves and posts the replace message naming `$858.50` and `$900.00`.
+- [x] `test_total_mismatch_is_off_template`: the fixture with an EPIF of $900.00 approves and posts the replace message naming `$858.50` and `$900.00`.
 
 May fake: the Slack client, file downloads (return fixture bytes), the queue's workbook write. Must be real: the thread classifier, `read_bom_template`, `check_bom_total`, `build_bom_workbook`, `log_writer.save_bom` into a temp dir.
 
@@ -67,3 +67,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. In `finalize_purchase_request`'s queued write (thread path only, i.e. no posted card), the BOM the thread classifier picked is read with `bom.read_bom_template` and `bom.check_bom_total` against the EPIF amount, from the one download already made there. Clean: rows become the card's line items and the BOM is rebuilt and archived (Notes: `BOM: <name> (N items)`). Anything else: filed as given with its own extension (Notes: `(attached)`), `off_template_bom` + `off_template_problem` stored on the card payload, the thread message `⚠️ <@requester> — this BOM isn't ready for purchasing: <first problem>. Use *Replace BOM* on the card ...` is posted, and `blocks.request_summary_lines` (so the DM card and the thread card) shows `⚠️ BOM not in the lab template — requester asked to update`. Approval is never blocked. A card posted before this ships (a card exists) keeps filing an attached BOM as given, unflagged. Note: the message uses Slack's single-asterisk bold (`*Replace BOM*`), not the ticket's literal `**`. Ticket 137 adds the Replace BOM button the message points to. Tests: `tests/test_136_thread_bom.py`.

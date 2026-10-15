@@ -641,6 +641,8 @@ def request_summary_lines(request: dict, state: str, requester: str | None = Non
 
     if items and bom.needs_bom(items):
         summary_lines.append(f"📋 {len(items)} line items (BOM attached in thread)")
+    if request.get("off_template_bom"):
+        summary_lines.append("⚠️ BOM not in the lab template — requester asked to update")
 
     for a in attachments or []:
         if a.get("role") == "bom":
