@@ -919,6 +919,32 @@ def build_expected_delivery_view(thread_channel: str, thread_ts: str, card_ts: s
     }
 
 
+def build_change_epif_date_view(thread_channel: str, thread_ts: str, card_ts: str, initial: str) -> dict:
+    """Modal with one date picker for the EPIF date (Ticket 125); `initial` is an ISO date."""
+    return {
+        "type": "modal",
+        "callback_id": config.CHANGE_EPIF_DATE_CALLBACK_ID,
+        "title": {"type": "plain_text", "text": "Change EPIF date"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(
+            {"thread_channel": thread_channel, "thread_ts": thread_ts, "card_ts": card_ts}
+        ),
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "block_change_epif_date",
+                "label": {"type": "plain_text", "text": "Date to print on the EPIF"},
+                "element": {
+                    "type": "datepicker",
+                    "action_id": "change_epif_date",
+                    "initial_date": initial,
+                },
+            }
+        ],
+    }
+
+
 def build_nudge_card_blocks(
     state: str,
     mentions: str,
@@ -1002,6 +1028,8 @@ def build_dm_card_blocks(
     (`request_summary_lines`, one builder so the two cannot drift), then the row, the stage
     and the thread link; `history` becomes the same History context block. It is still a
     view: buttons, buyer picker and the block_id pointer are unchanged and it keeps no state.
+    Ticket 125: an approved EPIF-path card also carries Change date, so the buyer can re-date the
+    Filled EPIF before processing it (the thread card has no such button).
     """
     parsed = request.get("parsed") if isinstance(request.get("parsed"), dict) else {}
 
@@ -1067,6 +1095,15 @@ def build_dm_card_blocks(
         ]
         if state == "confirmed":
             elements.append(_expected_delivery_button(thread_channel, thread_ts, card_ts))
+        if state == "approved" and route == "epif":
+            # Ticket 125: the buyer may re-date the Filled EPIF until the request is processed
+            # (an approved card is never processed, so the state check is the "not yet" check).
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Change date", "emoji": True},
+                "action_id": config.ACTION_CHANGE_EPIF_DATE,
+                "value": btn_value,
+            })
         if state == "approved":
             # ADR 0011 decision 2 / Ticket 74 / ADR 0014: DM card carries buyer picker while approved.
             # Pointer to the thread card remains in block_id.

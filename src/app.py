@@ -1603,6 +1603,75 @@ def handle_expected_delivery_submission(ack, body, client, view):
     )
 
 
+@app.action(config.ACTION_CHANGE_EPIF_DATE)
+def handle_change_epif_date_action(ack, body, respond, client):
+    """Open the EPIF-date form from the buyer's DM card (Ticket 125).
+
+    WHY THIS EXISTS:
+    ----------------
+    The Filled EPIF is dated the day it was made; the buyer may be placing the order days
+    later and needs the printed date to match. The button value is only a pointer, so the thread
+    card is read for the true state. Only the assigned buyer, and only while approved: the same
+    two checks handle_change_epif_date repeats when the form is submitted.
+    """
+    ack()
+    user_id = body.get("user", {}).get("id")
+    action = body.get("actions", [{}])[0]
+    try:
+        pointer = json.loads(action.get("value") or "{}")
+    except Exception:
+        pointer = {}
+    thread_channel = pointer.get("thread_channel")
+    thread_ts = pointer.get("thread_ts")
+    card_ts = pointer.get("card_ts")
+
+    card_info = slack_io.get_card_by_ts(client, channel=thread_channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        slack_io.deny(respond, "⚠️ I can't find the request card in the thread any more, so nothing was changed.")
+        return
+    req_data, _history, state = card_info
+    assignee_id = req_data.get("assignee_id")
+    if not assignee_id or user_id != assignee_id:
+        log.warning("Unauthorized user %s clicked change_epif_date on request with buyer %s", user_id, assignee_id)
+        slack_io.deny(respond, text_rules.format_stage_denial(assignee_id) if assignee_id else text_rules.format_stage_unassigned())
+        return
+    if state != "approved":
+        slack_io.deny(respond, "The EPIF date can only be changed before the request is processed.")
+        return
+
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view=blocks.build_change_epif_date_view(thread_channel, thread_ts, card_ts, _today().isoformat()),
+    )
+    log.info("Opened EPIF-date form for card %s (user %s)", card_ts, user_id)
+
+
+@app.view(config.CHANGE_EPIF_DATE_CALLBACK_ID)
+def handle_change_epif_date_submission(ack, body, client, view):
+    """Re-date the Filled EPIF; the work is lifecycle.handle_change_epif_date (Ticket 125)."""
+    user_id = body.get("user", {}).get("id")
+    meta = json.loads(view.get("private_metadata") or "{}")
+    chosen = (
+        view.get("state", {}).get("values", {})
+        .get("block_change_epif_date", {}).get("change_epif_date", {}).get("selected_date")
+    )
+    try:
+        chosen_date = date.fromisoformat(chosen)
+    except (TypeError, ValueError):
+        ack(response_action="errors", errors={"block_change_epif_date": "Pick a date."})
+        return
+    ack()
+
+    lifecycle.handle_change_epif_date(
+        client=client,
+        channel=meta.get("thread_channel"),
+        thread_ts=meta.get("thread_ts"),
+        card_ts=meta.get("card_ts"),
+        user_id=user_id,
+        chosen_date=chosen_date,
+    )
+
+
 @app.action("req_confirmed")
 def handle_req_confirmed_action(ack, body, respond, client):
     """Handle clicking 'Mark Confirmed' button on purchase request message."""
