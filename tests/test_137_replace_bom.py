@@ -37,9 +37,6 @@ class ThreadClient:
         self.views_updated: list[dict] = []
         self._n = 0
 
-    def auth_test(self):
-        return {"ok": True, "user_id": "B_BOT"}
-
     def chat_postMessage(self, **kw):
         self._n += 1
         channel = "D_BUYER" if kw["channel"].startswith("U_") else kw["channel"]
@@ -86,6 +83,10 @@ class ThreadClient:
 
     def card_blocks(self, channel=CHANNEL):
         return [m for (ch, _t), m in self.messages.items() if ch == channel and m.get("metadata")][0]
+
+
+# Slack's own method name; assigned rather than defined so a test collector does not mistake it for a test.
+ThreadClient.auth_test = lambda self: {"ok": True, "user_id": "B_BOT"}
 
 
 @pytest.fixture
