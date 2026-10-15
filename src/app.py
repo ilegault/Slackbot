@@ -174,6 +174,24 @@ def log_request(body, next):
                 log.info("Completed %s [%s] from %s in %.1f ms", kind, ident, user_str, elapsed_ms)
 
 
+@app.middleware
+def expand_slim_card_value(client, body, next):
+    """Give every card-button listener the full request even when the button value is slim.
+
+    WHY THIS EXISTS (Ticket 129): a card whose request is too big for Slack's 2,000-character
+    button value carries a slim value (`blocks.card_button_value`). The listeners read the
+    request from that value, so it is rebuilt from the card's metadata here, once, before any of
+    them runs (`slack_io.expand_slim_button_values`). Never raises: a failure is logged and the
+    click goes on with the value as sent.
+    """
+    if isinstance(body, dict) and body.get("type") == "block_actions":
+        try:
+            slack_io.expand_slim_button_values(client, body)
+        except Exception as e:
+            log.warning("Could not expand a slim card value: %s", e)
+    return next()
+
+
 # --- Slash Commands -----------------------------------------------------------
 
 @app.command("/new-purchase")
