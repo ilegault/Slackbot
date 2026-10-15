@@ -1,6 +1,6 @@
 # 128: Resend EPIF button on the buyer's DM card
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -36,12 +36,12 @@ admin (`roster.is_admin`). Anyone else is denied with `slack_io.deny`.
 
 ## Acceptance criteria
 
-- [ ] `test_resend_epif_button_on_epif_path_only`: present for `epif` in `approved`/`processed`/`confirmed`, absent for `workday` and for `delivered`.
-- [ ] `test_resend_epif_uploads_the_archived_files`:
+- [x] `test_resend_epif_button_on_epif_path_only`: present for `epif` in `approved`/`processed`/`confirmed`, absent for `workday` and for `delivered`.
+- [x] `test_resend_epif_uploads_the_archived_files`:
   - With an archived EPIF, BOM and one quote in temp dirs, the assignee's click uploads exactly those three file names to `req_data["dm_channel"]`.
   - `respond` gets text starting `Sent again:`.
-- [ ] `test_resend_epif_denied_for_others`: a non-assignee non-admin gets `deny`, and the fake records zero uploads.
-- [ ] `test_resend_epif_names_a_missing_file`: with the BOM file deleted, the EPIF still uploads and the reply contains `not found:` and the BOM's name.
+- [x] `test_resend_epif_denied_for_others`: a non-assignee non-admin gets `deny`, and the fake records zero uploads.
+- [x] `test_resend_epif_names_a_missing_file`: with the BOM file deleted, the EPIF still uploads and the reply contains `not found:` and the BOM's name.
 
 May fake: the Slack client, `respond`. Must be real: the archive files in temp directories, `slack_io.get_card_by_ts` on the fake's stored card, and the upload helper from 127.
 
@@ -59,3 +59,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. `config.ACTION_RESEND_EPIF`; `Resend EPIF` button on the DM card (EPIF route, approved/processed/confirmed); `app.handle_resend_epif_action` acks and delegates to `lifecycle.handle_resend_epif`, which re-reads the card, allows the assigned buyer or an admin, uploads the archived EPIF, BOM and quotes through 127's `_upload_to_dm`, and replies `Sent again: ...` plus `not found: ...` for anything missing from the archive. Tests: `tests/test_128_resend_epif.py`.
