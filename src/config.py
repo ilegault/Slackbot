@@ -392,6 +392,8 @@ ACTION_NUDGE_DELIVERED = "nudge_delivered"  # ADR 0013 decision 4 / Ticket 90: t
 ACTION_NUDGE_NOT_YET = "nudge_not_yet"  # ADR 0013 decision 5 / Ticket 92: "Not yet" on the delivered nudge card
 ACTION_SET_EXPECTED_DELIVERY = "set_expected_delivery"  # ADR 0013 decision 5 / Ticket 91
 EXPECTED_DELIVERY_CALLBACK_ID = "expected_delivery_submit"
+ACTION_CHANGE_EPIF_DATE = "change_epif_date"  # Ticket 125: buyer re-dates the Filled EPIF before Processed
+CHANGE_EPIF_DATE_CALLBACK_ID = "change_epif_date_submit"
 
 # Action IDs for DM card buttons (Ticket 67 / ADR 0010)
 ACTION_DM_REQ_PROCESSED = "dm_req_processed"

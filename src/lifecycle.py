@@ -337,6 +337,20 @@ def _flag_card_entry(client, channel: str, card_ts: str, line: str, **flags):
         _request_log(client, store.append_history, req_id, line)
 
 
+def _upload_file_to_dm(client, dm_channel: str, path: str, fname: str) -> None:
+    """Upload one file to a DM channel; raises on failure (the caller decides what a failure means).
+
+    The one upload call: _send_assignee_dm (approval, assignment) and handle_change_epif_date
+    both go through it so a file reaches the buyer the same way whichever path sent it.
+    """
+    if hasattr(client, "files_upload_v2"):
+        client.files_upload_v2(channel=dm_channel, file=path, filename=fname, title=fname)
+    else:
+        with open(path, "rb") as fh:
+            content = fh.read()
+        client.files_upload(channels=dm_channel, file=path, content=content, filename=fname, title=fname)
+
+
 def _send_assignee_dm(
     client,
     assignee_id: str,
@@ -430,23 +444,7 @@ def _send_assignee_dm(
                 dm_channel = resp["channel"]["id"]
                 for path, fname in files_to_upload:
                     try:
-                        if hasattr(client, "files_upload_v2"):
-                            client.files_upload_v2(
-                                channel=dm_channel,
-                                file=path,
-                                filename=fname,
-                                title=fname,
-                            )
-                        else:
-                            with open(path, "rb") as fh:
-                                content = fh.read()
-                            client.files_upload(
-                                channels=dm_channel,
-                                file=path,
-                                content=content,
-                                filename=fname,
-                                title=fname,
-                            )
+                        _upload_file_to_dm(client, dm_channel, path, fname)
                         log.info("Uploaded %s to DM for %s", fname, assignee_id)
                     except Exception as e:
                         log.warning("Could not upload %s to DM for %s: %s", fname, assignee_id, e)
@@ -2190,6 +2188,117 @@ def handle_set_expected_delivery(client, channel: str, thread_ts: str, card_ts: 
         text=f"📦 Expected delivery {short} — I'll check back then.",
     )
     log.info("Expected delivery for card %s set to %s by %s", card_ts, chosen_date.isoformat(), user_id)
+    return True
+
+
+def handle_change_epif_date(client, channel: str, thread_ts: str, card_ts: str, user_id: str, chosen_date) -> bool:
+    """Re-date the Filled EPIF of an approved EPIF-path request (Ticket 125).
+
+    WHY THIS EXISTS:
+    ----------------
+    The Filled EPIF is dated the day it was made (approval, or the switch to EPIF), but the
+    buyer may send it to purchasing days later and needs the printed Date of Purchase to be
+    the day they send it. The archived file is rebuilt from the blank template with the new
+    EPIF date and saved under the same name (the name carries vendor, amount and project, which
+    do not change), the new copy goes to the buyer's DM, and the card remembers `epif_date`.
+    The workbook is never written: column M is the Request date, the day the request was posted.
+
+    The card is re-read here and the assignee and `approved` state re-checked, so a stale form
+    cannot act after the request moved on or changed hands (the form listener checks too, but
+    only this function is the gate). Returns True when the EPIF was re-dated. A failed upload
+    to the DM alerts the admins but leaves the new archive and card in place.
+    """
+    card_info = slack_io.get_card_by_ts(client, channel=channel, thread_ts=thread_ts, card_ts=card_ts)
+    if card_info is None:
+        log.warning("Card %s not found in thread %s for EPIF date change", card_ts, thread_ts)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                "change the EPIF date", channel, thread_ts, None, "card not found"
+            ),
+        )
+        return False
+    req_data, history, state = card_info
+    req_data = dict(req_data)
+    history = list(history)
+    if not user_id or user_id != req_data.get("assignee_id"):
+        log.warning("User %s tried to change the EPIF date on a request assigned to %s", user_id, req_data.get("assignee_id"))
+        return False
+    if state != "approved":
+        log.warning("EPIF date change refused on card %s: state is %s", card_ts, state)
+        slack_io.notify(
+            client, actor_id=user_id,
+            text="The EPIF date can only be changed before the request is processed, so I left it as it was.",
+            channel=channel, link_ts=thread_ts,
+        )
+        return False
+    epif_fname = req_data.get("epif_file")
+    if not epif_fname or interview.get_request_route(req_data) != "epif":
+        log.warning("EPIF date change refused on card %s: no Filled EPIF on this request", card_ts)
+        return False
+
+    # Line items ride in the card's metadata, never the button value; the filled item line needs them.
+    payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts) or {}
+    parsed = dict(req_data.get("parsed") or {})
+    if payload.get("items") and not parsed.get("items"):
+        parsed["items"] = payload["items"]
+
+    try:
+        try:
+            from . import epif_filler
+        except ImportError:
+            import epif_filler  # type: ignore[no-redef]
+        with open(config.EPIF_TEMPLATE_PATH, "rb") as f:
+            template_bytes = f.read()
+        filled_bytes = epif_filler.fill_epif(template_bytes, {**parsed, "epif_date": chosen_date})
+        saved_path = log_writer.save_epif(filled_bytes, epif_fname, overwrite=True)
+    except Exception as e:
+        log.error("Could not re-date the EPIF for card %s: %s", card_ts, e)
+        slack_io.alert_admins(
+            client,
+            text_rules.format_card_failure_alert(
+                "re-date the EPIF", channel, thread_ts, epif_fname, str(e)
+            ),
+        )
+        return False
+
+    if req_data.get("dm_channel"):
+        try:
+            _upload_file_to_dm(client, req_data["dm_channel"], saved_path, epif_fname)
+        except Exception as e:
+            log.warning("Could not upload re-dated %s to DM %s: %s", epif_fname, req_data["dm_channel"], e)
+            slack_io.alert_admins(
+                client,
+                text_rules.format_card_failure_alert(
+                    "send the re-dated EPIF to the buyer", channel, thread_ts, epif_fname, str(e)
+                ),
+            )
+
+    actor = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
+    history.append(f"EPIF date changed to {chosen_date.strftime('%m/%d/%Y')} by {actor}")
+    req_data["epif_date"] = chosen_date.isoformat()
+
+    client.chat_update(
+        channel=channel,
+        ts=card_ts,
+        text="🛒 Purchase Request (Approved)",
+        blocks=blocks.build_request_blocks(
+            "approved", req_data, history=history, items=payload.get("items"),
+            thread_channel=channel, card_ts=card_ts,
+        ),
+        metadata={"event_type": "purchase_request", "event_payload": {**payload, **req_data, "state": "approved"}},
+    )
+    sync_dm_card(
+        client=client,
+        request=req_data,
+        state="approved",
+        channel=channel,
+        thread_ts=thread_ts,
+        card_ts=card_ts,
+        history=history,
+    )
+    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"📅 {history[-1]}")
+    log.info("EPIF date for card %s changed to %s by %s (%s)", card_ts, chosen_date.isoformat(), user_id, saved_path)
     return True
 
 

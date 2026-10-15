@@ -1,6 +1,6 @@
 # 125: Change date on the buyer's DM card (Filled EPIF)
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -60,18 +60,18 @@ It re-reads the card, updates both linked cards and appends history.
 
 ## Acceptance criteria
 
-- [ ] `test_change_date_button_only_for_epif_path_before_processed` builds `blocks.build_dm_card_blocks` and asserts an element with `action_id == "change_epif_date"` is present for (`approved`, `epif`), and absent for (`approved`, `workday`) and (`processed`, `epif`).
-- [ ] `test_change_date_refills_and_resends`:
+- [x] `test_change_date_button_only_for_epif_path_before_processed` builds `blocks.build_dm_card_blocks` and asserts an element with `action_id == "change_epif_date"` is present for (`approved`, `epif`), and absent for (`approved`, `workday`) and (`processed`, `epif`).
+- [x] `test_change_date_refills_and_resends`:
   - Approve an EPIF-path request as `tests/test_45_epif_approval_archives.py` does, with a temp `EPIFS_DIR`.
   - Call `lifecycle.handle_change_epif_date` as the assignee with 2026-10-20.
   - `parse_epif` of the file at the same archived path gives `date_of_purchase == 2026-10-20`.
   - The fake client records one upload of that file name to the DM channel.
   - A thread message contains `EPIF date changed to 10/20/2026`.
   - The fake workbook writer received no task.
-- [ ] `test_change_date_denied_for_non_assignee`:
+- [x] `test_change_date_denied_for_non_assignee`:
   - The action listener, clicked by a different buyer, calls `deny` and never `views_open`.
   - `handle_change_epif_date` called by a non-assignee leaves the archived file's bytes unchanged and uploads nothing.
-- [ ] `test_change_date_refused_after_processed`: with the card in `processed`, the handler changes nothing and uploads nothing.
+- [x] `test_change_date_refused_after_processed`: with the card in `processed`, the handler changes nothing and uploads nothing.
 
 May fake: the Slack client (record `files_upload_v2`, `chat_update`, `chat_postMessage`, `views_open`), the lock queue. Must be real: `fill_epif`, `parse_epif`, `log_writer.save_epif` into a temp directory, and the card round trip through `slack_io.get_card_by_ts` on the fake's stored message.
 
@@ -89,3 +89,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. Change date button (DM card, approved + EPIF route), `blocks.build_change_epif_date_view`, listeners `app.handle_change_epif_date_action` / `handle_change_epif_date_submission`, and the one implementation `lifecycle.handle_change_epif_date` (re-reads the card, re-checks assignee and `approved`, re-fills from the template with the chosen EPIF date, overwrites the archive under the same name, uploads to the DM, updates both cards, posts `EPIF date changed to MM/DD/YYYY by <buyer>`, never queues a workbook write). Two supporting changes: `log_writer.save_epif(..., overwrite=False)` gained an explicit overwrite flag (it refused existing files); the DM upload call was extracted to `lifecycle._upload_file_to_dm` so approval and Change date share it (ticket 127 will put its retry there). Tests: `tests/test_125_change_epif_date.py` (the four named tests, plus a modal/submit-delegation test). The thread card has no Change date button, by the ticket's wording.

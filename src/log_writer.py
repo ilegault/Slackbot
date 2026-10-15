@@ -436,8 +436,12 @@ def find_latest_unconfirmed_row_for_requester(requester_name: str, workbook_path
     return None
 
 
-def save_epif(pdf_bytes: bytes, filename: str, target_dir: str = None) -> str:
+def save_epif(pdf_bytes: bytes, filename: str, target_dir: str = None, overwrite: bool = False) -> str:
     """Save the EPIF PDF into the lab's EPIFs directory atomically.
+
+    An existing file is never replaced unless `overwrite` is True, which only a deliberate
+    re-date of the same Filled EPIF passes (Ticket 125): the file keeps its name because the
+    name carries the vendor, amount and project, none of which a date change touches.
 
     Returns the absolute path to the saved PDF file.
     """
@@ -455,7 +459,7 @@ def save_epif(pdf_bytes: bytes, filename: str, target_dir: str = None) -> str:
 
     dest_path = os.path.join(directory, clean_name)
 
-    if os.path.exists(dest_path):
+    if os.path.exists(dest_path) and not overwrite:
         raise FileExistsError(f"File {dest_path} already exists")
 
     handle, temp_path = tempfile.mkstemp(suffix=".pdf", dir=directory)
