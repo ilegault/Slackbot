@@ -383,6 +383,11 @@ EDIT_CALLBACK_ID = "purchase_edit_submit"
 # Field length limits to keep accumulated private_metadata well under Slack's 3000-char limit
 MAX_ITEM_DESCRIPTION_LEN = 150
 MAX_PURPOSE_LEN = 900
+# Slack rejects a card whose button `value` is over 2,000 characters (invalid_blocks, seen
+# 2026-09-29 and 2026-10-13). A card whose full value would not fit carries a slim value
+# instead (Ticket 129); these are the keys of the request that stay in it.
+BUTTON_VALUE_MAX = 2000
+SLIM_VALUE_REQUEST_KEYS = ("thread_ts", "assignee_id", "assignee", "user_id", "source", "epif_file")
 MAX_LINE_ITEMS_LEN = 1500  # Ticket 28: keeps carried stage2 state under 3000 chars on Screen 3
 
 # Action IDs for Block Kit elements (Ticket 17, Ticket 22, Ticket 27)

@@ -1,6 +1,6 @@
 # 129: Every button value fits for the largest request the forms allow
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -35,15 +35,15 @@ nothing reads it. Record the cause in `blocks.build_request_blocks`'s docstring.
 
 ## Acceptance criteria
 
-- [ ] New `tests/test_129_button_values_fit.py`, one function `test_every_button_value_fits_for_the_largest_request`:
+- [x] New `tests/test_129_button_values_fit.py`, one function `test_every_button_value_fits_for_the_largest_request`:
   - It builds a request at every form maximum: each text field at its modal `max_length`, read from the real `blocks.build_stage2_view`; a 1,500-character `line_items` string; 10 quotes; `raw_fields` with every EPIF field filled at 200 characters; 12 history lines of 120 characters.
   - It renders it through `blocks.build_request_blocks` for every state that has buttons, and through `blocks.build_dm_card_blocks`.
   - It asserts every `value` in every button and overflow option is ≤ 2,000 characters.
   - It must fail on today's code.
-- [ ] `test_a_large_edit_reaches_the_card` drives `app.handle_edit_submit` for such a request with the fake client, as `tests/test_32_edit_a_posted_card.py` does.
+- [x] `test_a_large_edit_reaches_the_card` drives `app.handle_edit_submit` for such a request with the fake client, as `tests/test_32_edit_a_posted_card.py` does.
   - The fake `chat_update` raises `SlackApiError` when any button value exceeds 2,000 characters, mirroring Slack.
   - The update succeeds, and the new card shows the edited purpose.
-- [ ] `test_largest_request_moves_through_the_stages`: a request built at that maximum, with the same limit-enforcing fake, is approved, marked processed and marked confirmed. Reuse the setup of an existing test that drives approve → processed. Each step's card update succeeds.
+- [x] `test_largest_request_moves_through_the_stages`: a request built at that maximum, with the same limit-enforcing fake, is approved, marked processed and marked confirmed. Reuse the setup of an existing test that drives approve → processed. Each step's card update succeeds.
 
 May fake: the Slack client, with `chat_update`/`chat_postMessage` enforcing the 2,000-character limit as Slack does. Must be real: the `blocks` builders and the handlers under test.
 
@@ -61,3 +61,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. Cause: the thread-card buttons carried the whole request, and a request with its long fields filled (900-character purpose, 150-character item, link, contact, asset details) is over 2,000 characters before any history is added. Fix in `blocks.card_button_value`: `raw_fields` and the pasted `line_items` are never carried (nothing reads them); when the value still would not fit, a slim value (`slim: true`, state, six request keys, the newest history lines, older ones summarised) is used and the request is rebuilt from the card metadata by `slack_io.expand_slim_value`, applied once by the new `app.expand_slim_card_value` middleware for clicks and by `_parse_card_button_value` for card reads. DM card values were already small pointers. Tests: `tests/test_129_button_values_fit.py` (all three). Trade-off for the developer: on a slim card the card's History block shows "… N earlier steps (see the thread)" once history is long; each step is also its own thread message.

@@ -656,6 +656,54 @@ def request_summary_lines(request: dict, state: str, requester: str | None = Non
     return summary_lines
 
 
+_VALUE_NEVER_CARRIED = ("items", "shipping", "attachments")
+_PARSED_NEVER_CARRIED = _VALUE_NEVER_CARRIED + ("raw_fields", "line_items")
+
+
+def card_button_value(state: str, request: dict, history: list | None, requester: str | None) -> str:
+    """The JSON a thread-card button carries: state, the request, and the history lines.
+
+    WHY THIS HAS TWO SHAPES (Ticket 129): Slack refuses a card whose button `value` is over
+    2,000 characters (`invalid_blocks: must be less than 2001 characters`, which stopped a card
+    being posted on 2026-09-29 and an Edit on 2026-10-13). A request whose long fields are all
+    filled (a 900-character purpose, a 150-character item, a link, contact details) plus a few
+    history lines is over that on its own, so the value cannot always hold the request.
+    - Full value, when it fits: as before, minus what no click reads. `items`, `shipping` and
+      `attachments` ride in the message metadata (AGENTS.md trap 9); `raw_fields` (the EPIF's
+      28 PDF fields) and the pasted `line_items` text are read by nothing after posting.
+    - Slim value, when it does not: `slim: true`, the state, and the few request keys the
+      permission checks need, and the newest history lines that fit (older ones become one
+      "earlier steps" line; every step is also its own thread message). The request itself is
+      recovered from the card's message metadata, which every post and update of the card
+      writes: `slack_io.expand_slim_value`, applied by the `expand_slim_card_value` middleware
+      for clicks and by `_parse_card_button_value` for reads of the card.
+    """
+    safe_req = {k: v for k, v in request.items() if k not in _VALUE_NEVER_CARRIED}
+    if isinstance(safe_req.get("parsed"), dict):
+        safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in _PARSED_NEVER_CARRIED}
+    full = json.dumps(
+        {"state": state, "requester": requester, "thread_ts": request.get("thread_ts"),
+         "request": safe_req, "history": history or []},
+        default=str,
+    )
+    if len(full) <= config.BUTTON_VALUE_MAX:
+        return full
+
+    slim = {
+        "state": state, "requester": requester, "thread_ts": request.get("thread_ts"), "slim": True,
+        "request": {k: request[k] for k in config.SLIM_VALUE_REQUEST_KEYS if k in request},
+    }
+    kept = list(history or [])
+    dropped = 0
+    while True:
+        lines = ([f"… {dropped} earlier steps (see the thread)"] if dropped else []) + kept
+        value = json.dumps({**slim, "history": lines}, default=str)
+        if len(value) <= config.BUTTON_VALUE_MAX or not kept:
+            return value
+        kept.pop(0)
+        dropped += 1
+
+
 def build_request_blocks(
     state: str,
     request: dict,
@@ -710,19 +758,7 @@ def build_request_blocks(
                 }
             ],
         })
-        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping", "attachments")}
-        if "parsed" in safe_req and isinstance(safe_req["parsed"], dict):
-            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping", "attachments")}
-        btn_value = json.dumps(
-            {
-                "state": state,
-                "requester": requester,
-                "thread_ts": request.get("thread_ts"),
-                "request": safe_req,
-                "history": history or [],
-            },
-            default=str,
-        )
+        btn_value = card_button_value(state, request, history, requester)
         blocks.append({
             "type": "actions",
             "elements": [
@@ -778,19 +814,7 @@ def build_request_blocks(
 
     if state in primary_buttons:
         btn_label, btn_action_id = primary_buttons[state]
-        safe_req = {k: v for k, v in request.items() if k not in ("items", "shipping", "attachments")}
-        if "parsed" in safe_req and isinstance(safe_req["parsed"], dict):
-            safe_req["parsed"] = {k: v for k, v in safe_req["parsed"].items() if k not in ("items", "shipping", "attachments")}
-        btn_value = json.dumps(
-            {
-                "state": state,
-                "requester": requester,
-                "thread_ts": request.get("thread_ts"),
-                "request": safe_req,
-                "history": history or [],
-            },
-            default=str,
-        )
+        btn_value = card_button_value(state, request, history, requester)
         elements = [
             {
                 "type": "button",

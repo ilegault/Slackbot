@@ -582,11 +582,78 @@ def notify(
     return sent
 
 
+def expand_slim_value(val_data: dict, payload: dict | None) -> dict:
+    """Turn a slim card-button value back into the full one, using the card's metadata payload.
+
+    WHY THIS EXISTS (Ticket 129): `blocks.card_button_value` falls back to a slim value
+    (`slim: true`, state, a few request keys, the newest history lines) when the full request
+    would push the button value past Slack's 2,000-character cap. Everything that reads a card
+    expects `{"state", "requester", "thread_ts", "request", "history"}`, so the request is
+    rebuilt here from the metadata every card post and update writes: the metadata payload
+    without `state` and the pieces that never ride in a value (`items`, `shipping`,
+    `attachments`), overlaid with the keys the slim value kept. A value that is not slim, or a
+    card with no metadata to rebuild from, comes back unchanged.
+    """
+    if not isinstance(val_data, dict) or not val_data.get("slim") or not payload:
+        return val_data
+    request = {k: v for k, v in payload.items() if k not in ("state", "items", "shipping", "attachments")}
+    request.update(val_data.get("request") or {})
+    full = {k: v for k, v in val_data.items() if k != "slim"}
+    full["request"] = request
+    return full
+
+
+def _metadata_payload(msg: dict) -> dict | None:
+    meta = msg.get("metadata") or {}
+    if meta.get("event_type") == "purchase_request":
+        return dict(meta.get("event_payload") or {}) or None
+    return None
+
+
+def expand_slim_button_values(client, body: dict) -> None:
+    """Rewrite slim button values in a block_actions body to full ones, in place (Ticket 129).
+
+    Every card click handler reads `body["actions"][0]["value"]` and, for the buyer picker, the
+    sibling buttons in `body["message"]["blocks"]`. Doing the expansion once, before any
+    listener runs, keeps those handlers unchanged. The card's metadata comes from the click
+    payload when Slack sends it, otherwise from one `conversations_replies` read.
+    """
+    message = body.get("message") or {}
+    elements = [e for b in message.get("blocks", []) if b.get("type") == "actions" for e in b.get("elements", [])]
+    elements += [a for a in body.get("actions") or []]
+    pending = []
+    for el in elements:
+        raw = el.get("value")
+        if not raw or '"slim"' not in raw:
+            continue
+        try:
+            val = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(val, dict) and val.get("slim"):
+            pending.append((el, val))
+    if not pending:
+        return
+    payload = _metadata_payload(message)
+    if payload is None:
+        card_ts = message.get("ts")
+        channel = (body.get("channel") or {}).get("id")
+        thread_ts = (body.get("container") or {}).get("thread_ts") or pending[0][1].get("thread_ts") or card_ts
+        if channel and card_ts:
+            payload = get_card_payload(client, channel, thread_ts, card_ts)
+    if payload is None:
+        log.warning("Slim card value but no card metadata to rebuild the request from")
+        return
+    for el, val in pending:
+        el["value"] = json.dumps(expand_slim_value(val, payload), default=str)
+
+
 def _parse_card_button_value(msg: dict) -> tuple[dict, list, str] | None:
     """Extract (request, history, state) from the actions-block button value of a message.
 
     Returns None if the message has no actions button or the value lacks state.
-    Never reads message metadata — the button value is the store.
+    The button value is the store; only a slim value (Ticket 129) is completed from the
+    message's metadata, via `expand_slim_value`.
     """
     for b in msg.get("blocks", []):
         if b.get("type") == "actions":
@@ -596,6 +663,7 @@ def _parse_card_button_value(msg: dict) -> tuple[dict, list, str] | None:
                     try:
                         val_data = json.loads(val_str)
                         if isinstance(val_data, dict) and "state" in val_data:
+                            val_data = expand_slim_value(val_data, _metadata_payload(msg))
                             return (
                                 val_data.get("request", {}),
                                 val_data.get("history", []),
@@ -636,10 +704,12 @@ def get_card_by_ts(client, channel: str, thread_ts: str, card_ts: str) -> tuple[
     The DM card is only a view with a pointer to the thread card. Every click on the DM card
     must read the thread card to learn the true state. Never read message metadata for state —
     the button value is the store. Returns None when the message is not found or has no actions button.
+    A slim value (Ticket 129) has its request completed from the card's metadata, which is why the
+    read asks for it.
     """
     target_ts = str(card_ts)
     try:
-        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100)
+        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=100, include_all_metadata=True)
         for msg in replies.get("messages", []):
             if str(msg.get("ts")) == target_ts:
                 return _parse_card_button_value(msg)
