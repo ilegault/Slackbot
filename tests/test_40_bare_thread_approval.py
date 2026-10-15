@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import openpyxl
 import pytest
 
-from src import admin, app, bom, config, lifecycle, log_writer, queue_worker, roster, slack_io, validators
+from src import admin, app, config, lifecycle, log_writer, queue_worker, roster, slack_io, validators
 
 
 @pytest.fixture(autouse=True)
@@ -132,10 +132,6 @@ def test_fill_in_details_writes_row_and_updates_card(monkeypatch):
 
     # Mock validation pass
     monkeypatch.setattr(validators, "validate", MagicMock(return_value=[]))
-
-    # Mock parsing pasted items to empty
-    monkeypatch.setattr(bom, "parse_line_items", MagicMock(return_value=([], 0.0, None)))
-    monkeypatch.setattr(bom, "check_total", MagicMock(return_value=None))
 
     # Mock finalize_purchase_request to just assert it's called
     monkeypatch.setattr(lifecycle, "finalize_purchase_request", MagicMock())

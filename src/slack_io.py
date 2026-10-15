@@ -385,8 +385,6 @@ def find_request_metadata_in_thread(client, channel: str, thread_ts: str):
                     parsed["date_of_purchase"] = epif_parser.parse_date(parsed["date_of_purchase"])
                 if payload.get("items"):
                     parsed["items"] = payload.get("items")
-                if "shipping" in payload:
-                    parsed["shipping"] = payload.get("shipping")
                 return parsed, payload.get("requester"), payload.get("user_id"), payload.get("is_pending_name", False)
     except Exception as e:
         log.warning("Could not search thread for modal request metadata: %s", e)

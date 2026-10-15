@@ -196,7 +196,6 @@ def test_bom_folder_missing_at_approval(temp_workbook, tmp_path, sync_queue, mon
         pdf_bytes=None,
         file_name=None,
         items=items,
-        shipping=0.0,
     )
 
     # 1. Thread reply names BOMS_DIR via storage_problem_message

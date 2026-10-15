@@ -38,8 +38,9 @@ def test_pure_layers_importable_without_app():
         "parsed = {'item_description': 'Resistors', 'vendor': 'DigiKey', 'total_price': 10.0}\n"
         "draft = text_rules.generate_email_draft(parsed, 'Isaac')\n"
         "assert 'Resistors' in draft and 'DigiKey' in draft\n"
-        "items, ship, errs = bom.parse_line_items('1 | Item | P1 | 5.00')\n"
-        "assert len(items) == 1 and errs == []\n"
+        "with open('tests/fixtures/BOM_TEMPLATE_FILLED_EXAMPLE.xlsx', 'rb') as f:\n"
+        "    items, errs = bom.read_bom_template(f.read())\n"
+        "assert len(items) == 4 and errs == []\n"
     )
     res = subprocess.run(
         [sys.executable, "-c", code],

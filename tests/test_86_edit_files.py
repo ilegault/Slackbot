@@ -9,6 +9,7 @@ Acceptance criteria exercised (ADR 0012 decision 6, ADR 0006 decision 8):
 - [ ] bom.merge_attachments / bom.describe_attachment_changes, directly
 """
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,6 +23,7 @@ from tests.test_32_edit_a_posted_card import (
     _sample_modal_card_payload,
 )
 
+FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "BOM_TEMPLATE_FILLED_EXAMPLE.xlsx")
 BOM_OLD = {"role": "bom", "id": "FB0", "name": "old.xlsx"}
 Q1 = {"role": "quote", "id": "F1", "name": "a.pdf"}
 Q2 = {"role": "quote", "id": "F2", "name": "b.pdf"}
@@ -128,38 +130,48 @@ def test_remove_one_quote_and_add_another():
     assert len(line) == 1 and "removed quote b.pdf" in line[0] and "added quote c.pdf" in line[0]
 
 
-def test_new_bom_replaces_old():
+def test_new_bom_replaces_old(monkeypatch):
+    # ADR 0019 / Ticket 135: a new BOM is read through the check; its rows replace the old BOM,
+    # the old BOM attachment goes, and the new file itself is not kept.
+    with open(FIXTURE, "rb") as f:
+        fixture_bytes = f.read()
+    monkeypatch.setattr(slack_io, "download_file", lambda f: fixture_bytes)
+    monkeypatch.setattr(app, "_run_in_background", lambda fn, *a: fn(*a))
     client = _client(_card())
     values = {
         **_keep("F1", "F2"),
         **_files("block_bom", "bom", ("FB1", "new.xlsx")),
         "block_bom_one_vendor": {"bom_one_vendor": {"selected_options": [{"value": "one_vendor"}]}},
     }
-    ack = _submit_edit(client, values)
+    body = _make_edit_view_submission(META, stage2_overrides={"total_price": "858.50"})
+    body["view"]["id"] = "V_EDIT"
+    body["view"]["state"]["values"].update(values)
+    first = MagicMock()
+    with (
+        patch("src.app.roster.get_valid_requesters", return_value={"U_ISAAC": "Isaac"}),
+        patch("src.lifecycle.slack_io.resolve_requester", return_value="Isaac"),
+    ):
+        app.handle_edit_submit(first, body, client, body["view"])
+        assert first.call_args.kwargs["response_action"] == "update"
+        shown = client.views_update.call_args.kwargs["view"]
+        check = {"id": "V_EDIT", "private_metadata": shown["private_metadata"],
+                 "state": {"values": {"block_bom_reupload": {"bom_reupload": {"files": []}}}}}
+        ack = MagicMock()
+        app.handle_bom_check_submit(ack, {"user": {"id": "U_ISAAC"}, "view": {"id": "V_EDIT"}}, client, check)
     ack.assert_called_once_with()
     saved = _saved(client)
-    assert [a["name"] for a in saved if a["role"] == "bom"] == ["new.xlsx"]
-    assert [a["name"] for a in saved if a["role"] == "quote"] == ["a.pdf", "b.pdf"]
-    assert [c[1]["filename"] for c in client.files_upload_v2.call_args_list] == ["new.xlsx"]
-    assert any("replaced BOM with new.xlsx" in t for t in _thread_lines(client))
+    assert [a["role"] for a in saved] == ["quote", "quote"]
+    assert [a["name"] for a in saved] == ["a.pdf", "b.pdf"]
+    assert len(client.chat_update.call_args[1]["metadata"]["event_payload"]["items"]) == 4
+    assert any("items 0 → 4" in t for t in _thread_lines(client))
 
 
 def test_new_bom_without_one_vendor_box_is_refused():
     client = _client(_card())
     ack = _submit_edit(client, {**_keep("F1", "F2"), **_files("block_bom", "bom", ("FB1", "new.xlsx"))})
-    assert ack.call_args[1]["errors"] == bom.attachment_errors([BOM_OLD], False, "")
+    assert ack.call_args[1]["errors"] == bom.attachment_errors([{"id": "FB1"}], False)
     assert "block_bom_one_vendor" in ack.call_args[1]["errors"]
     client.chat_update.assert_not_called()
-
-
-def test_pasting_items_while_card_keeps_bom_is_refused():
-    client = _client(_card())
-    ack = _submit_edit(client, _keep("F1", "F2"), line_items_text="1 | Coupling | C-1 | 100.00 | |")
-    ack.assert_called_once_with(
-        response_action="errors", errors={"block_bom": "Attach a BOM or paste line items, not both."}
-    )
-    client.chat_update.assert_not_called()
-    client.files_upload_v2.assert_not_called()
 
 
 def test_unchanged_files_post_nothing_but_untick_alone_is_a_change():

@@ -182,7 +182,6 @@ def test_approval_three_items_archives_bom_writes_notes_and_uploads(temp_workboo
         notify_target="U_REQ",
         card_ts="100.00",
         items=items,
-        shipping=0.0,
         approver="U_CHARLIE",
     )
 
@@ -252,7 +251,6 @@ def test_approval_one_item_request_no_file_no_notes_no_upload(temp_workbook, tem
         notify_target="U_REQ",
         card_ts="100.00",
         items=items,
-        shipping=0.0,
         approver="U_CHARLIE",
     )
 
@@ -291,7 +289,6 @@ def test_approval_no_items_behaves_as_today(temp_workbook, temp_boms_dir, sync_q
         notify_target="U_REQ",
         card_ts="100.00",
         items=None,
-        shipping=0.0,
         approver="U_CHARLIE",
     )
 
@@ -330,7 +327,6 @@ def test_save_bom_raises_leaves_row_blank_no_file_card_not_advanced(temp_workboo
         notify_target="U_REQ",
         card_ts="100.00",
         items=items,
-        shipping=0.0,
         approver="U_CHARLIE",
     )
 
@@ -370,7 +366,6 @@ def test_approval_items_mismatch_refused_no_row_no_file(temp_workbook, temp_boms
         notify_target="U_REQ",
         card_ts="100.00",
         items=items,
-        shipping=0.0,
         approver="U_CHARLIE",
     )
 
@@ -391,7 +386,7 @@ def test_approval_items_mismatch_refused_no_row_no_file(temp_workbook, temp_boms
     )
     dm_calls = [call for call in client.chat_postMessage.call_args_list if call[1].get("channel") == "U_REQ"]
     assert len(dm_calls) >= 1
-    assert "Line items total ($150.00) does not match request total ($100.00)" in dm_calls[0][1]["text"]
+    assert "The BOM totals $150.00 but you typed $100.00 — they must match." in dm_calls[0][1]["text"]
 
     # 4. Posts in the thread
     say.assert_called_once()
@@ -434,7 +429,6 @@ def test_all_workbook_writes_in_ticket_go_through_queue(temp_workbook, temp_boms
         notify_target="U_REQ",
         card_ts="100.00",
         items=items,
-        shipping=0.0,
         approver="U_CHARLIE",
     )
 

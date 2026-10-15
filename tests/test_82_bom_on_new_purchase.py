@@ -18,7 +18,6 @@ from tests.test_81_quotes_on_new_purchase import (  # noqa: F401  (autouse fixtu
     isolate_roster,
 )
 
-NOT_BOTH = "Attach a BOM or paste line items, not both."
 ONE_VENDOR = "One EPIF per vendor — split this into one request per vendor."
 
 
@@ -78,13 +77,11 @@ def test_screen2_omits_bom_fields_when_edit():
 # 2. The rules, directly
 
 def test_attachment_errors_rules():
-    assert bom.attachment_errors([{"id": "F"}], True, "1 | x | | 5 | |") == {"block_bom": NOT_BOTH}
-    assert bom.attachment_errors([{"id": "F"}], False, "1 | x | | 5 | |") == {"block_bom": NOT_BOTH}
-    assert bom.attachment_errors([{"id": "F"}], False, "") == {"block_bom_one_vendor": ONE_VENDOR}
-    assert bom.attachment_errors([{"id": "F"}], False, "   \n") == {"block_bom_one_vendor": ONE_VENDOR}
-    assert bom.attachment_errors([{"id": "F"}], True, "") == {}
-    assert bom.attachment_errors([], False, "") == {}
-    assert bom.attachment_errors([], False, "1 | x | | 5 | |") == {}
+    # ADR 0019 / Ticket 135: there is no paste box, so the only rule left is the one-vendor box.
+    assert bom.attachment_errors([{"id": "F"}], False) == {"block_bom_one_vendor": ONE_VENDOR}
+    assert bom.attachment_errors([{"id": "F"}], True) == {}
+    assert bom.attachment_errors([], False) == {}
+    assert bom.attachment_errors([], True) == {}
 
 
 # 3. The rules, through the form

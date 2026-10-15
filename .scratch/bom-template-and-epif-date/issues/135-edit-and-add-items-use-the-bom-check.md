@@ -1,6 +1,6 @@
 # 135: Edit and Add items take a BOM through the same check; the paste box is gone everywhere
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -36,17 +36,17 @@ Ticket 134 removed the paste box from the view Edit shares. This ticket finishes
 
 ## Acceptance criteria
 
-- [ ] New file `tests/test_135_edit_and_add_items_bom.py`, `test_edit_with_a_new_bom_replaces_the_rows`:
+- [x] New file `tests/test_135_edit_and_add_items_bom.py`, `test_edit_with_a_new_bom_replaces_the_rows`:
   - Edit a posted card, uploading the fixture through the check flow; the card's metadata now holds the fixture's 4 items.
   - One thread line names the change, as `bom.describe_changes` does today.
   - A new `DRAFT_HIRST_LAB_BOM_` is uploaded.
   - In the same function, a second Edit that only changes Purpose leaves the metadata items identical and uploads no BOM.
-- [ ] `test_add_items_uses_the_check`: Add items with a mismatching BOM is refused on `block_bom_reupload`, and the card is unchanged (no `chat_update`).
-- [ ] `test_no_paste_box_anywhere`:
+- [x] `test_add_items_uses_the_check`: Add items with a mismatching BOM is refused on `block_bom_reupload`, and the card is unchanged (no `chat_update`).
+- [x] `test_no_paste_box_anywhere`:
   - `"block_line_items"` does not occur in `src/blocks.py`.
   - None of the built views (`build_stage2_view`, `build_items_view`, `build_workday_details_view`) has it.
   - `bom` has no attribute `parse_line_items`.
-- [ ] **Rewrite in place, same names**, to upload the fixture instead of pasting: `test_edit_items_change_reposts_draft_bom` (`tests/test_32_edit_a_posted_card.py`), `test_form_has_optional_items_box_bom_and_quotes` (`tests/test_85_add_items_files.py`), `test_attachment_errors_rules` (`tests/test_82_bom_on_new_purchase.py`), and any other test that sent `block_line_items`.
+- [x] **Rewrite in place, same names**, to upload the fixture instead of pasting: `test_edit_items_change_reposts_draft_bom` (`tests/test_32_edit_a_posted_card.py`), `test_form_has_optional_items_box_bom_and_quotes` (`tests/test_85_add_items_files.py`), `test_attachment_errors_rules` (`tests/test_82_bom_on_new_purchase.py`), and any other test that sent `block_line_items`.
 
 May fake: the Slack client and file download, the thread starter. Must be real: the reader, the BOM builder, the view builders and the handlers.
 
@@ -64,3 +64,10 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done.
+- **Check flow for every form.** Edit (`app._edit_submit`), Add items (`app._items_submit`) and the Workday details form (`app._workday_details_submit`) validate as before, and when a new BOM file is present call `app._begin_bom_check`. The check view's submit (`handle_bom_check_submit`) dispatches on `origin` in `private_metadata` (`interview` / `edit` / `items` / `workday_details`); for the three non-interview origins it replays the original submission with `checked_items`, so every rule runs again on the current card. The submission itself waits in `lifecycle._PENDING_BOM_FORMS` (too big for `private_metadata`); a restart loses it and the check view says to submit again.
+- **Rows replace rows; an empty BOM field keeps them.** A checked BOM becomes the card's line items, the old BOM attachment and the uploaded file are dropped (the bot rebuilds the BOM), quotes merge as before. An Edit with no BOM keeps the current rows but now refuses a total that no longer equals the rows' total (`block_total_price`), because the paste box used to catch that.
+- **Deleted:** `blocks.line_items_input`, `bom.parse_line_items`, `bom.format_line_items`, `bom.check_total`, the `shipping` parameter everywhere and the `shipping` key on new cards. `bom.attachment_errors(bom_files, one_vendor_ticked)` lost its paste argument. Approval now refuses a card whose rows differ from the EPIF amount with `bom.check_bom_total`'s sentence. A card posted before this ships may still carry `shipping`; it is ignored. `bom.bom_total` reads `qty` as well as `quantity`, because rows stored on such cards only have `qty`.
+- **Tests.** Deleted exactly the 19 listed. Rewritten in place: `test_32::test_edit_items_change_reposts_draft_bom` (drops `shipping=`), `test_85::test_form_has_optional_items_box_bom_and_quotes`, `test_82::test_attachment_errors_rules`, and the other tests that sent `block_line_items` or `shipping` (`test_27` draft-BOM test now calls `handle_items_update` with rows; `test_85`/`test_86` BOM tests go through the check; `test_130` items test; `test_108`, `test_layering_and_isolation`, `test_40`, `test_29`, `test_30`, `test_57`, `test_46` lost `shipping=` arguments or mocks of the deleted functions). New: `tests/test_135_edit_and_add_items_bom.py`.
+- **For the developer:** AGENTS.md traps 10 and 11 (one items box, shipping row) are now stale; the file is a protected path, so I left it for you.
