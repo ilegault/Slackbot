@@ -290,10 +290,7 @@ disagree, the workbook is what someone acts on.
 9. **Line items never go in a button `value`.** Slack caps it near 2 000 characters and
    the request already fills much of it. They ride in the card message's Slack metadata
    (ADR 0006 decision 5). One handler saves them, called by the EPIF path, the interview
-   path and Edit alike. The same 2 000-character cap applies to the whole
-   request: when the full value would not fit, `blocks.card_button_value` emits a slim value
-   (state, a few keys, the newest history) and the request is rebuilt from the card's metadata
-   (`slack_io.expand_slim_value`, the `expand_slim_card_value` middleware). Ticket 129.
+   path and Edit alike.
 10. **The BOM sheet uses live formulas** (ADR 0008). openpyxl stores no cached results, so
     Slack's file preview shows the Total cells blank until opened in Excel — not a bug.
     The sheet has no shipping row, so its Total can be below the EPIF amount by the
