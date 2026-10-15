@@ -482,6 +482,26 @@ def tell(client, user_id: str, text: str):
     client.chat_postMessage(channel=user_id, text=text)
 
 
+def tell_update_failed(client, user_id: str, item_description: str | None, error: Exception) -> None:
+    """DM the person whose Edit or Add items Slack refused (Ticket 130). Never raises.
+
+    WHY THIS EXISTS: a refused `chat_update` (`invalid_blocks` on 2026-10-13) was only logged, so
+    the requester believed the edit had landed while the card kept the old request. A view
+    submission has no `response_url`, hence the DM through `tell`. It lives here, not in
+    lifecycle, which keeps exactly two direct `tell` calls (tests/test_108).
+    """
+    get = getattr(getattr(error, "response", None), "get", None)
+    detail = (get("error") if callable(get) else None) or str(error)
+    try:
+        tell(
+            client, user_id,
+            f"⚠️ Your edit to {item_description or 'the request'} was not saved — "
+            f"Slack refused the update ({detail}). Nothing changed on the card.",
+        )
+    except Exception as tell_err:
+        log.warning("Could not tell %s that their edit was not saved: %s", user_id, tell_err)
+
+
 def notice_recipients(
     actor_id: str | None,
     requester_id: str | None = None,
