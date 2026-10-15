@@ -1,6 +1,6 @@
 # 128: Resend EPIF button on the buyer's DM card
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
