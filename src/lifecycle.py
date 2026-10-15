@@ -255,6 +255,7 @@ import json
 import logging
 import os
 import shutil
+import time
 from datetime import datetime
 
 try:
@@ -337,18 +338,55 @@ def _flag_card_entry(client, channel: str, card_ts: str, line: str, **flags):
         _request_log(client, store.append_history, req_id, line)
 
 
-def _upload_file_to_dm(client, dm_channel: str, path: str, fname: str) -> None:
-    """Upload one file to a DM channel; raises on failure (the caller decides what a failure means).
+_sleep = time.sleep  # a module-level name so tests can replace the waits between upload attempts
 
-    The one upload call: _send_assignee_dm (approval, assignment) and handle_change_epif_date
-    both go through it so a file reaches the buyer the same way whichever path sent it.
+
+def _upload_file_to_dm(client, dm_channel: str, path: str, fname: str) -> None:
+    """One upload attempt of a file to a DM channel; raises on failure.
+
+    Callers go through `_upload_to_dm`, which retries. When the client has no `files_upload_v2`
+    the old `files_upload` gets the bytes as `content` only: Slack rejects `file=` together
+    with `content=` ("You cannot specify both the file and the content argument", seen in
+    production 2026-10-05).
     """
     if hasattr(client, "files_upload_v2"):
         client.files_upload_v2(channel=dm_channel, file=path, filename=fname, title=fname)
     else:
         with open(path, "rb") as fh:
             content = fh.read()
-        client.files_upload(channels=dm_channel, file=path, content=content, filename=fname, title=fname)
+        client.files_upload(channels=dm_channel, content=content, filename=fname, title=fname)
+
+
+def _upload_to_dm(client, dm_channel: str, path: str, fname: str, assignee_id: str, assignee_name: str) -> bool:
+    """Upload one file to the buyer's DM, retrying before the admin is alerted; True when it landed.
+
+    WHY THIS EXISTS (Ticket 127): a Filled EPIF upload failed once with "The read operation
+    timed out" on 2026-10-13, the admin was alerted and the buyer never got the EPIF. Each file
+    is tried `config.DM_UPLOAD_ATTEMPTS` times, waiting `config.DM_UPLOAD_WAITS` between tries.
+    A timed-out upload may in fact have landed, so a duplicate file in the DM is accepted.
+    The approval, assignment, Change date and Resend EPIF paths all use this one function.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, config.DM_UPLOAD_ATTEMPTS + 1):
+        if attempt > 1:
+            _sleep(config.DM_UPLOAD_WAITS[attempt - 2])
+        try:
+            _upload_file_to_dm(client, dm_channel, path, fname)
+            log.info("Uploaded %s to DM for %s (attempt %d)", fname, assignee_id, attempt)
+            return True
+        except Exception as e:
+            last_error = e
+            log.warning("Upload of %s to DM for %s failed (attempt %d of %d): %s",
+                        fname, assignee_id, attempt, config.DM_UPLOAD_ATTEMPTS, e)
+    if config.ADMIN_ALERT_CHANNEL:
+        try:
+            client.chat_postMessage(
+                channel=config.ADMIN_ALERT_CHANNEL,
+                text=f"⚠️ Failed to attach *{fname}* to {assignee_name}'s DM: {last_error}",
+            )
+        except Exception as alert_err:
+            log.warning("Could not alert admin about DM attachment failure: %s", alert_err)
+    return False
 
 
 def _send_assignee_dm(
@@ -443,19 +481,7 @@ def _send_assignee_dm(
                 resp = client.conversations_open(users=assignee_id)
                 dm_channel = resp["channel"]["id"]
                 for path, fname in files_to_upload:
-                    try:
-                        _upload_file_to_dm(client, dm_channel, path, fname)
-                        log.info("Uploaded %s to DM for %s", fname, assignee_id)
-                    except Exception as e:
-                        log.warning("Could not upload %s to DM for %s: %s", fname, assignee_id, e)
-                        if config.ADMIN_ALERT_CHANNEL:
-                            try:
-                                client.chat_postMessage(
-                                    channel=config.ADMIN_ALERT_CHANNEL,
-                                    text=f"⚠️ Failed to attach *{fname}* to {assignee_name}'s DM: {e}",
-                                )
-                            except Exception as alert_err:
-                                log.warning("Could not alert admin about DM attachment failure: %s", alert_err)
+                    _upload_to_dm(client, dm_channel, path, fname, assignee_id, assignee_name)
             except Exception as e:
                 log.warning("Could not open DM channel for assignee %s: %s", assignee_id, e)
 
@@ -2206,7 +2232,7 @@ def handle_change_epif_date(client, channel: str, thread_ts: str, card_ts: str, 
     The card is re-read here and the assignee and `approved` state re-checked, so a stale form
     cannot act after the request moved on or changed hands (the form listener checks too, but
     only this function is the gate). Returns True when the EPIF was re-dated. A failed upload
-    to the DM alerts the admins but leaves the new archive and card in place.
+    to the DM (retried, then alerted by `_upload_to_dm`) leaves the new archive and card in place.
 
     A request approved from an uploaded (hand-filled) EPIF has no Filled EPIF to re-fill, so its
     archived file gets only the Date of Purchase field rewritten (`epif_filler.redate_epif`),
@@ -2273,16 +2299,10 @@ def handle_change_epif_date(client, channel: str, thread_ts: str, card_ts: str, 
         return False
 
     if req_data.get("dm_channel"):
-        try:
-            _upload_file_to_dm(client, req_data["dm_channel"], saved_path, epif_fname)
-        except Exception as e:
-            log.warning("Could not upload re-dated %s to DM %s: %s", epif_fname, req_data["dm_channel"], e)
-            slack_io.alert_admins(
-                client,
-                text_rules.format_card_failure_alert(
-                    "send the re-dated EPIF to the buyer", channel, thread_ts, epif_fname, str(e)
-                ),
-            )
+        _upload_to_dm(
+            client, req_data["dm_channel"], saved_path, epif_fname,
+            req_data.get("assignee_id") or user_id, req_data.get("assignee") or f"<@{user_id}>",
+        )
 
     actor = slack_io.resolve_requester(client, user_id) or f"<@{user_id}>"
     history.append(f"EPIF date changed to {chosen_date.strftime('%m/%d/%Y')} by {actor}")
