@@ -1,6 +1,6 @@
 # 124: The Filled EPIF is dated at approval; the interview stops asking for a date
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -47,13 +47,13 @@ datepicker. It is typed on the day the form is filled in, and feeds both
 
 ## Acceptance criteria
 
-- [ ] `test_no_modal_asks_for_a_date` builds `blocks.build_stage2_view` (new request and edit meta) and `blocks.build_workday_details_view`, and asserts no block has `block_id == "block_date_of_purchase"`.
-- [ ] `test_filled_epif_is_dated_the_approval_day`: posted on day D1 and approved on day D2 — pin both dates by monkeypatching the one date helper from step 2, nothing else.
+- [x] `test_no_modal_asks_for_a_date` builds `blocks.build_stage2_view` (new request and edit meta) and `blocks.build_workday_details_view`, and asserts no block has `block_id == "block_date_of_purchase"`.
+- [x] `test_filled_epif_is_dated_the_approval_day`: posted on day D1 and approved on day D2 — pin both dates by monkeypatching the one date helper from step 2, nothing else.
   - Drive approval through `lifecycle.finalize_purchase_request` as `tests/test_45_epif_approval_archives.py` does.
   - Read the archived PDF from the temp `EPIFS_DIR` with `epif_parser.parse_epif`; its `date_of_purchase` is D2.
   - The row dict passed to the workbook writer has column M equal to D1.
   - In the same function, an uploaded EPIF dated 09/01/2026 logs column M as 09/01/2026 and is archived unchanged.
-- [ ] Every existing test that submits Screen 2, Edit or Workday-details views is rewritten in place under the same name to stop sending `block_date_of_purchase`. No test function is deleted. (no test: the full suite in the gate proves it)
+- [x] Every existing test that submits Screen 2, Edit or Workday-details views is rewritten in place under the same name to stop sending `block_date_of_purchase`. No test function is deleted. (no test: the full suite in the gate proves it)
 
 May fake: the Slack client, the lock queue's workbook write (capture the row dict). Must be real: `fill_epif` on `tests/fixtures/EPIF_TEMPLATE_HIRST.pdf`, `parse_epif`, `log_writer.save_epif` into a temp directory.
 
@@ -71,3 +71,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. Parsed requests carry `request_date` (ISO string, from `interview.today()`); Screen 2, Edit and Workday-details no longer render or read a date block. `build_row` writes column M from `request_date`, falling back to `date_of_purchase` (uploaded EPIFs, pre-deploy cards, so those need no copy). `fill_epif` prints `epif_date`, set from `interview.today()` at approval and at the switch, and stored on the payload as `epif_date`. Edit and Switch keep the card's original request date. Tests: `tests/test_124_epif_date.py` (both named tests); existing modal/interview tests rewritten in place, none deleted. Note: `test_docs_adr_is_unmodified` fails in clones whose local `master` ref is stale (environment difference, also red on the base commit here).

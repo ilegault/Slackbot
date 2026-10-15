@@ -7,6 +7,11 @@ exactly matches the PDF the buyer sends.
 Purpose on the Filled EPIF ends with the request's link (plain text, `Link: <url>`), per
 .scratch/purpose-and-link/spec.md; the stored request's purpose is never changed.
 
+The Date of Purchase printed on the EPIF is the EPIF date (`epif_date`): the day the bot made
+the PDF, i.e. approval or the switch to the EPIF path. It is not the request date, which is
+workbook column M and never changes. `date_of_purchase` is only the fallback for callers that
+have no `epif_date`.
+
 NOTE: Three fields in the EPIF template are not read or written by this module:
 - `Signature1`: A `/Sig` digital-signature field. A person signs it outside the bot.
 - `Telephone # for ?'s`: Pre-filled in the university template; kept as-is.
@@ -19,9 +24,10 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import BooleanObject, NameObject
 
 try:
-    from . import config, text_rules
+    from . import config, epif_parser, text_rules
 except ImportError:
     import config
+    import epif_parser  # type: ignore[no-redef]
     import text_rules  # type: ignore[no-redef]
 
 def fill_epif(template_bytes: bytes, parsed: dict) -> bytes:
@@ -83,6 +89,10 @@ def fill_epif(template_bytes: bytes, parsed: dict) -> bytes:
         val = parsed.get(parsed_key)
 
         # Format dates and prices
+        if parsed_key == "date_of_purchase":
+            val = parsed.get("epif_date") or val
+            if isinstance(val, str):
+                val = epif_parser.parse_date(val)
         if parsed_key == "date_of_purchase" and isinstance(val, datetime.date):
             val = val.strftime("%m/%d/%Y")
         elif parsed_key == "total_price" and val is not None:

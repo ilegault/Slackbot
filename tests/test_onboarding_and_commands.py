@@ -266,7 +266,6 @@ def test_screen2_to_screen3_or_finalize(monkeypatch):
                 "block_total_price": {"total_price": {"value": "250.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
                 "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
                 "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
                 "block_fund": {"fund": {"selected_option": {"value": "133"}}},
@@ -298,7 +297,6 @@ def test_screen2_to_screen3_or_finalize(monkeypatch):
                 "block_total_price": {"total_price": {"value": "120.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
                 "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
                 "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
                 "block_fund": {"fund": {"selected_option": {"value": "133"}}},
@@ -365,7 +363,7 @@ def test_screen3_to_finalize(monkeypatch):
     assert parsed["asset_id"] == "TAG-44556"
     assert parsed["name_of_system"] == "Target Chamber Alpha"
     assert parsed["payment_method"] == "Workday"
-    assert len(parsed) == 20  # 19 keys + date_of_purchase string format in payload
+    assert len(parsed) == 20  # the parser's keys, with request_date (ISO string) in place of date_of_purchase
 
 
 def test_private_metadata_budget():
@@ -952,7 +950,6 @@ def test_screen2_validation_errors():
                 "block_total_price": {"total_price": {"value": "NOT_A_PRICE"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-14"}},
                 "block_delivery_room": {"delivery_room": {"selected_option": {"value": "ERB 212"}}},
                 "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
                 "block_fund": {"fund": {"selected_option": {"value": "133"}}},

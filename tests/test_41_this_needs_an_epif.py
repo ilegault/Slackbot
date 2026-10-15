@@ -185,7 +185,6 @@ def _submit_stage2(fake, ack, values_override=None):
         "block_total_price": {"total_price": {"value": "17.10"}},
         "block_vendor_contact_name": {"vendor_contact_name": {"value": "Sales Rep"}},
         "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@winford.example"}},
-        "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-24"}},
         "block_project_id": {"project_id": {"selected_option": {"value": "PG000025831"}}},
         "block_fund": {"fund": {"selected_option": {"value": "133"}}},
         "block_category": {"category": {"selected_option": {"value": "Research/Lab Supplies (3105)"}}},

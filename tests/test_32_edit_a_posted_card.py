@@ -495,7 +495,6 @@ def _make_edit_view_submission(meta, stage2_overrides=None, stage3_overrides=Non
         "total_price": "100.00",
         "vendor_contact_name": "Rep Name",
         "vendor_contact_email": "rep@vendor.com",
-        "date_of_purchase": "2026-01-15",
         "delivery_room": "ERB 212",
         "project_id": "PG000025831",
         "fund": "133",
@@ -513,8 +512,6 @@ def _make_edit_view_submission(meta, stage2_overrides=None, stage3_overrides=Non
     for k, v in base_stage2.items():
         if k in ("delivery_room", "project_id", "fund", "category", "payment_method"):
             values[f"block_{k}"] = {k: {"type": "static_select", "selected_option": {"value": v} if v else None}}
-        elif k == "date_of_purchase":
-            values["block_date_of_purchase"] = {"date_of_purchase": {"type": "datepicker", "selected_date": v}}
         else:
             values[f"block_{k}"] = {k: {"type": "plain_text_input", "value": v}}
 
