@@ -51,7 +51,7 @@ def test_edit_refusal_on_approved_card_dms_clicker_with_link(monkeypatch):
     monkeypatch.setattr(
         lifecycle.slack_io, "get_card_payload", lambda *a, **k: {"state": "approved"}
     )
-    ok = lifecycle.handle_items_update(client, "C_CHAN", "100.0", "101.0", [], 0.0, "U_CLICK")
+    ok = lifecycle.handle_items_update(client, "C_CHAN", "100.0", "101.0", [], "U_CLICK")
     assert ok is False
     dms = _dms(client)
     assert [d["channel"] for d in dms] == ["U_CLICK"]

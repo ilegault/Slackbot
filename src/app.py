@@ -548,7 +548,7 @@ def handle_stage2_submit(ack, body, client, view):
             or []
         )
     )
-    bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked, "")
+    bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked)
     if bom_errors:
         ack(response_action="errors", errors=bom_errors)
         return
@@ -594,6 +594,21 @@ def handle_stage2_submit(ack, body, client, view):
         lifecycle._process_interview_completion(ack, client, body, meta, stage2, stage3=None)
 
 
+def _begin_bom_check(ack, client, body, view, origin: str, typed_total, file_ref: dict) -> None:
+    """Answer a form submission that carries a BOM with the reading view, and start the reading.
+
+    WHY THIS EXISTS (Ticket 135, ADR 0019 decision 5): Edit, Add items and the Workday details
+    form go through the same check screen as Screen 2. Their submissions (and so the file and
+    keep-quotes fields) are too big for `private_metadata`, so `lifecycle.remember_bom_form`
+    keeps the submission, and the check view's submit replays it with the checked rows.
+    """
+    view_id = _view_id(body, view)
+    lifecycle.remember_bom_form(view_id, origin, body, view)
+    meta = {"origin": origin, "typed_total": typed_total}
+    ack(response_action="update", view=blocks.build_bom_reading_view(meta))
+    _run_in_background(lifecycle.run_bom_check, client, view_id, meta, file_ref)
+
+
 def _run_in_background(fn, *args) -> None:
     """Run `fn(*args)` off the listener thread (tests replace this to run it inline)."""
     threading.Thread(target=fn, args=args, daemon=True).start()
@@ -616,14 +631,27 @@ def handle_bom_check_submit(ack, body, client, view):
     values = view.get("state", {}).get("values", {})
     meta = json.loads(view.get("private_metadata") or "{}")
     new_files = text_rules.extract_modal_files(values, "block_bom_reupload", "bom_reupload")
+    origin = meta.get("origin", "interview")
     if new_files:
-        meta.setdefault("stage2", {})["bom_source"] = new_files[0]
+        if origin == "interview":
+            meta.setdefault("stage2", {})["bom_source"] = new_files[0]
         ack(response_action="update", view=blocks.build_bom_reading_view(meta))
         _run_in_background(lifecycle.run_bom_check, client, _view_id(body, view), meta, new_files[0])
         return
     if not meta.get("bom_ok"):
         ack(response_action="errors", errors={
             "block_bom_reupload": meta.get("bom_problems") or "Upload a corrected BOM to continue."})
+        return
+    if origin != "interview":
+        view_id = _view_id(body, view)
+        form = lifecycle.take_bom_form(view_id)
+        items = lifecycle.take_checked_items(view_id)
+        replay = {"edit": _edit_submit, "items": _items_submit, "workday_details": _workday_details_submit}.get(origin)
+        if not form or items is None or replay is None:
+            ack(response_action="errors", errors={
+                "block_bom_reupload": "This form timed out. Close it and submit again."})
+            return
+        replay(ack, form["body"], client, form["view"], checked_items=items)
         return
     meta.pop("bom_ok", None)
     meta.pop("bom_problems", None)
@@ -637,6 +665,11 @@ def handle_bom_check_submit(ack, body, client, view):
 @app.view("modal_workday_details")
 def handle_workday_details_submit(ack, body, client, view):
     """Handle submission of the Workday details modal."""
+    _workday_details_submit(ack, body, client, view)
+
+
+def _workday_details_submit(ack, body, client, view, checked_items=None):
+    """Finalize a request waiting for details; a BOM goes through the BOM check first (Ticket 135)."""
     meta = json.loads(view["private_metadata"])
     channel = meta["channel_id"]
     thread_ts = meta["thread_ts"]
@@ -667,21 +700,15 @@ def handle_workday_details_submit(ack, body, client, view):
     project = state_vals.get("block_project_id", {}).get("project_id", {}).get("value")
     fund = state_vals.get("block_fund", {}).get("fund", {}).get("value")
     category = state_vals.get("block_category", {}).get("category", {}).get("selected_option", {}).get("value")
-    line_items_str = state_vals.get("block_line_items", {}).get("line_items", {}).get("value", "")
-
-    parsed_items = []
-    shipping = 0.0
-    if line_items_str:
-        parsed_items, shipping, err = bom.parse_line_items(line_items_str)
-        if err:
-            ack(response_action="errors", errors={"block_line_items": "\n".join(err)})
-            return
-
-    # Check total
-    if parsed_items:
-        total_err = bom.check_total(parsed_items, shipping, total_price)
-        if total_err:
-            ack(response_action="errors", errors={"block_line_items": total_err})
+    raw_bom_files = text_rules.extract_modal_files(state_vals, "block_bom", "bom")
+    one_vendor_ticked = any(
+        o.get("value") == "one_vendor"
+        for o in (state_vals.get("block_bom_one_vendor", {}).get("bom_one_vendor", {}).get("selected_options") or [])
+    )
+    if checked_items is None:
+        bom_errors = bom.attachment_errors(raw_bom_files, one_vendor_ticked)
+        if bom_errors:
+            ack(response_action="errors", errors=bom_errors)
             return
 
     parsed = {
@@ -731,6 +758,10 @@ def handle_workday_details_submit(ack, body, client, view):
         ack(response_action="errors", errors=errors)
         return
 
+    if checked_items is None and raw_bom_files:
+        _begin_bom_check(ack, client, body, view, "workday_details", total_price, raw_bom_files[0])
+        return
+
     ack()
 
     # Call lifecycle to write row and update
@@ -757,8 +788,7 @@ def handle_workday_details_submit(ack, body, client, view):
         assignee_name=card_payload.get("assignee"),
         approver=approver,
         card_ts=card_ts,
-        items=parsed_items,
-        shipping=shipping,
+        items=checked_items or [],
     )
 
 
@@ -800,19 +830,17 @@ def _merged_attachments(values: dict, current: list[dict]) -> tuple[list[dict], 
     return bom.merge_attachments(current, kept_ids, new_bom, new_quotes), new_bom, one_vendor_ticked, new_quotes
 
 
-def _final_attachment_errors(merged: list[dict], new_bom: list[dict], one_vendor_ticked: bool, raw_text: str) -> dict:
-    """Validate the final attachment state with bom.attachment_errors.
-
-    A BOM kept from before was confirmed one-vendor when it was attached, so only a new BOM
-    needs the box ticked; a BOM present after the merge (new or kept) cannot sit beside items.
-    """
-    final_bom = [a for a in merged if a.get("role") == "bom"]
-    return bom.attachment_errors(final_bom, one_vendor_ticked or not new_bom, raw_text)
-
-
 @app.view(config.ITEMS_CALLBACK_ID)
 def handle_items_modal_submit(ack, body, client, view):
-    """Handle submission of line items modal."""
+    """Handle submission of the Add items modal."""
+    _items_submit(ack, body, client, view)
+
+
+def _items_submit(ack, body, client, view, checked_items=None):
+    """Add a BOM and/or quotes to a posted card; a BOM goes through the BOM check first (Ticket 135).
+
+    `checked_items` are the rows of a BOM that passed the check (see `_edit_submit`).
+    """
     values = view.get("state", {}).get("values", {})
     meta = json.loads(view.get("private_metadata") or "{}")
     channel = meta.get("channel")
@@ -820,48 +848,41 @@ def handle_items_modal_submit(ack, body, client, view):
     card_ts = meta.get("card_ts")
     user_id = body.get("user", {}).get("id")
 
-    raw_text = text_rules._extract_modal_field(values, "block_line_items", "action_line_items") or ""
-
     card_payload = slack_io.get_card_payload(client, channel, thread_ts, card_ts)
     if not card_payload:
-        ack(response_action="errors", errors={"block_line_items": "Could not find request details for this card."})
+        ack(response_action="errors", errors={"block_bom": "Could not find request details for this card."})
         return
 
-    # Ticket 86: merge the file fields onto what the card already carries, then validate the
-    # FINAL state (a kept BOM counts) so a pasted list cannot sit beside an old BOM.
+    # Ticket 86: merge the file fields onto what the card already carries.
     current_attachments = list(card_payload.get("attachments") or [])
     merged, new_bom, one_vendor_ticked, _new_quotes = _merged_attachments(values, current_attachments)
     attachment_changes = bom.describe_attachment_changes(current_attachments, merged)
 
-    if not raw_text.strip() and not attachment_changes:
-        ack(response_action="errors", errors={"block_line_items": "Add line items, a BOM or quotes."})
-        return
-    bom_errors = _final_attachment_errors(merged, new_bom, one_vendor_ticked, raw_text)
-    if bom_errors:
-        ack(response_action="errors", errors=bom_errors)
-        return
-
-    items = None  # None = paste box blank; the card keeps its existing items
-    shipping = 0.0
-    if raw_text.strip():
-        items, shipping, parse_errors = bom.parse_line_items(raw_text)
-        if parse_errors:
-            ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
+    if checked_items is None:
+        if not new_bom and not attachment_changes:
+            ack(response_action="errors", errors={"block_bom": "Add a BOM or quotes."})
+            return
+        bom_errors = bom.attachment_errors(new_bom, one_vendor_ticked)
+        if bom_errors:
+            ack(response_action="errors", errors=bom_errors)
             return
 
     card_state = card_payload.get("state", "posted")
     if card_state != "posted":
-        ack(response_action="errors", errors={"block_line_items": "This purchase request has already been approved and line items can no longer be edited."})
+        ack(response_action="errors", errors={"block_bom": "This purchase request has already been approved and line items can no longer be edited."})
         return
 
     parsed = card_payload.get("parsed") or {}
     total_price = parsed.get("total_price") if "total_price" in parsed else parsed.get("Amount of Purchase")
 
-    if items is not None:
-        total_error = bom.check_total(items, shipping, total_price)
-        if total_error:
-            ack(response_action="errors", errors={"block_line_items": total_error})
-            return
+    if checked_items is None and new_bom:
+        _begin_bom_check(ack, client, body, view, "items", total_price, new_bom[0])
+        return
+
+    items = None  # None = no new BOM; the card keeps its existing rows
+    if checked_items is not None:
+        items = checked_items
+        merged = [a for a in merged if a.get("role") != "bom"]  # the bot rebuilds the BOM from the rows
 
     ack()
 
@@ -871,11 +892,9 @@ def handle_items_modal_submit(ack, body, client, view):
         thread_ts=thread_ts,
         card_ts=card_ts,
         items=items,
-        shipping=shipping,
         user_id=user_id,
         attachments=merged,
     )
-
 
 
 # --- Alerts-Channel Interactive Action Handlers (Phase 2) --------------------
@@ -1247,9 +1266,6 @@ def handle_req_switch_epif(ack, body, respond, client):
         return
 
     parsed = req_data.get("parsed") if isinstance(req_data.get("parsed"), dict) else req_data
-    card_payload = slack_io.get_card_payload(client, channel_id, thread_ts, card_ts) or {}
-    items = card_payload.get("items") or []
-    shipping = float(card_payload.get("shipping") or 0.0)
     price = parsed.get("total_price")
     price_str = f"{price:.2f}" if isinstance(price, (int, float)) else str(price or "")
     meta = {
@@ -1269,7 +1285,6 @@ def handle_req_switch_epif(ack, body, respond, client):
         "fund": parsed.get("fund", "") or "",
         "category": parsed.get("category", "") or "",
         "payment_method": parsed.get("payment_method", "") or "",
-        "line_items": bom.format_line_items(items, shipping) if items else "",
         "switch": {
             "channel": channel_id,
             "thread_ts": thread_ts,
@@ -1343,14 +1358,10 @@ def handle_req_items_action(ack, body, respond, client):
         slack_io.deny(respond, "⚠️ Items can only be added or edited while the request is in posted state.")
         return
 
-    items = card_payload.get("items")
-    shipping = float(card_payload.get("shipping") or 0.0)
     view = blocks.build_items_view(
         channel=channel_id,
         thread_ts=thread_ts,
         card_ts=card_ts,
-        items=items,
-        shipping=shipping,
         quotes=[a for a in (card_payload.get("attachments") or []) if a.get("role") == "quote"],
     )
     try:
@@ -1392,9 +1403,6 @@ def handle_req_edit_action(ack, body, respond, client):
         return
 
     parsed = card_payload.get("parsed") or {}
-    items = card_payload.get("items") or []
-    shipping = float(card_payload.get("shipping") or 0.0)
-
     route = interview.get_request_route(card_payload)
     total_price_val = parsed.get("total_price")
     total_price_str = f"{total_price_val:.2f}" if isinstance(total_price_val, (int, float)) else str(total_price_val or "")
@@ -1421,7 +1429,6 @@ def handle_req_edit_action(ack, body, respond, client):
         "payment_method": parsed.get("payment_method", "") or "",
         "asset_id": parsed.get("asset_id", "") or "",
         "name_of_system": parsed.get("name_of_system", "") or "",
-        "line_items": bom.format_line_items(items, shipping) if items else "",
         # Ticket 86: feeds the keep-quotes checkboxes; build_stage2_view keeps it out of private_metadata.
         "quotes": [a for a in (card_payload.get("attachments") or []) if a.get("role") == "quote"],
     }
@@ -1436,6 +1443,16 @@ def handle_req_edit_action(ack, body, respond, client):
 @app.view(config.EDIT_CALLBACK_ID)
 def handle_edit_submit(ack, body, client, view):
     """Handle submission of the Edit request modal (Ticket 32)."""
+    _edit_submit(ack, body, client, view)
+
+
+def _edit_submit(ack, body, client, view, checked_items=None):
+    """Validate an Edit and apply it; a new BOM goes through the BOM check first (Ticket 135).
+
+    `checked_items` are the rows of a BOM that passed the check: the check view's submit calls
+    this again with the original submission and them, so every rule here runs once more on the
+    current card before anything is changed.
+    """
     values = view.get("state", {}).get("values", {})
     meta = json.loads(view.get("private_metadata") or "{}")
     channel = meta.get("channel")
@@ -1468,19 +1485,6 @@ def handle_edit_submit(ack, body, client, view):
         "asset_id": text_rules._extract_modal_field(values, "block_asset_id", "asset_id") or "",
         "name_of_system": text_rules._extract_modal_field(values, "block_name_of_system", "name_of_system") or "",
     }
-
-    raw_line_items = text_rules._extract_modal_field(values, "block_line_items", "line_items") or ""
-    items = []
-    shipping = 0.0
-    if raw_line_items.strip():
-        items, shipping, parse_errors = bom.parse_line_items(raw_line_items)
-        if parse_errors:
-            ack(response_action="errors", errors={"block_line_items": "\n".join(parse_errors)})
-            return
-        total_error = bom.check_total(items, shipping, stage2.get("total_price"))
-        if total_error:
-            ack(response_action="errors", errors={"block_line_items": total_error})
-            return
 
     # Validate with same rules as interview
     stage1 = {
@@ -1538,23 +1542,32 @@ def handle_edit_submit(ack, body, client, view):
         ack(response_action="errors", errors={"block_item_description": "Could not find request details for this card."})
         return
 
-    # Ticket 134 / ADR 0019: the shared form has no paste box any more, so an Edit that does not
-    # bring a BOM keeps the card's current rows (ticket 135 puts Edit through the BOM check).
-    if not raw_line_items.strip():
-        items = list(card_payload.get("items") or [])
-        shipping = float(card_payload.get("shipping") or 0.0)
-
     if card_payload.get("state", "posted") != "posted":
         ack(response_action="errors", errors={"block_item_description": "This request was approved while you were editing — nothing was changed."})
         return
 
-    # Ticket 86: validate the final attachment state (kept BOM + pasted items is refused).
+    # Ticket 86 / 135: merge the file fields onto what the card carries. A new BOM must be
+    # ticked as one vendor, is read and checked before anything changes, and replaces the rows;
+    # without one the card keeps its current rows (ADR 0012 decision 6, still in force).
     current_attachments = list(card_payload.get("attachments") or [])
     merged, new_bom, one_vendor_ticked, _new_quotes = _merged_attachments(values, current_attachments)
-    bom_errors = _final_attachment_errors(merged, new_bom, one_vendor_ticked, raw_line_items)
-    if bom_errors:
-        ack(response_action="errors", errors=bom_errors)
+    if checked_items is None and new_bom:
+        bom_errors = bom.attachment_errors(new_bom, one_vendor_ticked)
+        if bom_errors:
+            ack(response_action="errors", errors=bom_errors)
+            return
+        _begin_bom_check(ack, client, body, view, "edit", stage2.get("total_price"), new_bom[0])
         return
+
+    if checked_items is not None:
+        items = checked_items
+        merged = [a for a in merged if a.get("role") != "bom"]  # the bot rebuilds the BOM from the rows
+    else:
+        items = list(card_payload.get("items") or [])
+        mismatch = bom.check_bom_total(items, stage2.get("total_price")) if items else None
+        if mismatch:
+            ack(response_action="errors", errors={"block_total_price": f"{mismatch} Upload a corrected BOM or change the total."})
+            return
 
     ack()
 
@@ -1566,7 +1579,6 @@ def handle_edit_submit(ack, body, client, view):
         stage2=stage2,
         stage3=stage3,
         items=items,
-        shipping=shipping,
         user_id=user_id,
         card_payload=card_payload,
         meta=meta,

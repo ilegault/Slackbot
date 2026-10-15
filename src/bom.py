@@ -1,4 +1,4 @@
-"""Line items parsing, formatting, validation, and BOM workbook generation.
+"""Reading the lab BOM template, validation, and BOM workbook generation.
 
 WHY THIS EXISTS:
 ----------------
@@ -8,18 +8,16 @@ Ruland), sending purchasing five bare links in an email forces the buyer and Tin
 reconstruct quantities, unit costs, and part numbers by hand.
 
 This module provides the pure domain logic for multi-item orders:
-1. Parsing pasted line items (pipe-separated or tab-separated straight from Excel/Sheets)
-   with precise per-line error reporting.
-2. Formatting line items back to standard text for pre-filling edit modals.
-3. Checking line item totals against request total ($0.01 tolerance).
-4. Building the BOM by filling the committed lab template (ADR 0019 decision 6; it replaced
+1. Reading the BOM a requester uploads (item 6). The paste box and its parser are gone
+   (ADR 0019 decision 4, Ticket 135): every form takes the lab BOM template instead.
+2. Building the BOM by filling the committed lab template (ADR 0019 decision 6; it replaced
    ADR 0008's hand-built layout). Totals are live formulas, so Slack's preview shows them
    blank because openpyxl stores no cached results. The sheet has no shipping row.
-5. Hyperlinking the Item cell to the item's URL so Tina can click straight through to parts.
-6. Generating the lab's file names, HIRST_LAB_BOM_<Description>_<MM.DD.YYYY>.xlsx.
-7. Computing concise change descriptions for card edit threads.
+3. Hyperlinking the Item cell to the item's URL so Tina can click straight through to parts.
+4. Generating the lab's file names, HIRST_LAB_BOM_<Description>_<MM.DD.YYYY>.xlsx.
+5. Computing concise change descriptions for card edit threads.
 
-8. Reading the lab BOM template (ADR 0019): `read_bom_template` parses an uploaded .xlsx
+6. Reading the lab BOM template (ADR 0019): `read_bom_template` parses an uploaded .xlsx
    whose header row exactly matches `config.BOM_TEMPLATE_HEADERS`. It never guesses headers:
    a sheet in any other layout is refused with one sentence pointing at the template, because
    a wrong guess writes a wrong quantity into a purchase. It never reads formula cells (the
@@ -47,173 +45,8 @@ except ImportError:
     import epif_parser
 
 
-def parse_line_items(text: str) -> Tuple[List[Dict[str, Any]], float, List[str]]:
-    """Parse pasted line items text into a list of item dicts, shipping amount, and errors.
-
-    Input format: one item per line, separated by '|' or tab '\\t':
-      qty | name | part_number | unit_price | link | description
-    Optional shipping line:
-      shipping | <amount>
-
-    Returns:
-      (items, shipping, errors)
-    """
-    items: List[Dict[str, Any]] = []
-    shipping = 0.0
-    shipping_seen = False
-    errors: List[str] = []
-
-    if not text:
-        return items, shipping, errors
-
-    lines = text.splitlines()
-    for idx, raw_line in enumerate(lines):
-        line_no = idx + 1
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        if "|" in line:
-            fields = [f.strip() for f in line.split("|")]
-        else:
-            fields = [f.strip() for f in line.split("\t")]
-
-        # Check for shipping line
-        if fields and fields[0].lower() == "shipping":
-            if shipping_seen:
-                errors.append(f"line {line_no}: second shipping line is not allowed")
-            elif len(fields) < 2:
-                errors.append(f"line {line_no}: shipping line must include an amount")
-            elif len(fields) > 2:
-                errors.append(f"line {line_no}: shipping line has too many fields")
-            else:
-                amt_str = fields[1]
-                p = epif_parser.parse_money(amt_str)
-                if p is None:
-                    errors.append(f'line {line_no}: shipping amount "{amt_str}" is not a valid number')
-                elif p < 0:
-                    errors.append(f'line {line_no}: shipping amount "{amt_str}" must be ≥ 0')
-                else:
-                    shipping = p
-                    shipping_seen = True
-            continue
-
-        # Item line: 4 to 6 fields
-        if len(fields) < 4:
-            errors.append(
-                f"line {line_no}: expected at least 4 fields (qty | name | part # | unit price), got {len(fields)}"
-            )
-            continue
-        if len(fields) > 6:
-            errors.append(
-                f"line {line_no}: too many fields (expected up to 6, got {len(fields)})"
-            )
-            continue
-
-        qty_str = fields[0]
-        name = fields[1]
-        part_number = fields[2]
-        price_str = fields[3]
-        link = fields[4] if len(fields) > 4 else ""
-        description = fields[5] if len(fields) > 5 else ""
-
-        line_valid = True
-
-        # Validate qty (positive whole number)
-        try:
-            qty_val = int(qty_str)
-            if qty_val <= 0:
-                errors.append(f'line {line_no}: quantity "{qty_str}" must be a positive whole number')
-                line_valid = False
-        except (ValueError, TypeError):
-            errors.append(f'line {line_no}: quantity "{qty_str}" must be a positive whole number')
-            line_valid = False
-            qty_val = 0
-
-        # Validate name (non-empty)
-        if not name:
-            errors.append(f"line {line_no}: item name cannot be empty")
-            line_valid = False
-
-        # Validate unit_price (number >= 0)
-        p = epif_parser.parse_money(price_str)
-        if p is None:
-            errors.append(f'line {line_no}: unit price "{price_str}" is not a number')
-            line_valid = False
-            price_val = 0.0
-        elif p < 0:
-            errors.append(f'line {line_no}: unit price "{price_str}" must be ≥ 0')
-            line_valid = False
-            price_val = 0.0
-        else:
-            price_val = p
-
-        if line_valid:
-            items.append({
-                "qty": qty_val,
-                "name": name,
-                "part_number": part_number,
-                "unit_price": price_val,
-                "link": link,
-                "description": description,
-            })
-
-    if len(items) > 25:
-        errors.append(f"too many item lines ({len(items)} items, maximum is 25)")
-
-    return items, shipping, errors
-
-
-def format_line_items(items: List[Dict[str, Any]], shipping: float = 0.0) -> str:
-    """Format line items and shipping back to pipe-separated text for pre-filling modals."""
-    lines: List[str] = []
-    for item in items:
-        qty = item.get("qty", 1)
-        name = item.get("name", "")
-        part = item.get("part_number", "")
-        price = float(item.get("unit_price", 0.0))
-        link = item.get("link", "")
-        desc = item.get("description", "")
-
-        if desc:
-            line = f"{qty} | {name} | {part} | {price:.2f} | {link} | {desc}"
-        elif link:
-            line = f"{qty} | {name} | {part} | {price:.2f} | {link}"
-        else:
-            line = f"{qty} | {name} | {part} | {price:.2f}"
-        lines.append(line)
-
-    if shipping > 0.0:
-        lines.append(f"shipping | {shipping:.2f}")
-
-    return "\n".join(lines)
-
-
-def check_total(items: List[Dict[str, Any]], shipping: float, total_price: Any) -> Optional[str]:
-    """Check if sum(qty * unit_price) + shipping matches total_price within $0.01.
-
-    Returns None if within tolerance, or an error sentence showing both numbers.
-    """
-    if total_price is None:
-        target = 0.0
-    elif isinstance(total_price, (int, float)):
-        target = float(total_price)
-    else:
-        parsed = epif_parser.parse_money(str(total_price))
-        target = parsed if parsed is not None else 0.0
-
-    calculated = sum(int(item["qty"]) * float(item["unit_price"]) for item in items) + float(shipping or 0.0)
-    if abs(calculated - target) <= 0.01 + 1e-9:
-        return None
-    return (
-        f"Line items total (${calculated:.2f}) does not match request total (${target:.2f})."
-    )
-
-
-def attachment_errors(
-    bom_files: List[Dict[str, Any]], one_vendor_ticked: bool, line_items_text: str
-) -> Dict[str, str]:
-    """Validate an attached BOM against the one-vendor and attach-or-paste rules.
+def attachment_errors(bom_files: List[Dict[str, Any]], one_vendor_ticked: bool) -> Dict[str, str]:
+    """Validate an attached BOM against the one-vendor rule.
 
     WHY THIS EXISTS:
     ----------------
@@ -227,8 +60,6 @@ def attachment_errors(
     """
     if not bom_files:
         return {}
-    if (line_items_text or "").strip():
-        return {"block_bom": "Attach a BOM or paste line items, not both."}
     if not one_vendor_ticked:
         return {"block_bom_one_vendor": "One EPIF per vendor — split this into one request per vendor."}
     return {}
@@ -313,15 +144,13 @@ def describe_changes(old_request: Dict[str, Any], new_request: Dict[str, Any]) -
     elif old_p is None and new_p is not None:
         fragments.append(f"Total set to ${new_p:.2f}")
 
-    # 2. Line items & shipping
+    # 2. Line items (shipping is not tracked: ADR 0019)
     old_items = old_request.get("items") or []
     new_items = new_request.get("items") or []
-    old_ship = float(old_request.get("shipping") or 0.0)
-    new_ship = float(new_request.get("shipping") or 0.0)
 
     if len(old_items) != len(new_items):
         fragments.append(f"items {len(old_items)} → {len(new_items)}")
-    elif old_items != new_items or abs(old_ship - new_ship) > 0.005:
+    elif old_items != new_items:
         fragments.append("items changed")
 
     # 3. Scalar text fields
@@ -589,7 +418,8 @@ def read_bom_template(xlsx_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str
 
 def bom_total(items: List[Dict[str, Any]]) -> float:
     """Sum of quantity x unit price over the items, rounded to cents."""
-    return round(sum(int(i["quantity"]) * float(i["unit_price"]) for i in items), 2)
+    # Items stored on a card before ADR 0019 carry `qty` only; read both.
+    return round(sum(int(i.get("quantity") or i.get("qty") or 0) * float(i["unit_price"]) for i in items), 2)
 
 
 def check_bom_total(items: List[Dict[str, Any]], total_price: Any) -> Optional[str]:

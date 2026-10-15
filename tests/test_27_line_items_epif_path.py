@@ -19,13 +19,12 @@ Covers the line items capability on dropped EPIF cards (ADR 0006 decision 3):
 """
 import datetime
 import io
-import json
 import os
 from unittest.mock import MagicMock
 
 import openpyxl
 
-from src import app, blocks, config, slack_io
+from src import app, blocks, config, lifecycle, slack_io
 
 
 def _sample_epif_card_payload(
@@ -123,72 +122,6 @@ def test_posted_card_epif_renders_add_items_button_and_other_states_do_not():
 # 2 & 3. Submitting valid paste stores items in metadata, NOT in button value
 # ---------------------------------------------------------------------------
 
-def test_submitting_valid_paste_stores_items_and_shipping_in_metadata_and_not_in_button_value(monkeypatch):
-    """AC: Submitting a valid paste stores the items and shipping in that card message's metadata.
-
-    AC: The button value on the updated card contains no line items — asserted on value's contents.
-    """
-    card_payload = _sample_epif_card_payload(total_price=100.0)
-    msg = _make_thread_message(card_payload)
-
-    client = MagicMock()
-    client.conversations_replies.return_value = {"ok": True, "messages": [msg]}
-
-    ack = MagicMock()
-    body = {"user": {"id": "U_ISAAC"}}
-    view = {
-        "private_metadata": json.dumps({
-            "channel": "C123",
-            "thread_ts": "1000.1000",
-            "card_ts": "1000.1000",
-        }),
-        "state": {
-            "values": {
-                "block_line_items": {
-                    "action_line_items": {
-                        "value": (
-                            "2 | Couplings | C-1 | 40.00 | | Two couplings\n"
-                            "1 | Set Screws | SS-2 | 10.00 | | Screws\n"
-                            "shipping | 10.00\n"
-                        )
-                    }
-                }
-            }
-        },
-    }
-
-    app.handle_items_modal_submit(ack, body, client, view)
-
-    ack.assert_called_once_with()
-    client.chat_update.assert_called_once()
-    update_kwargs = client.chat_update.call_args[1]
-
-    # Verify metadata contains items and shipping
-    assert "metadata" in update_kwargs
-    meta = update_kwargs["metadata"]
-    assert meta["event_type"] == "purchase_request"
-    stored_payload = meta["event_payload"]
-    assert len(stored_payload["items"]) == 2
-    assert stored_payload["items"][0]["name"] == "Couplings"
-    assert stored_payload["items"][0]["qty"] == 2
-    assert stored_payload["items"][0]["unit_price"] == 40.0
-    assert stored_payload["shipping"] == 10.0
-
-    # Verify button value contains NO line items (asserted on value contents)
-    updated_blocks = update_kwargs["blocks"]
-    action_block = [b for b in updated_blocks if b.get("type") == "actions"][0]
-    for elem in action_block["elements"]:
-        if elem.get("type") == "button":
-            val_str = elem.get("value")
-            assert val_str, "Button must have a value"
-            val_dict = json.loads(val_str)
-            assert "items" not in val_dict
-            assert "shipping" not in val_dict
-            req_in_val = val_dict.get("request", {})
-            assert "items" not in req_in_val
-            assert "shipping" not in req_in_val
-
-
 # ---------------------------------------------------------------------------
 # 4. Summary names line items count for 2+, says nothing for 1 item
 # ---------------------------------------------------------------------------
@@ -229,6 +162,12 @@ def test_updated_card_summary_line_items_count():
 # 5 & 6. Two or more items upload draft spreadsheet; one item does not. Not saved to BOMS_DIR.
 # ---------------------------------------------------------------------------
 
+def _item(name, part, price):
+    """A line item as `bom.read_bom_template` returns it (ADR 0019)."""
+    return {"item_name": name, "name": name, "description": "", "part_number": part, "vendor": "",
+            "unit_price": price, "quantity": 1, "qty": 1, "notes": "", "link": ""}
+
+
 def test_two_or_more_items_upload_draft_spreadsheet_and_one_item_uploads_nothing(tmp_path, monkeypatch):
     """AC: Two or more items cause a draft spreadsheet to be uploaded into the thread; one item uploads nothing.
 
@@ -243,22 +182,8 @@ def test_two_or_more_items_upload_draft_spreadsheet_and_one_item_uploads_nothing
     client_2 = MagicMock()
     client_2.conversations_replies.return_value = {"ok": True, "messages": [msg_2]}
 
-    ack = MagicMock()
-    body = {"user": {"id": "U_ISAAC"}}
-    view_2 = {
-        "private_metadata": json.dumps({"channel": "C1", "thread_ts": "1000.1000", "card_ts": "1000.1000"}),
-        "state": {
-            "values": {
-                "block_line_items": {
-                    "action_line_items": {
-                        "value": "1 | Part A | PA | 60.00\n1 | Part B | PB | 40.00"
-                    }
-                }
-            }
-        },
-    }
-
-    app.handle_items_modal_submit(ack, body, client_2, view_2)
+    two_items = [_item("Part A", "PA", 60.0), _item("Part B", "PB", 40.0)]
+    lifecycle.handle_items_update(client_2, "C1", "1000.1000", "1000.1000", items=two_items, user_id="U_ISAAC")
 
     client_2.files_upload_v2.assert_called_once()
     upload_kwargs = client_2.files_upload_v2.call_args[1]
@@ -282,21 +207,8 @@ def test_two_or_more_items_upload_draft_spreadsheet_and_one_item_uploads_nothing
     client_1 = MagicMock()
     client_1.conversations_replies.return_value = {"ok": True, "messages": [msg_1]}
 
-    view_1 = {
-        "private_metadata": json.dumps({"channel": "C1", "thread_ts": "1000.1000", "card_ts": "1000.1000"}),
-        "state": {
-            "values": {
-                "block_line_items": {
-                    "action_line_items": {
-                        "value": "10 | Part A | PA | 10.00"
-                    }
-                }
-            }
-        },
-    }
-
-    ack_1 = MagicMock()
-    app.handle_items_modal_submit(ack_1, body, client_1, view_1)
+    lifecycle.handle_items_update(
+        client_1, "C1", "1000.1000", "1000.1000", items=[_item("Part A", "PA", 100.0)], user_id="U_ISAAC")
 
     client_1.files_upload_v2.assert_not_called()
     assert os.listdir(str(tmp_path)) == []
@@ -306,202 +218,17 @@ def test_two_or_more_items_upload_draft_spreadsheet_and_one_item_uploads_nothing
 # 7. Totals mismatch refused inside modal, naming both numbers, card untouched
 # ---------------------------------------------------------------------------
 
-def test_totals_mismatch_refused_inside_modal_naming_both_numbers_card_untouched():
-    """AC: A paste whose totals disagree with the EPIF amount is refused inside the modal,
-
-    naming both numbers, with no metadata change, no upload and no card update — asserted on the absence.
-    """
-    card_payload = _sample_epif_card_payload(total_price=412.00)
-    msg = _make_thread_message(card_payload)
-
-    client = MagicMock()
-    client.conversations_replies.return_value = {"ok": True, "messages": [msg]}
-
-    ack = MagicMock()
-    body = {"user": {"id": "U_ISAAC"}}
-    # Paste totals $455.50 vs EPIF $412.00
-    view = {
-        "private_metadata": json.dumps({"channel": "C1", "thread_ts": "1000.1000", "card_ts": "1000.1000"}),
-        "state": {
-            "values": {
-                "block_line_items": {
-                    "action_line_items": {
-                        "value": "5 | Part | P1 | 91.10"
-                    }
-                }
-            }
-        },
-    }
-
-    app.handle_items_modal_submit(ack, body, client, view)
-
-    # Refused inside modal with both numbers
-    ack.assert_called_once()
-    call_kwargs = ack.call_args[1]
-    assert call_kwargs.get("response_action") == "errors"
-    err_text = call_kwargs["errors"]["block_line_items"]
-    assert "$455.50" in err_text
-    assert "$412.00" in err_text
-
-    # Asserted on absence: no metadata change, no upload, no card update, no thread post
-    client.chat_update.assert_not_called()
-    client.files_upload_v2.assert_not_called()
-    client.chat_postMessage.assert_not_called()
-
-
 # ---------------------------------------------------------------------------
 # 8. Bad line refused inside modal with line number, card untouched
 # ---------------------------------------------------------------------------
-
-def test_bad_line_refused_inside_modal_with_line_number_card_untouched():
-    """AC: A paste with a bad line is refused inside the modal with the line-numbered error,
-
-    and the card is untouched.
-    """
-    card_payload = _sample_epif_card_payload(total_price=100.0)
-    msg = _make_thread_message(card_payload)
-
-    client = MagicMock()
-    client.conversations_replies.return_value = {"ok": True, "messages": [msg]}
-
-    ack = MagicMock()
-    body = {"user": {"id": "U_ISAAC"}}
-    # Line 2 has invalid unit price
-    view = {
-        "private_metadata": json.dumps({"channel": "C1", "thread_ts": "1000.1000", "card_ts": "1000.1000"}),
-        "state": {
-            "values": {
-                "block_line_items": {
-                    "action_line_items": {
-                        "value": (
-                            "1 | Item 1 | P1 | 50.00\n"
-                            "1 | Item 2 | P2 | invalid_price\n"
-                        )
-                    }
-                }
-            }
-        },
-    }
-
-    app.handle_items_modal_submit(ack, body, client, view)
-
-    ack.assert_called_once()
-    call_kwargs = ack.call_args[1]
-    assert call_kwargs.get("response_action") == "errors"
-    err_text = call_kwargs["errors"]["block_line_items"]
-    assert "line 2" in err_text
-
-    # Card untouched
-    client.chat_update.assert_not_called()
-    client.files_upload_v2.assert_not_called()
-    client.chat_postMessage.assert_not_called()
-
 
 # ---------------------------------------------------------------------------
 # 9. Re-opening button once items exist pre-fills box and reads Edit items
 # ---------------------------------------------------------------------------
 
-def test_reopening_button_once_items_exist_prefills_box_and_reads_edit_items():
-    """AC: Re-opening the button once items exist pre-fills the box with the current items
-
-    and reads Edit items.
-    """
-    items = [
-        {"qty": 2, "name": "Coupling", "part_number": "C-1", "unit_price": 40.0, "link": "https://example.com/c1", "description": "Desc"},
-        {"qty": 1, "name": "Collar", "part_number": "C-2", "unit_price": 20.0, "link": "", "description": ""},
-    ]
-    card_payload = _sample_epif_card_payload(items=items, shipping=0.0, total_price=100.0)
-
-    # 1. Card button reads "Edit items"
-    blks = blocks.build_request_blocks("posted", card_payload, items=items)
-    action_block = [b for b in blks if b.get("type") == "actions"][0]
-    items_btn = [e for e in action_block["elements"] if e.get("action_id") == config.ACTION_REQ_ITEMS][0]
-    assert items_btn["text"]["text"] == "Edit items"
-
-    # 2. Clicking button opens modal pre-filled with items
-    msg = _make_thread_message(card_payload)
-    client = MagicMock()
-    client.conversations_replies.return_value = {"ok": True, "messages": [msg]}
-
-    ack = MagicMock()
-    respond = MagicMock()
-    body = {
-        "user": {"id": "U_ISAAC"},
-        "channel": {"id": "C1"},
-        "trigger_id": "trig_123",
-        "container": {"message_ts": "1000.1000", "thread_ts": "1000.1000"},
-    }
-
-    app.handle_req_items_action(ack, body, respond, client)
-
-    ack.assert_called_once()
-    client.views_open.assert_called_once()
-    open_kwargs = client.views_open.call_args[1]
-    modal_view = open_kwargs["view"]
-    assert open_kwargs["trigger_id"] == "trig_123"
-
-    input_elem = modal_view["blocks"][0]["element"]
-    initial_val = input_elem.get("initial_value", "")
-    assert "2 | Coupling | C-1 | 40.00" in initial_val
-    assert "1 | Collar | C-2 | 20.00" in initial_val
-
-
 # ---------------------------------------------------------------------------
 # 10. Re-submitting different items replaces stored items and re-posts draft BOM
 # ---------------------------------------------------------------------------
-
-def test_resubmitting_different_items_replaces_stored_items_and_reposts_draft_spreadsheet():
-    """AC: Re-submitting different items replaces the stored items and re-posts the draft spreadsheet."""
-    initial_items = [
-        {"qty": 2, "name": "Coupling", "part_number": "C-1", "unit_price": 50.0, "link": "", "description": ""},
-    ]
-    card_payload = _sample_epif_card_payload(items=initial_items, shipping=0.0, total_price=100.0)
-    msg = _make_thread_message(card_payload)
-
-    client = MagicMock()
-    client.conversations_replies.return_value = {"ok": True, "messages": [msg]}
-
-    ack = MagicMock()
-    body = {"user": {"id": "U_ISAAC"}}
-    # Re-submit with 3 different items adding up to $100.00
-    new_paste = (
-        "1 | Part A | PA | 30.00\n"
-        "1 | Part B | PB | 30.00\n"
-        "1 | Part C | PC | 40.00\n"
-    )
-    view = {
-        "private_metadata": json.dumps({"channel": "C1", "thread_ts": "1000.1000", "card_ts": "1000.1000"}),
-        "state": {
-            "values": {
-                "block_line_items": {
-                    "action_line_items": {
-                        "value": new_paste,
-                    }
-                }
-            }
-        },
-    }
-
-    app.handle_items_modal_submit(ack, body, client, view)
-
-    ack.assert_called_once_with()
-
-    # Replaces stored items in metadata
-    client.chat_update.assert_called_once()
-    stored_items = client.chat_update.call_args[1]["metadata"]["event_payload"]["items"]
-    assert len(stored_items) == 3
-    assert [it["name"] for it in stored_items] == ["Part A", "Part B", "Part C"]
-
-    # Re-posts draft spreadsheet
-    client.files_upload_v2.assert_called_once()
-    assert client.files_upload_v2.call_args[1]["filename"] == f"DRAFT_HIRST_LAB_BOM_Couplings_{datetime.date.today():%m.%d.%Y}.xlsx"
-
-    # Posts edit notice to thread
-    client.chat_postMessage.assert_called_once()
-    post_text = client.chat_postMessage.call_args[1]["text"]
-    assert "✏️ Edited by" in post_text
-    assert "items 1 → 3" in post_text
-
 
 # ---------------------------------------------------------------------------
 # 11. Reading card payload in multi-card thread returns clicked card, not newest

@@ -106,7 +106,7 @@ Per Ticket 41 (ADR 0007 decision 4):
   approval already happened.
 
 Per Ticket 28:
-- _process_interview_completion stores line items and shipping on modal-born cards
+- _process_interview_completion stores line items on modal-born cards (shipping is not tracked: ADR 0019)
   and uploads draft BOM spreadsheets when needs_bom is True.
 - Extracts upload_draft_bom as single implementation for uploading draft BOM spreadsheets (invariant 1).
 
@@ -660,7 +660,6 @@ def finalize_purchase_request(
     input_note: str | None = None,
     card_ts: str | None = None,
     items: list[dict] | None = None,
-    shipping: float = 0.0,
     attachments: list[dict] | None = None,
     *,
     new_card: bool = False,
@@ -676,7 +675,7 @@ def finalize_purchase_request(
     """
     display_file = file_name or "Purchase Request"
     if items:
-        total_error = bom.check_total(items, shipping, parsed.get("total_price"))
+        total_error = bom.check_bom_total(items, parsed.get("total_price"))
         if total_error:
             slack_io.log_rejection(notify_target, display_file, [total_error], requester_name=requester)
             fail_msg = (
@@ -966,12 +965,10 @@ def finalize_purchase_request(
                 req_payload["source"] = "epif"
             if items:
                 req_payload["items"] = items
-                req_payload["shipping"] = float(shipping or 0.0)
 
         req_payload["state"] = "approved"
         if bom_read.get("items"):
             req_payload["items"] = bom_read["items"]
-            req_payload["shipping"] = 0.0
         if bom_read.get("problem"):
             req_payload["off_template_bom"] = True
             req_payload["off_template_problem"] = bom_read["problem"]
@@ -1195,7 +1192,6 @@ def handle_epif_processing(
     input_note: str | None = None,
     card_ts: str | None = None,
     items: list[dict] | None = None,
-    shipping: float = 0.0,
     attachments: list[dict] | None = None,
 ):
     """Core logic to inspect thread/file, parse, validate, and enqueue row write & PDF archiving.
@@ -1222,7 +1218,6 @@ def handle_epif_processing(
         if card_payload:
             if items is None and "items" in card_payload:
                 items = card_payload.get("items")
-                shipping = float(card_payload.get("shipping") or 0.0)
             if attachments is None and card_payload.get("attachments"):
                 attachments = card_payload.get("attachments")
             if posted_payload is None:
@@ -1230,7 +1225,6 @@ def handle_epif_processing(
     if posted_payload:
         if items is None and "items" in posted_payload:
             items = posted_payload.get("items")
-            shipping = float(posted_payload.get("shipping") or 0.0)
         if attachments is None and posted_payload.get("attachments"):
             attachments = posted_payload.get("attachments")
 
@@ -1342,7 +1336,6 @@ def handle_epif_processing(
                         input_note=input_note,
                         card_ts=None,
                         items=None,
-                        shipping=0.0,
                         attachments=batch_attachments,
                         new_card=True,
                     )
@@ -1401,7 +1394,6 @@ def handle_epif_processing(
                 card_pl = slack_io.get_card_payload(client, channel, thread_ts, found_ts)
                 if card_pl and "items" in card_pl:
                     items = card_pl.get("items")
-                    shipping = float(card_pl.get("shipping") or 0.0)
                 if card_pl and attachments is None and card_pl.get("attachments"):
                     attachments = card_pl.get("attachments")
 
@@ -1451,7 +1443,6 @@ def handle_epif_processing(
             input_note=input_note,
             card_ts=card_ts,
             items=items,
-            shipping=shipping,
             attachments=attachments,
             new_card=False,
         )
@@ -1497,7 +1488,6 @@ def handle_epif_processing(
             input_note=input_note,
             card_ts=card_ts,
             items=items,
-            shipping=shipping,
             attachments=attachments,
         )
         return
@@ -1507,7 +1497,6 @@ def handle_epif_processing(
     if parsed_req:
         if items is None and "items" in parsed_req:
             items = parsed_req.get("items")
-            shipping = float(parsed_req.get("shipping") or 0.0)
         if attachments is None and parsed_req.get("attachments"):
             attachments = parsed_req.get("attachments")
 
@@ -1536,7 +1525,6 @@ def handle_epif_processing(
             input_note=input_note,
             card_ts=card_ts,
             items=items,
-            shipping=shipping,
             attachments=attachments,
         )
         return
@@ -2658,10 +2646,6 @@ def _finalize_bare_thread_epif(ack, client, bare: dict, parsed: dict,
     ack()
 
     items = stage2.get("items")
-    shipping = float(stage2.get("shipping") or 0.0)
-    line_items_text = stage2.get("line_items") or ""
-    if items is None and line_items_text.strip():
-        items, shipping, _ = bom.parse_line_items(line_items_text)
 
     parsed = dict(parsed)
 
@@ -2683,7 +2667,6 @@ def _finalize_bare_thread_epif(ack, client, bare: dict, parsed: dict,
         approver=bare.get("approver"),
         card_ts=card_ts,
         items=items,
-        shipping=shipping,
     )
 
 
@@ -2934,6 +2917,29 @@ _BOM_READ_CACHE: dict[str, list[dict]] = {}
 _BOM_READ_CACHE_MAX = 50
 
 
+# Edit, Add items and the Workday details form send the BOM check a submission that is too big
+# for the check view's private_metadata, so it waits here, by the modal's view id, until the
+# check view is submitted. A restart loses it; the check view then asks for a fresh submit.
+_PENDING_BOM_FORMS: dict[str, dict] = {}
+
+
+def remember_bom_form(view_id: str | None, origin: str, body: dict, view: dict) -> None:
+    if not view_id:
+        return
+    while len(_PENDING_BOM_FORMS) >= _BOM_READ_CACHE_MAX:
+        _PENDING_BOM_FORMS.pop(next(iter(_PENDING_BOM_FORMS)))
+    _PENDING_BOM_FORMS[view_id] = {"origin": origin, "body": body, "view": view}
+
+
+def take_bom_form(view_id: str | None) -> dict | None:
+    return _PENDING_BOM_FORMS.pop(view_id, None) if view_id else None
+
+
+def take_checked_items(view_id: str | None) -> list[dict] | None:
+    """The rows the check view last read cleanly for this modal, once."""
+    return _BOM_READ_CACHE.pop(view_id, None) if view_id else None
+
+
 def read_bom_file(client, file_ref: dict, typed_total) -> tuple[list[dict], list[str], float]:
     """Fetch an uploaded BOM from Slack, read it with the template reader and check its total.
 
@@ -2968,7 +2974,7 @@ def run_bom_check(client, view_id: str, meta: dict, file_ref: dict) -> None:
     `views.update` by the view's id. Rows that read cleanly are kept for the form's last step.
     """
     stage2 = meta.get("stage2") or {}
-    typed_raw = stage2.get("total_price")
+    typed_raw = meta["typed_total"] if "typed_total" in meta else stage2.get("total_price")
     typed = epif_parser.parse_money(str(typed_raw)) if typed_raw not in (None, "") else None
     items, problems, total = read_bom_file(client, file_ref, typed_raw)
     if view_id:
@@ -3003,7 +3009,6 @@ def stage2_with_bom_items(client, body: dict, stage2: dict) -> dict | None:
             log.warning("BOM %s could not be read again after the check: %s", source.get("name"), problems)
             return None
     out["items"] = items
-    out["shipping"] = 0.0
     return out
 
 
@@ -3095,10 +3100,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     display_name = f"{requester} (pending name confirmation)" if is_pending_name else (requester or f"<@{user_id}>")
 
     items = stage2.get("items")
-    shipping = float(stage2.get("shipping") or 0.0)
-    line_items_text = stage2.get("line_items") or ""
-    if items is None and line_items_text.strip():
-        items, shipping, _ = bom.parse_line_items(line_items_text)
 
     req_payload = {
         "parsed": dict(parsed),
@@ -3109,7 +3110,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     }
     if items:
         req_payload["items"] = items
-        req_payload["shipping"] = float(shipping or 0.0)
     attachments = stage2.get("attachments")
     if attachments:
         req_payload["attachments"] = attachments
@@ -3188,7 +3188,6 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
             thread_ts=card_ts,
             parsed=parsed,
             items=items,
-            shipping=shipping,
         )
 
     # DM user confirmation
@@ -3480,7 +3479,6 @@ def upload_draft_bom(
     thread_ts: str,
     parsed: dict,
     items: list[dict],
-    shipping: float = 0.0,
 ) -> bool:
     """Upload an in-memory draft BOM spreadsheet to the thread using files_upload_v2.
 
@@ -3644,7 +3642,6 @@ def handle_items_update(
     thread_ts: str,
     card_ts: str,
     items: list[dict] | None,
-    shipping: float,
     user_id: str,
     attachments: list[dict] | None = None,
 ) -> bool:
@@ -3687,10 +3684,8 @@ def handle_items_update(
     items_given = items is not None
     if items_given:
         new_payload["items"] = items
-        new_payload["shipping"] = float(shipping or 0.0)
     else:
         items = list(card_payload.get("items") or [])
-        shipping = float(card_payload.get("shipping") or 0.0)
     if "source" not in new_payload:
         new_payload["source"] = "epif"
 
@@ -3759,7 +3754,6 @@ def handle_items_update(
             thread_ts=thread_ts,
             parsed=new_payload.get("parsed") or {},
             items=items,
-            shipping=shipping,
         )
 
     return True
@@ -3773,7 +3767,6 @@ def handle_request_edit(
     stage2: dict,
     stage3: dict | None,
     items: list,
-    shipping: float,
     user_id: str,
     card_payload: dict,
     meta: dict,
@@ -3818,10 +3811,9 @@ def handle_request_edit(
 
     old_parsed = card_payload.get("parsed") or {}
     old_items = card_payload.get("items") or []
-    old_shipping = float(card_payload.get("shipping") or 0.0)
 
-    old_compare = {**old_parsed, "items": old_items, "shipping": old_shipping}
-    new_compare = {**new_parsed_stored, "items": items, "shipping": float(shipping or 0.0)}
+    old_compare = {**old_parsed, "items": old_items}
+    new_compare = {**new_parsed_stored, "items": items}
 
     fragments = bom.describe_changes(old_compare, new_compare)
     # Ticket 86: `attachments` is the final merged list (None = untouched). A file change
@@ -3845,7 +3837,6 @@ def handle_request_edit(
     new_payload["parsed"] = new_parsed_stored
     new_payload["history"] = history
     new_payload["items"] = items
-    new_payload["shipping"] = float(shipping or 0.0)
     if attachments is not None:
         if attachments:
             new_payload["attachments"] = list(attachments)
@@ -3894,6 +3885,5 @@ def handle_request_edit(
             thread_ts=thread_ts,
             parsed=new_parsed_stored,
             items=items,
-            shipping=float(shipping or 0.0),
         )
 

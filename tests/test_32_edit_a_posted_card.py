@@ -38,7 +38,6 @@ def _sample_modal_card_payload(
     item_description="Nitrile Gloves",
     state="posted",
     items=None,
-    shipping=0.0,
     user_id="U_ISAAC",
     requester="Isaac",
 ):
@@ -70,7 +69,6 @@ def _sample_modal_card_payload(
     }
     if items is not None:
         payload["items"] = items
-        payload["shipping"] = shipping
     return payload
 
 
@@ -240,9 +238,6 @@ def test_admin_can_open_edit_form():
 
 def test_edit_form_is_pre_filled():
     """AC3: The edit form pre-fills fields from the card's current values."""
-    from src import bom as bom_mod
-    items = [{"qty": 2, "name": "Glove", "part_number": "", "unit_price": 50.0, "link": "", "description": ""}]
-
     meta = {
         "is_edit": True,
         "channel": "C_CHAN",
@@ -265,7 +260,6 @@ def test_edit_form_is_pre_filled():
         "payment_method": config.WORKDAY_PAYMENT_METHOD,
         "asset_id": "",
         "name_of_system": "",
-        "line_items": bom_mod.format_line_items(items, 0.0),
     }
 
     view = blocks.build_stage2_view(meta)
@@ -349,7 +343,6 @@ def test_edit_updates_card_and_posts_thread_line():
             },
             stage3=None,
             items=[],
-            shipping=0.0,
             user_id="U_ISAAC",
             card_payload=card_payload,
             meta={
@@ -421,7 +414,6 @@ def test_edit_items_change_reposts_draft_bom():
             },
             stage3=None,
             items=new_items,
-            shipping=0.0,
             user_id="U_ISAAC",
             card_payload=card_payload,
             meta={
@@ -467,7 +459,6 @@ def test_edit_no_change_posts_nothing():
         },
         stage3=None,
         items=[],
-        shipping=0.0,
         user_id="U_ISAAC",
         card_payload=card_payload,
         meta={

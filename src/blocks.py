@@ -12,7 +12,7 @@ Ticket 22: App Home renders a live roster profile panel (build_app_home_view)
 displaying the user's registered name, held roles (admin, approver, buyer), and a
 direct button opening the /roster-set-name modal. Unregistered users lead with registration instructions.
 Ticket 27: Adds build_items_view for line items modal and renders Add items / Edit items button on posted source=='epif' cards.
-Ticket 28: Screen 2 (build_stage2_view) renders an optional multiline Line items input with format/shipping hint and 1500-char limit.
+Ticket 28 / 134 / 135: no form has a line-items paste box any more; BOMs arrive as the lab template (bom_inputs) and go through the BOM check.
 Ticket 63: Adds chunk_mrkdwn and build_dm_help_blocks for DM help responses when a free-form message cannot be parsed (ADR 0010 Decision 5).
 Ticket 67: Adds build_dm_card_blocks for the buyer's DM card with next-step button (ADR 0010 Decision 2).
 Ticket 69: build_dm_card_blocks supports retired states (cancelled, reassigned with note, delivered) with no buttons (ADR 0010 Decision 3).
@@ -1164,52 +1164,6 @@ def build_dm_card_blocks(
     return blocks
 
 
-def line_items_input(
-    action_id: str,
-    *,
-    optional: bool,
-    initial_value: str | None = None,
-    max_length: int | None = None,
-) -> dict:
-    """The one line-items input block, shared by every modal that takes a paste.
-
-    WHY ONE BUILDER: three modals each carried their own copy, and the Workday details
-    modal's copy showed an example (`2 EA | Flask ...`) that bom.parse_line_items rejects.
-    The placeholder here is a real example row and is tested by parsing it, so the example
-    we show can never drift from the format the parser accepts.
-    """
-    element: dict = {
-        "type": "plain_text_input",
-        "action_id": action_id,
-        "multiline": True,
-        "placeholder": {
-            "type": "plain_text",
-            "text": "2 | Flask | FL-1 | 10.00 | https://example.com/fl-1 | 250 mL\nshipping | 24.50",
-        },
-    }
-    if initial_value is not None:
-        element["initial_value"] = initial_value
-    if max_length is not None:
-        element["max_length"] = max_length
-    block: dict = {
-        "type": "input",
-        "block_id": "block_line_items",
-        "element": element,
-        "label": {"type": "plain_text", "text": "Line items (optional)" if optional else "Line items"},
-        "hint": {
-            "type": "plain_text",
-            "text": (
-                "One item per line (pipe or tab separated): "
-                "qty | name | part # | unit price | link | description. "
-                "Optional line: shipping | <amount>"
-            ),
-        },
-    }
-    if optional:
-        block["optional"] = True
-    return block
-
-
 def bom_inputs() -> list[dict]:
     """Build the two optional blocks for attaching the requester's own BOM spreadsheet.
 
@@ -1338,19 +1292,15 @@ def build_items_view(
     channel: str,
     thread_ts: str,
     card_ts: str,
-    items: list[dict] | None = None,
-    shipping: float = 0.0,
-    initial_text: str | None = None,
     quotes: list[dict] | None = None,
 ) -> dict:
-    """Generate Block Kit modal for adding or editing line items on a purchase request."""
-    if initial_text is None and items:
-        initial_text = bom.format_line_items(items, shipping)
+    """Generate Block Kit modal for adding or replacing line items on a purchase request.
 
-    # Ticket 85 / ADR 0012: the paste box is optional because a requester may attach their
-    # own BOM and/or quotes instead; handle_items_modal_submit refuses a form with none of them.
+    Ticket 135 / ADR 0019: there is no paste box. The BOM file field takes the lab template
+    and goes through the BOM check; quotes may be added or kept on their own, so
+    handle_items_modal_submit refuses a form with neither a BOM nor a quote change.
+    """
     blocks_list = [
-        line_items_input("action_line_items", optional=True, initial_value=initial_text or None),
         *([keep] if (keep := keep_quotes_input(quotes or [])) else []),
         *bom_inputs(),
         quotes_input(),
@@ -2004,7 +1954,7 @@ def build_workday_details_view(channel: str, thread_ts: str, card_ts: str, vendo
         {
             "type": "input",
             "block_id": "block_total_price",
-            "label": {"type": "plain_text", "text": "Total price including shipping ($)"},
+            "label": {"type": "plain_text", "text": "Total price ($)"},
             "element": {"type": "plain_text_input", "action_id": "total_price"},
         },
         {
@@ -2042,7 +1992,7 @@ def build_workday_details_view(channel: str, thread_ts: str, card_ts: str, vendo
                 "initial_option": {"text": {"type": "plain_text", "text": "Lab Consumable"}, "value": "Lab Consumable"},
             },
         },
-        line_items_input("line_items", optional=True),
+        *bom_inputs(),
     ]
 
     return {

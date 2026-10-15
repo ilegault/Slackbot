@@ -8,17 +8,20 @@ Acceptance criteria:
 - [ ] test_failed_items_update_tells_the_editor
 """
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 from slack_sdk.errors import SlackApiError
 
-from src import app
+from src import app, slack_io
 from tests.test_27_line_items_epif_path import _make_thread_message, _sample_epif_card_payload
 from tests.test_32_edit_a_posted_card import (
     _make_client,
     _make_edit_view_submission,
     _sample_modal_card_payload,
 )
+
+FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "BOM_TEMPLATE_FILLED_EXAMPLE.xlsx")
 
 
 def _refusing(client):
@@ -55,21 +58,29 @@ def test_failed_edit_update_tells_the_editor():
     assert not any("Edited by" in p.get("text", "") for p in thread_posts)
 
 
-def test_failed_items_update_tells_the_editor():
-    card_payload = _sample_epif_card_payload(total_price=100.0)
+def test_failed_items_update_tells_the_editor(monkeypatch):
+    with open(FIXTURE, "rb") as f:
+        fixture_bytes = f.read()
+    monkeypatch.setattr(slack_io, "download_file", lambda f: fixture_bytes)
+    monkeypatch.setattr(app, "_run_in_background", lambda fn, *a: fn(*a))
+    card_payload = _sample_epif_card_payload(total_price=858.50)
     client = MagicMock()
     client.conversations_replies.return_value = {"ok": True, "messages": [_make_thread_message(card_payload)]}
-    _refusing(client)
+    client.files_info.side_effect = lambda file: {"file": {"id": file}}
     view = {
+        "id": "V_ITEMS",
         "private_metadata": json.dumps({"channel": "C123", "thread_ts": "1000.1000", "card_ts": "1000.1000"}),
-        "state": {"values": {"block_line_items": {"action_line_items": {"value": (
-            "2 | Couplings | C-1 | 40.00 | | Two couplings\n"
-            "1 | Set Screws | SS-2 | 10.00 | | Screws\n"
-            "shipping | 10.00\n"
-        )}}}},
+        "state": {"values": {
+            "block_bom": {"bom": {"files": [{"id": "FB1", "name": "order.xlsx"}]}},
+            "block_bom_one_vendor": {"bom_one_vendor": {"selected_options": [{"value": "one_vendor"}]}},
+        }},
     }
-
     app.handle_items_modal_submit(MagicMock(), {"user": {"id": "U_ISAAC"}}, client, view)
+    shown = client.views_update.call_args.kwargs["view"]
+    _refusing(client)  # Slack refuses the card update once the check is passed
+    check = {"id": "V_ITEMS", "private_metadata": shown["private_metadata"],
+             "state": {"values": {"block_bom_reupload": {"bom_reupload": {"files": []}}}}}
+    app.handle_bom_check_submit(MagicMock(), {"user": {"id": "U_ISAAC"}, "view": {"id": "V_ITEMS"}}, client, check)
 
     dms = _dms(client, "U_ISAAC")
     assert len(dms) == 1
