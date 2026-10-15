@@ -35,14 +35,19 @@ def test_same_hint_and_placeholder_in_all_three():
     assert len({json.dumps(b["hint"]) for b in boxes}) == 1
     assert len({json.dumps(b["element"]["placeholder"]) for b in boxes}) == 1
     assert "max_length" not in _box(_views()["workday"])["element"]
+    # Screen 2 no longer has the box (Ticket 134 / ADR 0019): it takes the BOM file instead.
+    screen2 = blocks.build_stage2_view({})["blocks"]
+    assert "block_line_items" not in [b.get("block_id") for b in screen2]
 
     # Each view keeps its action id and optional flag, so no submit handler changes its lookup.
     v = _views()
     assert _box(v["items"])["element"]["action_id"] == "action_line_items"
     assert _box(v["workday"])["element"]["action_id"] == "line_items"
+    assert next(b for b in screen2 if b.get("block_id") == "block_bom")["element"]["action_id"] == "bom"
     # Ticket 85: Add items may carry only a BOM / quotes, so its box is optional too.
     assert _box(v["items"])["optional"] is True
     assert _box(v["workday"])["optional"] is True
+    assert next(b for b in screen2 if b.get("block_id") == "block_bom")["optional"] is True
 
 
 def test_block_line_items_literal_appears_once_in_blocks_source():
