@@ -1,6 +1,6 @@
 # 130: A failed card update tells the person who acted
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
