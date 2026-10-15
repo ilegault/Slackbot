@@ -163,7 +163,6 @@ def test_fill_in_details_writes_row_and_updates_card(monkeypatch):
                 "block_vendor": {"vendor": {"selected_option": {"value": "Grainger"}}},
                 "block_item_description": {"item_description": {"value": "Widget"}},
                 "block_total_price": {"total_price": {"value": "10.00"}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-24"}},
                 "block_category": {"category": {"selected_option": {"value": "Lab Consumable"}}}
             }
         }
@@ -294,7 +293,6 @@ def test_scenario_end_to_end(temp_workbook, sync_queue, monkeypatch):
                 "block_item_description": {"item_description": {"value": "Widget"}},
                 "block_purpose": {"purpose": {"value": "Test purpose"}},
                 "block_total_price": {"total_price": {"value": 10.00}},
-                "block_date_of_purchase": {"date_of_purchase": {"selected_date": "2026-09-24"}},
                 "block_project_id": {"project_id": {"value": "PG000025831"}},
                 "block_fund": {"fund": {"value": "133"}},
                 "block_category": {"category": {"selected_option": {"value": "Research/Lab Supplies (3105)"}}},

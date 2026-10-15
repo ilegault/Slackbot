@@ -85,7 +85,7 @@ def validate(parsed: dict, requester_name=None) -> list:
             "email address."
         )
 
-    if parsed["date_of_purchase"] is None:
+    if parsed.get("request_date") is None and parsed.get("date_of_purchase") is None:
         problems.append("Today's Date is blank or unreadable (use MM/DD/YY).")
 
     # --- dropdown-constrained fields ------------------------------------------

@@ -584,7 +584,17 @@ def save_bom(file_bytes: bytes, filename: str, target_dir: str = None) -> str:
 
 
 def build_row(parsed: dict, requester_name: str) -> dict:
-    """Parsed EPIF -> {column_letter: value}, ready for append_row."""
+    """Parsed EPIF -> {column_letter: value}, ready for append_row.
+
+    Column M is the REQUEST date: the day the lab asked, never the date printed on the EPIF.
+    The EPIF is dated when it is made (at approval), which can be days later, and re-dating
+    it must not move this column. `request_date` is preferred; an uploaded EPIF has only
+    `date_of_purchase` (its own date), which is also the day it logs under.
+    """
+    request_date = parsed.get("request_date")
+    if isinstance(request_date, str):  # rides in the card payload as an ISO string
+        request_date = datetime.strptime(request_date[:10], "%Y-%m-%d").date()
+    request_date = request_date or parsed.get("date_of_purchase")
     values = {
         config.COLUMN_REQUESTER: requester_name,
         "C": parsed["item_description"],
@@ -593,7 +603,7 @@ def build_row(parsed: dict, requester_name: str) -> dict:
         "I": parsed["vendor"],
         "J": parsed["vendor_contact_name"],
         "K": parsed["vendor_contact_email"],
-        config.COLUMN_DATE_OF_REQUEST: parsed["date_of_purchase"],
+        config.COLUMN_DATE_OF_REQUEST: request_date,
         "P": parsed["name_of_system"],
         "Q": parsed["delivery_room"],
         "R": parsed["project_id"],
