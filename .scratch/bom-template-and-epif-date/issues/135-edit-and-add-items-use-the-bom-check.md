@@ -1,6 +1,6 @@
 # 135: Edit and Add items take a BOM through the same check; the paste box is gone everywhere
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
