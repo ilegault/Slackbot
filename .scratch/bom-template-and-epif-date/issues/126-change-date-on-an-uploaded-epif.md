@@ -1,6 +1,6 @@
 # 126: Change date works on a hand-filled (uploaded) EPIF
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -30,10 +30,10 @@ signature field, is left exactly as the requester wrote it.
 
 ## Acceptance criteria
 
-- [ ] `test_redate_epif_changes_only_the_date`:
+- [x] `test_redate_epif_changes_only_the_date`:
   - Fill the fixture template with `fill_epif` (every text field set, Fabrication ticked, P-card), then `redate_epif` it to 2026-11-02.
   - `parse_epif` of the result equals `parse_epif` of the input on every key except `date_of_purchase`, which is 2026-11-02.
-- [ ] `test_change_date_on_uploaded_epif`:
+- [x] `test_change_date_on_uploaded_epif`:
   - Approve a request from an uploaded EPIF dated 09/01/2026 (as `tests/test_45_epif_approval_archives.py`), then call `handle_change_epif_date` with 2026-11-02.
   - The archived file parses to 2026-11-02 and its purpose and total are unchanged.
   - Both checks are in this one function.
@@ -54,3 +54,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. `epif_filler.redate_epif` rewrites only `Date of Purchase` (shares the XMP-removal and NeedAppearances helpers with `fill_epif`). `lifecycle.handle_change_epif_date` re-dates the archived file in place when the request came from an uploaded EPIF (`source == "epif"`), else re-fills as before. Tests: `tests/test_126_change_date_uploaded_epif.py` (both named tests; the second hand-edits a field the filler never writes, so a rebuild from the template would fail it).
