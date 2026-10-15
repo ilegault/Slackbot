@@ -1,6 +1,6 @@
 # 134: Interview Screen 2 reads the BOM and shows the BOM check; the paste box leaves Screen 2
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
