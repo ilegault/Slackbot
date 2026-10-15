@@ -1,6 +1,6 @@
 # 137: Replace BOM, from approval until processed
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -39,15 +39,15 @@ and has a BOM (`bom_file` on the card).
 
 ## Acceptance criteria
 
-- [ ] New file `tests/test_137_replace_bom.py`, `test_button_only_while_approved_with_a_bom`: an element with `action_id == "replace_bom"` exists on the thread card and DM card for an `approved` card with `bom_file`, and not for `processed`, nor for a card without `bom_file`.
-- [ ] `test_replace_clears_the_off_template_flag`:
+- [x] New file `tests/test_137_replace_bom.py`, `test_button_only_while_approved_with_a_bom`: an element with `action_id == "replace_bom"` exists on the thread card and DM card for an `approved` card with `bom_file`, and not for `processed`, nor for a card without `bom_file`.
+- [x] `test_replace_clears_the_off_template_flag`:
   - Starting from ticket 136's off-template approval, replace with the fixture as the requester (EPIF amount $858.50).
   - The archived BOM reads back to 4 items.
   - `off_template_bom` is gone from the card payload.
   - The DM card no longer contains `BOM not in the lab template`.
   - One upload of the BOM file name went to the buyer's DM.
-- [ ] `test_replace_denied_for_others`: a user who is not the requester, not a buyer and not an admin gets `deny`; no `views_open`, no upload.
-- [ ] `test_replace_refused_after_processed`: with the card moved to `processed` between opening and submitting, the handler changes no file and uploads nothing.
+- [x] `test_replace_denied_for_others`: a user who is not the requester, not a buyer and not an admin gets `deny`; no `views_open`, no upload.
+- [x] `test_replace_refused_after_processed`: with the card moved to `processed` between opening and submitting, the handler changes no file and uploads nothing.
 
 May fake: the Slack client, downloads, the thread starter, the queue's workbook. Must be real: the reader, builder, `log_writer.save_bom` into a temp dir, `slack_io.get_card_by_ts` on the fake's stored card, the real Bolt listener registry for the button.
 
@@ -65,3 +65,5 @@ Tests need `SLACK_BOT_TOKEN=xoxb-test-not-a-real-token`, `SLACK_APP_TOKEN=xapp-t
 The gate holds a PR that adds a new test which already passes on today's code. Where a ticket says checks share one test function, keep them together so the function fails on the base commit.
 
 ## Comments
+
+2026-10-15: Done. `Replace BOM` button (`config.ACTION_REPLACE_BOM`) on the thread card and the DM card while `approved` and `bom_file` is set; `app.handle_replace_bom_action` (requester, any buyer or an admin; others get `deny`) opens `blocks.build_replace_bom_view`; its submit re-checks card, role and state and goes through 134/135's reading and check views with `origin = "replace"`; the clean replay calls `lifecycle.handle_replace_bom`, the only implementation. It rebuilds the BOM, overwrites the archive at the card's `bom_file` name (`log_writer.save_bom(..., overwrite=True)`; an Off-template `.csv` gets a new `.xlsx` name via the normal clash-safe save and the old `.csv` is left in place), updates the Notes column through the queue only when the name changed, stores the rows and clears `off_template_bom` / `off_template_problem`, re-renders both cards, sends the BOM to the buyer's DM through `_upload_to_dm`, and posts `BOM replaced by <name>`. Mark Processed is untouched. Tests: `tests/test_137_replace_bom.py`.

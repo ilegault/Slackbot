@@ -2298,7 +2298,7 @@ def handle_replace_bom(client, channel: str, thread_ts: str, card_ts: str, user_
         if old_name.lower().endswith(".xlsx"):
             saved_path = log_writer.save_bom(xlsx_bytes, old_name, overwrite=True)
         else:
-            new_name = bom.bom_filename(parsed.get("item_description"), datetime.now().date())
+            new_name = bom.bom_filename(parsed.get("item_description") or "", datetime.now().date())
             saved_path = log_writer.save_bom(xlsx_bytes, new_name)
     except Exception as e:
         log.error("Could not replace the BOM for card %s: %s", card_ts, e)
