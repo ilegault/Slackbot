@@ -218,6 +218,8 @@ A header block (Order Description, BOM Creator, Total Cost), then the columns
 `Item | Description | Product # | Vendor | Unit Cost | Quantity | Total Cost | Notes`,
 then a Total row. `.xlsx` only. The only spreadsheet layout the bot reads (ADR 0019).
 
+**Template kit** — the guide for filling in an EPIF by hand, the blank EPIF template and the **BOM template**, handed out together by `/blank-template` and only by it. Always sent **privately** to the asker's **DM**; where they asked, a note only they can see says so (no note when they asked in their own DM with the bot). Never posted where others can see it. A missing template file never stops the rest of the kit: the asker is told in the kit's DM and the **Alert channel** is told.
+
 **BOM check** — the screen a form moves to after a BOM is uploaded: the rows as the bot
 read them, the BOM total, and every problem by spreadsheet row. It will not go on while
 there is a problem or while the BOM total differs from the typed Total Price by a cent.
