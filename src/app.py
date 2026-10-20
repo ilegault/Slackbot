@@ -2387,8 +2387,6 @@ def dispatch_command(
         ops.handle_remove_vendor(client, say, channel, thread_ts, user, text)
     elif cmd in config.ADD_VENDOR_KEYWORDS:
         ops.handle_add_vendor(client, say, channel, thread_ts, user, text)
-    elif cmd in config.TEMPLATE_KEYWORDS:
-        ops.handle_template_command(client, say, channel, thread_ts, user)
     elif cmd in config.QUOTE_KEYWORDS:
         lifecycle.handle_quote(client, say, channel, thread_ts, event_ts, files)
     elif cmd in config.ASSIGN_KEYWORDS:

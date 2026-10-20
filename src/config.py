@@ -298,7 +298,6 @@ QUEUE_KEYWORDS = ("queue", "lock queue", "writes")
 LOGS_KEYWORDS = ("logs", "log")
 UPDATE_KEYWORDS = ("update", "git pull")
 RESTART_KEYWORDS = ("restart", "reboot")
-TEMPLATE_KEYWORDS = ("template", "blank epif", "blank form")
 REMOVE_VENDOR_KEYWORDS = ("remove-vendor", "delete-vendor")
 ADD_VENDOR_KEYWORDS = ("add-vendor",)
 PROMOTE_ADMIN_KEYWORDS = ("promote-admin", "add-admin")
@@ -321,7 +320,6 @@ ALL_KEYWORD_TUPLES = (
     LOGS_KEYWORDS,
     UPDATE_KEYWORDS,
     RESTART_KEYWORDS,
-    TEMPLATE_KEYWORDS,
     REMOVE_VENDOR_KEYWORDS,
     ADD_VENDOR_KEYWORDS,
     PROMOTE_ADMIN_KEYWORDS,
