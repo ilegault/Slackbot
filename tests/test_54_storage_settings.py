@@ -103,7 +103,7 @@ def test_storage_settings_drives_startup_check(monkeypatch, tmp_path):
 def test_startup_and_blank_template_agree_missing_and_real(monkeypatch, tmp_path):
     """With EPIF_TEMPLATE_PATH pointing at a missing file, both check_storage_paths()
 
-    and handle_template_command name EPIF_TEMPLATE_PATH; with it pointing at a real file,
+    and send_template_kit name EPIF_TEMPLATE_PATH; with it pointing at a real file,
     the first reports nothing for it and the second uploads it.
     """
     missing_path = str(tmp_path / "missing_epif_template.pdf")
@@ -126,12 +126,14 @@ def test_startup_and_blank_template_agree_missing_and_real(monkeypatch, tmp_path
     assert len(epif_problems) == 1
     assert epif_problems[0].reason == "does not exist"
 
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ADMIN")
     client = MagicMock()
-    say = MagicMock()
-    ops.handle_template_command(client, say, "C123", "ts", "U123")
-    client.files_upload_v2.assert_not_called()
-    assert say.call_count == 1
-    reply_text = say.call_args[1]["text"]
+    client.conversations_open.return_value = {"channel": {"id": "D_ASKER"}}
+    ops.send_template_kit(client, "U123")
+    # Ticket 139: the EPIF is missing, so the kit still goes (BOM only) and admins are alerted.
+    alert = [c.kwargs for c in client.chat_postMessage.call_args_list if c.kwargs["channel"] == "C_ADMIN"]
+    assert len(alert) == 1
+    reply_text = alert[0]["text"]
     assert "EPIF_TEMPLATE_PATH" in reply_text
     assert missing_path in reply_text
     assert "An admin needs to fix the server's .env." in reply_text
@@ -146,14 +148,13 @@ def test_startup_and_blank_template_agree_missing_and_real(monkeypatch, tmp_path
     assert len(epif_problems) == 0
 
     client.reset_mock()
-    say.reset_mock()
-    ops.handle_template_command(client, say, "C123", "ts", "U123")
-    # Ticket 133: /blank-template sends the BOM template after the EPIF, so two uploads.
-    assert client.files_upload_v2.call_count == 2
-    assert client.files_upload_v2.call_args_list[1][1]["filename"] == "HIRST_LAB_BOM_TEMPLATE.xlsx"
-    call_kwargs = client.files_upload_v2.call_args_list[0][1]
-    assert call_kwargs["file"] == str(real_pdf)
-    assert call_kwargs["filename"] == "EPIF_TEMPLATE_HIRST.pdf"
+    client.conversations_open.return_value = {"channel": {"id": "D_ASKER"}}
+    ops.send_template_kit(client, "U123")
+    # Ticket 139: one upload carries the EPIF first, then the BOM template.
+    assert client.files_upload_v2.call_count == 1
+    first = client.files_upload_v2.call_args.kwargs["file_uploads"][0]
+    assert first["file"] == str(real_pdf)
+    assert first["filename"] == "EPIF_TEMPLATE_HIRST.pdf"
 
 
 def test_no_template_dir_in_src():

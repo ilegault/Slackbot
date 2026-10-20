@@ -77,10 +77,11 @@ def test_blank_template_sends_both(tmp_path, monkeypatch):
     epif.write_bytes(b"%PDF-1.4 fake")
     monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", str(epif))
     client = _client()
-    ops.handle_template_command(client, MagicMock(), channel="C1", thread_ts=None, user_id="U123")
-    names = [c.kwargs["filename"] for c in client.files_upload_v2.call_args_list]
-    assert "EPIF_TEMPLATE_HIRST.pdf" in names
-    assert FILENAME in names
+    ops.send_template_kit(client, "U123")
+    # Ticket 139: the kit is one upload carrying both files.
+    assert client.files_upload_v2.call_count == 1
+    names = [u["filename"] for u in client.files_upload_v2.call_args.kwargs["file_uploads"]]
+    assert names == ["EPIF_TEMPLATE_HIRST.pdf", FILENAME]
 
 
 def test_missing_template_alerts_admin(tmp_path, monkeypatch):

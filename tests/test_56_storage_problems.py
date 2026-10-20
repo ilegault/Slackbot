@@ -227,21 +227,28 @@ def test_confirmation_with_missing_folder(tmp_path, monkeypatch):
 
 
 def test_blank_template_uses_storage_problem_message(tmp_path, monkeypatch):
-    """ops.handle_template_command uses text_rules.storage_problem_message for missing or unset template."""
-    say = MagicMock()
+    """ops.send_template_kit uses text_rules.storage_problem_message for missing or unset template."""
     client = MagicMock()
+    client.conversations_open.return_value = {"channel": {"id": "D_ASKER"}}
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ADMIN")
+
+    def admin_alerts():
+        return [
+            c.kwargs["text"]
+            for c in client.chat_postMessage.call_args_list
+            if c.kwargs["channel"] == "C_ADMIN" and "EPIF_TEMPLATE_PATH" in c.kwargs["text"]
+        ]
 
     missing_path = str(tmp_path / "missing_template.pdf")
     monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", missing_path)
 
-    ops.handle_template_command(client, say, channel="C123", thread_ts="ts1", user_id="U123")
-    assert say.call_count == 1
+    ops.send_template_kit(client, "U123")
     expected = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", missing_path, "does not exist")
-    assert say.call_args[1]["text"] == expected
+    assert admin_alerts() == [expected]
 
-    say.reset_mock()
+    client.reset_mock()
+    client.conversations_open.return_value = {"channel": {"id": "D_ASKER"}}
     monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", "")
-    ops.handle_template_command(client, say, channel="C123", thread_ts="ts1", user_id="U123")
-    assert say.call_count == 1
+    ops.send_template_kit(client, "U123")
     expected_unset = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", "", "not set")
-    assert say.call_args[1]["text"] == expected_unset
+    assert admin_alerts() == [expected_unset]

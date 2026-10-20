@@ -1,6 +1,6 @@
 # 139: `/blank-template` sends the template kit privately
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -78,23 +78,23 @@ All new tests go in the new file `tests/test_139_template_kit.py`. The fake clie
 `conversations_open` returns `{"channel": {"id": "D_ASKER"}}`. `config.ADMIN_ALERT_CHANNEL`
 is monkeypatched to `"C_ADMIN"`.
 
-- [ ] `test_kit_is_one_dm_with_both_files`: with `EPIF_TEMPLATE_PATH` pointing at a temp PDF
+- [x] `test_kit_is_one_dm_with_both_files`: with `EPIF_TEMPLATE_PATH` pointing at a temp PDF
   and `BOM_TEMPLATE_PATH` left at the committed template, `ops.send_template_kit(client, "U1")`
   returns `"D_ASKER"`. There is exactly one `files_upload_v2` call, with `channel == "D_ASKER"`
   and `[u["filename"] for u in file_uploads] == ["EPIF_TEMPLATE_HIRST.pdf", "HIRST_LAB_BOM_TEMPLATE.xlsx"]`.
   Its `initial_comment` contains `Hirst Lab Manual EPIF Submission Kit`, `Two or more items?`
   and `HIRST_LAB_BOM_TEMPLATE.xlsx`, and contains no `could not be attached`. `chat_postMessage`
   is not called.
-- [ ] `test_command_in_a_channel_is_private`: call
+- [x] `test_command_in_a_channel_is_private`: call
   `app.handle_blank_template_command(ack, {"channel_id": "C_PURCH", "user_id": "U1"}, respond, client)`
   with both files real. No `chat_postMessage` or `files_upload_v2` call on the fake client has
   `channel == "C_PURCH"`. `respond` is called once with `response_type="ephemeral"` and text
   containing `Sent the EPIF and BOM templates to` and
   `https://slack.com/app_redirect?channel=D_ASKER`.
-- [ ] `test_note_only_skipped_in_own_bot_dm`: the same call with `channel_id="D_ASKER"` makes
+- [x] `test_note_only_skipped_in_own_bot_dm`: the same call with `channel_id="D_ASKER"` makes
   the upload and does not call `respond`. With `channel_id="D_SOMEONE_ELSE"` (a DM with
   another person), `respond` is called once with the note.
-- [ ] `test_missing_template_still_sends_the_rest`:
+- [x] `test_missing_template_still_sends_the_rest`:
   - With `BOM_TEMPLATE_PATH` set to a missing temp path, there is one upload carrying only
     `EPIF_TEMPLATE_HIRST.pdf`. Its `initial_comment` contains
     `⚠️ The BOM template could not be attached. An admin has been told.` There is exactly one
@@ -104,14 +104,14 @@ is monkeypatched to `"C_ADMIN"`.
     `D_ASKER` whose text contains the guide heading and both missing-file lines. There are two
     `chat_postMessage` calls to `C_ADMIN`, naming `EPIF_TEMPLATE_PATH` (`not set`) and
     `BOM_TEMPLATE_PATH`.
-- [ ] `test_dm_failure_is_private_and_help_line`:
+- [x] `test_dm_failure_is_private_and_help_line`:
   - With `client.conversations_open.side_effect = Exception("cannot_dm_bot")`, calling the
     handler with `channel_id="C_PURCH"` makes no `chat_postMessage` or `files_upload_v2` call
     with `channel == "C_PURCH"`. `respond` is called once, ephemeral, with text containing
     `I couldn't DM you the templates. Ask an admin.`
   - `blocks.get_help_message()` contains
     `` `/blank-template` — DMs you the blank EPIF PDF and the lab BOM template, with instructions.``
-- [ ] Existing tests that pinned the public behaviour are rewritten in place, same names, to assert
+- [x] Existing tests that pinned the public behaviour are rewritten in place, same names, to assert
   the new behaviour through `ops.send_template_kit` or the handler (new argument order
   `(ack, body, respond, client)`); none is skipped or xfailed: `test_blank_template_sends_both`,
   `test_startup_and_blank_template_agree_missing_and_real`, `test_blank_template_uses_storage_problem_message`,
@@ -151,3 +151,4 @@ test above calls `ops.send_template_kit` or asserts the new help line, so each f
 today's code.
 
 ## Comments
+Done 2026-10-20: added ops.send_template_kit (one DM, both files, guide as initial_comment), removed handle_template_command, rewired /blank-template to respond + private note, updated _SLASH_COMMANDS and path_validator docstring. New tests in tests/test_139_template_kit.py; 9 older tests rewritten in place (none skipped). Gate green: ruff, tests-first, type_gate (ratchet 95), pytest 888 passed. Not deployed: the developer runs @Purchasing update after merge.

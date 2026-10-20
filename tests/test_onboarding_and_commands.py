@@ -121,16 +121,19 @@ def test_admin_commands_success(monkeypatch):
 
 def test_template_command(tmp_path, monkeypatch):
     client = MagicMock()
-    say = MagicMock()
+    client.conversations_open.return_value = {"channel": {"id": "D123"}}
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ADMIN")
 
-    # Unset EPIF_TEMPLATE_PATH
+    # Unset EPIF_TEMPLATE_PATH: admins are told; the BOM template still goes in the DM.
     monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", "")
 
-    ops.handle_template_command(client, say, "C123", "ts", "U123")
-    assert say.call_count == 1
-    assert "EPIF_TEMPLATE_PATH" in say.call_args[1]["text"]
-    assert "not set" in say.call_args[1]["text"]
-    assert not hasattr(client, "files_upload_v2") or client.files_upload_v2.call_count == 0
+    assert ops.send_template_kit(client, "U123") == "D123"
+    alerts = [c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs["channel"] == "C_ADMIN"]
+    assert len(alerts) == 1
+    assert "EPIF_TEMPLATE_PATH" in alerts[0]
+    assert "not set" in alerts[0]
+    uploads = client.files_upload_v2.call_args.kwargs["file_uploads"]
+    assert [u["filename"] for u in uploads] == ["HIRST_LAB_BOM_TEMPLATE.xlsx"]
 
     # With temp PDF present and no README anywhere
     pdf_bytes = b"%PDF-1.4 dummy pdf content for blank template"
@@ -139,16 +142,15 @@ def test_template_command(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", str(temp_pdf))
 
-    say.reset_mock()
     client.reset_mock()
-    ops.handle_template_command(client, say, "C123", "ts", "U123")
-    assert "Manual EPIF Submission Kit" in say.call_args[1]["text"]
-    # Ticket 133: /blank-template sends the BOM template after the EPIF, so two uploads.
-    assert client.files_upload_v2.call_count == 2
-    assert client.files_upload_v2.call_args_list[1][1]["filename"] == "HIRST_LAB_BOM_TEMPLATE.xlsx"
-    call_kwargs = client.files_upload_v2.call_args_list[0][1]
-    assert call_kwargs["filename"] == "EPIF_TEMPLATE_HIRST.pdf"
-    uploaded_path = call_kwargs["file"]
+    client.conversations_open.return_value = {"channel": {"id": "D123"}}
+    ops.send_template_kit(client, "U123")
+    # Ticket 139: one DM upload, guide as the message, EPIF first then the BOM template.
+    assert client.files_upload_v2.call_count == 1
+    kw = client.files_upload_v2.call_args.kwargs
+    assert "Manual EPIF Submission Kit" in kw["initial_comment"]
+    assert [u["filename"] for u in kw["file_uploads"]] == ["EPIF_TEMPLATE_HIRST.pdf", "HIRST_LAB_BOM_TEMPLATE.xlsx"]
+    uploaded_path = kw["file_uploads"][0]["file"]
     with open(uploaded_path, "rb") as f:
         assert f.read() == pdf_bytes
 
@@ -458,8 +460,8 @@ def test_every_command_acks_before_client_calls():
 
     # 3. /blank-template
     ack.reset_mock()
-    with patch.object(ops, "handle_template_command") as mock_tmpl:
-        app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+    with patch.object(ops, "send_template_kit", return_value="D1") as mock_tmpl:
+        app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, respond, client)
         ack.assert_called_once()
         mock_tmpl.assert_called_once()
 
@@ -486,8 +488,8 @@ def test_no_slash_command_calls_chat_post_ephemeral():
     # 2. /purchasing-help
     app.handle_purchasing_help_command(ack, respond)
     # 3. /blank-template
-    with patch.object(ops, "handle_template_command"):
-        app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, client)
+    with patch.object(ops, "send_template_kit", return_value="D1"):
+        app.handle_blank_template_command(ack, {"channel_id": "C1", "user_id": "U1"}, respond, client)
     # 4. /roster-list
     app.handle_roster_list_command(ack, {"user_id": "U1"}, respond)
     # 5. /roster-set-name
@@ -909,13 +911,15 @@ def test_remove_vendor_close_matches():
 def test_template_command_single_file_missing(tmp_path, monkeypatch):
     """Clear error message if template file is missing."""
     client = MagicMock()
-    say = MagicMock()
+    client.conversations_open.return_value = {"channel": {"id": "D123"}}
+    monkeypatch.setattr(config, "ADMIN_ALERT_CHANNEL", "C_ADMIN")
     missing_pdf = str(tmp_path / "missing" / "EPIF_TEMPLATE_HIRST.pdf")
     monkeypatch.setattr(config, "EPIF_TEMPLATE_PATH", missing_pdf)
 
-    ops.handle_template_command(client, say, "C123", "ts", "U123")
-    assert say.call_count == 1
-    text = say.call_args[1]["text"]
+    ops.send_template_kit(client, "U123")
+    alerts = [c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs["channel"] == "C_ADMIN"]
+    assert len(alerts) == 1
+    text = alerts[0]
     assert "EPIF_TEMPLATE_PATH" in text
     assert missing_pdf in text
     assert "An admin needs to fix the server's .env." in text

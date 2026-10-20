@@ -14,7 +14,7 @@ wrong-kind, or non-existent paths so the startup alert can flag them in orange
 before workbook writes or EPIF saves fail.
 
 T54 (ADR 0009): The startup check previously kept its own inline list of storage
-paths, while ops.handle_template_command read a separate template directory setting
+paths, while ops.send_template_kit (formerly handle_template_command) read a separate template directory setting
 with hardcoded dev-machine defaults. On 2026-09-28, this two-constant drift meant
 /blank-template crashed on the production server while the startup alert reported all
 green. Now one list (config.STORAGE_SETTINGS) drives both the startup check and the
