@@ -112,7 +112,7 @@ def test_slash_commands_ack_before_client_and_never_call_post_ephemeral():
             app.handle_blank_template_command,
             {"channel_id": "C123", "user_id": "U123"},
             True,
-            False,
+            True,
         ),
         (
             "/roster-list",

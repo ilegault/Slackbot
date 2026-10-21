@@ -86,13 +86,13 @@ def test_scanned_surfaces_contain_no_p_bot_and_have_purchasing_bot(monkeypatch, 
     assert "p-bot" not in reply2.lower()
 
     # 8. /blank-template guide text
-    say = MagicMock()
     client = MagicMock()
-    ops.handle_template_command(client, say, channel="C123", thread_ts="T123", user_id="U123")
+    client.conversations_open.return_value = {"channel": {"id": "D123"}}
+    ops.send_template_kit(client, "U123")
     guide_calls = [
-        call[1]["text"]
-        for call in say.call_args_list
-        if "Hirst Lab Manual EPIF Submission Kit" in call[1].get("text", "")
+        call[1]["initial_comment"]
+        for call in client.files_upload_v2.call_args_list
+        if "Hirst Lab Manual EPIF Submission Kit" in call[1].get("initial_comment", "")
     ]
     assert len(guide_calls) == 1
     assert "p-bot" not in guide_calls[0].lower(), f"p-bot found in guide text: {guide_calls[0]}"

@@ -134,7 +134,7 @@ _ADMIN_COMMANDS = (
 _SLASH_COMMANDS = (
     "• `/new-purchase` — Open the guided purchasing modal to submit an order request.\n"
     "• `/purchasing-help` — Display this help and command reference.\n"
-    "• `/blank-template` — Download the blank EPIF PDF template and instructions.\n"
+    "• `/blank-template` — DMs you the blank EPIF PDF and the lab BOM template, with instructions.\n"
     "• `/roster-list` — List registered lab members and Workday catalog vendors.\n"
     "• `/roster-set-name` — Register in the lab roster, correct your name, or request a rename."
     "\n\n_Vendor not in the list but you know it's on Workday? Ask an admin to add it (`@Purchasing add-vendor`)._"

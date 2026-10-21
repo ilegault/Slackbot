@@ -575,79 +575,66 @@ def send_bom_template(client, user_id: str) -> bool:
     return True
 
 
-def handle_template_command(client, say, channel: str, thread_ts: str | None, user_id: str):
-    """Provide the blank EPIF form and guide for users who prefer manual submission (Phase 3).
+_TEMPLATE_KIT_GUIDE = (
+    "📄 *Hirst Lab Manual EPIF Submission Kit:*\n\n"
+    "1. Open the attached `EPIF_TEMPLATE_HIRST.pdf` in Adobe Acrobat or your PDF editor.\n"
+    "2. Fill in the required fields: *What*, *Why / URL*, *Amount*, *Vendor*, *Vendor Email*, *Date*, *Room*, *Project ID*, and tick *1 Category* + *Payment Method*.\n"
+    "3. *Two or more items?* Also fill in the attached `HIRST_LAB_BOM_TEMPLATE.xlsx`. One vendor per BOM, and its total must equal the EPIF *Amount*.\n"
+    "4. Post your completed PDF (and BOM, if you have one) in a thread in the purchasing channel and tag Charlie for approval.\n"
+    "5. Once approved, the Purchasing bot will validate and log your request automatically!"
+)
 
-    T54 (ADR 0009): On 2026-09-28, /blank-template crashed on production because it read
-    a separate template directory setting which fell back to a dev-machine default and
-    required README.md, while the startup alert checked EPIF_TEMPLATE_PATH and passed. The
-    two-constant drift is fixed: this handler now directly reads config.EPIF_TEMPLATE_PATH,
-    uploads only the template PDF without requiring README, and if unset or missing, replies
-    naming EPIF_TEMPLATE_PATH, the value (or 'not set'), and that an admin needs to fix
-    the server's .env.
+
+def send_template_kit(client, user_id: str) -> str | None:
+    """DM the template kit (guide + blank EPIF + BOM template) to a user; return the DM id.
+
+    WHY THIS EXISTS:
+    ----------------
+    Ticket 139 / spec .scratch/blank-template-private-kit: /blank-template used to post the
+    guide and the EPIF template publicly in whatever channel it was typed in, while the BOM
+    template went to a DM, so the kit arrived split across two places. This function is a
+    plain function of (client, user_id) with no `say` and no channel argument, so the only
+    places it can post are the asker's DM and the alert channel; "never public" is therefore
+    a property of the signature and can be tested without Bolt.
+
+    T54 (ADR 0009) still holds: each template is read straight from its own setting
+    (EPIF_TEMPLATE_PATH, BOM_TEMPLATE_PATH). A missing or unset file alerts admins naming the
+    setting (ADR 0016) but never stops the rest of the kit: the DM carries whatever exists
+    plus a line naming what could not be attached. If both are missing the DM is still sent,
+    as a message, with the guide and both lines.
+
+    Returns None when the DM cannot be opened or sent; the caller tells the asker privately.
     """
-    pdf_path = getattr(config, "EPIF_TEMPLATE_PATH", "")
-    val_str = "" if pdf_path is None else str(pdf_path).strip()
+    uploads = []
+    warnings = []
+    for setting, filename, label in (
+        ("EPIF_TEMPLATE_PATH", "EPIF_TEMPLATE_HIRST.pdf", "blank EPIF template"),
+        ("BOM_TEMPLATE_PATH", "HIRST_LAB_BOM_TEMPLATE.xlsx", "BOM template"),
+    ):
+        path = str(getattr(config, setting, "") or "").strip()
+        if path and os.path.isfile(path):
+            uploads.append({"file": path, "filename": filename, "title": filename})
+            continue
+        slack_io.alert_admins(
+            client,
+            text_rules.storage_problem_message(setting, path, "does not exist" if path else "not set"),
+        )
+        log.warning("%s missing at %r; admins alerted", setting, path)
+        warnings.append(f"⚠️ The {label} could not be attached. An admin has been told.")
 
-    if not val_str:
-        msg = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", "", "not set")
-        if thread_ts:
-            say(text=msg, thread_ts=thread_ts)
-        else:
-            say(text=msg)
-        return
-
-    if not os.path.isfile(val_str):
-        msg = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", val_str, "does not exist")
-        if thread_ts:
-            say(text=msg, thread_ts=thread_ts)
-        else:
-            say(text=msg)
-        return
-
-    guide_text = (
-        "📄 *Hirst Lab Manual EPIF Submission Kit:*\n\n"
-        "1. Open the attached `EPIF_TEMPLATE_HIRST.pdf` in Adobe Acrobat or your PDF editor.\n"
-        "2. Fill in the required fields: *What*, *Why / URL*, *Amount*, *Vendor*, *Vendor Email*, *Date*, *Room*, *Project ID*, and tick *1 Category* + *Payment Method*.\n"
-        "3. Upload your completed PDF to the purchasing channel and tag Charlie for approval.\n"
-        "4. Once approved, the Purchasing bot will validate and log your request automatically!"
-    )
-
-    if thread_ts:
-        say(text=guide_text, thread_ts=thread_ts)
-    else:
-        say(text=guide_text)
+    text = _TEMPLATE_KIT_GUIDE + ("\n\n" + "\n".join(warnings) if warnings else "")
 
     try:
-        if hasattr(client, "files_upload_v2"):
-            kwargs1 = {
-                "channel": channel,
-                "file": val_str,
-                "title": "EPIF_TEMPLATE_HIRST.pdf",
-                "filename": "EPIF_TEMPLATE_HIRST.pdf",
-            }
-            if thread_ts:
-                kwargs1["thread_ts"] = thread_ts
-            client.files_upload_v2(**kwargs1)
+        dm_id = client.conversations_open(users=user_id)["channel"]["id"]
+        if uploads:
+            client.files_upload_v2(channel=dm_id, initial_comment=text, file_uploads=uploads)
         else:
-            kwargs1 = {
-                "channels": channel,
-                "file": val_str,
-                "title": "EPIF_TEMPLATE_HIRST.pdf",
-            }
-            if thread_ts:
-                kwargs1["thread_ts"] = thread_ts
-            client.files_upload(**kwargs1)
+            client.chat_postMessage(channel=dm_id, text=text)
     except Exception as e:
-        log.warning("Could not upload template files via Slack API: %s", e)
-        err_msg = f"*(Could not attach files directly: {e})*"
-        if thread_ts:
-            say(text=err_msg, thread_ts=thread_ts)
-        else:
-            say(text=err_msg)
-
-    # Ticket 133 / ADR 0019: the BOM template travels with the EPIF template.
-    send_bom_template(client, user_id)
+        log.warning("Could not DM the template kit to %s: %s", user_id, e)
+        return None
+    log.info("Sent template kit to %s (%d file(s) attached)", user_id, len(uploads))
+    return dm_id
 
 
 def handle_approve_new_requester(client, approver_id: str, channel_id: str, msg_ts: str, slack_id: str, name: str):

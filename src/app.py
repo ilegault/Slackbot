@@ -221,23 +221,26 @@ def handle_purchasing_help_command(ack, respond):
 
 
 @app.command("/blank-template")
-def handle_blank_template_command(ack, body, client):
-    """Download blank EPIF PDF template and guide from slash command."""
+def handle_blank_template_command(ack, body, respond, client):
+    """DM the template kit to the asker; where they typed it, show only them a note.
+
+    Ticket 139: the kit is never posted in the channel. send_template_kit returns the DM
+    id; the note is skipped only when the command was typed in that very DM.
+    """
     ack()
-    channel_id = body.get("channel_id")
     user_id = body.get("user_id")
 
-    def say(text, thread_ts=None):
-        kw = {"channel": channel_id, "text": text}
-        if thread_ts:
-            kw["thread_ts"] = thread_ts
-        client.chat_postMessage(**kw)
-
-    try:
-        ops.handle_template_command(client, say, channel=channel_id, thread_ts=None, user_id=user_id)
-        log.info("Dispatched /blank-template command for user %s in channel %s", user_id, channel_id)
-    except Exception as e:
-        log.error("Failed to process /blank-template: %s", e)
+    dm_id = ops.send_template_kit(client, user_id)
+    if dm_id is None:
+        slack_io.deny(respond, "⚠️ I couldn't DM you the templates. Ask an admin.")
+        return
+    log.info("Dispatched /blank-template command for user %s in channel %s", user_id, body.get("channel_id"))
+    if dm_id == body.get("channel_id"):
+        return
+    slack_io.deny(
+        respond,
+        f"📬 Sent the EPIF and BOM templates to <https://slack.com/app_redirect?channel={dm_id}|your DM>.",
+    )
 
 
 @app.command("/roster-list")
@@ -2387,8 +2390,6 @@ def dispatch_command(
         ops.handle_remove_vendor(client, say, channel, thread_ts, user, text)
     elif cmd in config.ADD_VENDOR_KEYWORDS:
         ops.handle_add_vendor(client, say, channel, thread_ts, user, text)
-    elif cmd in config.TEMPLATE_KEYWORDS:
-        ops.handle_template_command(client, say, channel, thread_ts, user)
     elif cmd in config.QUOTE_KEYWORDS:
         lifecycle.handle_quote(client, say, channel, thread_ts, event_ts, files)
     elif cmd in config.ASSIGN_KEYWORDS:

@@ -1,6 +1,6 @@
 # 138: `@Purchasing template` is no longer a keyword
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -30,11 +30,11 @@ undocumented keyword that posts it publicly goes away entirely.
 
 ## Acceptance criteria
 
-- [ ] New file `tests/test_138_template_keyword.py`, `test_template_is_not_a_keyword`:
+- [x] New file `tests/test_138_template_keyword.py`, `test_template_is_not_a_keyword`:
   `config` has no attribute `TEMPLATE_KEYWORDS`; no tuple in `config.ALL_KEYWORD_TUPLES`
   contains `"template"`, `"blank epif"` or `"blank form"`; `"template"` is not in
   `config.CANONICAL_KEYWORDS`.
-- [ ] `test_template_mention_gets_the_unknown_word_reply`: call `app.dispatch_command` the way
+- [x] `test_template_mention_gets_the_unknown_word_reply`: call `app.dispatch_command` the way
   `tests/test_onboarding_and_commands.py::test_assign_keyword_dispatch` does (fake `client`
   and `say`, `channel="C_TEST"`, `thread_ts="5555.66"`, `event_ts="5555.67"`,
   `text="@Purchasing template"`). Assert `say` was called exactly once, its `text` contains
@@ -59,3 +59,4 @@ The gate holds a PR that adds a new test which already passes on today's code. B
 tests fail on today's code (the keyword exists and the mention uploads the EPIF).
 
 ## Comments
+Done 2026-10-20: removed TEMPLATE_KEYWORDS from config and the dispatch branch in app.dispatch_command. Both criteria covered by tests/test_138_template_keyword.py. Gate green (ruff, tests-first, type_gate ratchet 95, pytest 883 passed).
