@@ -133,6 +133,10 @@ def test_startup_and_blank_template_agree_missing_and_real(monkeypatch, tmp_path
     # Ticket 139: the EPIF is missing, so the kit still goes (BOM only) and admins are alerted.
     alert = [c.kwargs for c in client.chat_postMessage.call_args_list if c.kwargs["channel"] == "C_ADMIN"]
     assert len(alert) == 1
+    # The asker is still sent the rest of the kit, in their DM, and told what is missing.
+    kit = client.files_upload_v2.call_args.kwargs
+    assert kit["channel"] == "D_ASKER"
+    assert "The blank EPIF template could not be attached" in kit["initial_comment"]
     reply_text = alert[0]["text"]
     assert "EPIF_TEMPLATE_PATH" in reply_text
     assert missing_path in reply_text
@@ -155,6 +159,8 @@ def test_startup_and_blank_template_agree_missing_and_real(monkeypatch, tmp_path
     first = client.files_upload_v2.call_args.kwargs["file_uploads"][0]
     assert first["file"] == str(real_pdf)
     assert first["filename"] == "EPIF_TEMPLATE_HIRST.pdf"
+    assert client.files_upload_v2.call_args.kwargs["channel"] == "D_ASKER"
+    assert "could not be attached" not in client.files_upload_v2.call_args.kwargs["initial_comment"]
 
 
 def test_no_template_dir_in_src():

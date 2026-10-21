@@ -245,6 +245,9 @@ def test_blank_template_uses_storage_problem_message(tmp_path, monkeypatch):
     ops.send_template_kit(client, "U123")
     expected = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", missing_path, "does not exist")
     assert admin_alerts() == [expected]
+    # The asker still gets the kit in their DM, with a line naming the missing EPIF template.
+    assert client.files_upload_v2.call_args.kwargs["channel"] == "D_ASKER"
+    assert "The blank EPIF template could not be attached" in client.files_upload_v2.call_args.kwargs["initial_comment"]
 
     client.reset_mock()
     client.conversations_open.return_value = {"channel": {"id": "D_ASKER"}}
@@ -252,3 +255,5 @@ def test_blank_template_uses_storage_problem_message(tmp_path, monkeypatch):
     ops.send_template_kit(client, "U123")
     expected_unset = text_rules.storage_problem_message("EPIF_TEMPLATE_PATH", "", "not set")
     assert admin_alerts() == [expected_unset]
+    assert client.files_upload_v2.call_args.kwargs["channel"] == "D_ASKER"
+    assert "The blank EPIF template could not be attached" in client.files_upload_v2.call_args.kwargs["initial_comment"]
