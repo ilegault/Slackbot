@@ -30,6 +30,7 @@ import difflib
 import re
 import string
 from collections.abc import Sequence
+from urllib.parse import urlsplit
 
 try:
     from . import config
@@ -574,3 +575,18 @@ def extract_modal_files(values: dict, block_id: str, action_id: str) -> list[dic
     return result
 
 
+
+
+def redact_url(url: str) -> str:
+    """Return `scheme://host/***` for a URL whose path or query is a secret.
+
+    The heartbeat URL is a bearer secret: anyone holding it can fake "the bot is
+    alive". The log is uploaded into Slack by `@Purchasing logs`, so the log must
+    say which host was meant and nothing more.
+    """
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    if not parts.scheme or not parts.netloc:
+        return "***"
+    return f"{parts.scheme}://{parts.hostname}/***"

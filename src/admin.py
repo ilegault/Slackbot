@@ -42,11 +42,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from . import config, queue_worker, roster
+    from . import config, queue_worker, roster, text_rules
 except ImportError:
     import config
     import queue_worker
     import roster
+    import text_rules
 
 log = logging.getLogger("p-bot.admin")
 
@@ -392,8 +393,10 @@ def build_health_blocks(health: Optional[Dict[str, Any]] = None) -> List[Dict[st
 
 def mask_sensitive_tokens(text: str) -> str:
     """Mask Slack bot tokens, app tokens, and webhook URLs in text."""
-    masked = re.sub(r"xoxb-[a-zA-Z0-9-]+", "xoxb-***MASKED***", text)
+    masked = re.sub(r"(xox[a-z])-[a-zA-Z0-9.-]+", r"\1-***MASKED***", text)
     masked = re.sub(r"xapp-[a-zA-Z0-9-]+", "xapp-***MASKED***", masked)
+    if config.HEALTHCHECK_URL:
+        masked = masked.replace(config.HEALTHCHECK_URL, text_rules.redact_url(config.HEALTHCHECK_URL))
     masked = re.sub(r"https://hooks\.slack\.com/services/[^\s]+", "https://hooks.slack.com/services/***MASKED***", masked)
     return masked
 

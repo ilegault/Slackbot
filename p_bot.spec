@@ -14,11 +14,12 @@ a = Analysis(
     ['app.py'],
     pathex=['.', 'src'],
     binaries=[],
-    datas=[d for d in [
-        ('.env', '.') if os.path.exists('.env') else None,
-        ('roster.json', '.') if os.path.exists('roster.json') else None,
+    # Never list .env or roster.json here: the Slack tokens and the roster are
+    # per-server and must live beside the exe, created on the server. Bundling them
+    # copies live credentials into every copy of dist/.
+    datas=[
         ('templates/HIRST_LAB_BOM_TEMPLATE.xlsx', 'templates'),
-    ] if d is not None],
+    ],
     hiddenimports=[
         'src',
         'src.admin',

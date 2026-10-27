@@ -20,10 +20,11 @@ from typing import Optional
 import requests
 
 try:
-    from . import config, path_validator
+    from . import config, path_validator, text_rules
 except ImportError:
     import config
     import path_validator
+    import text_rules
 
 log = logging.getLogger("p-bot.heartbeat")
 
@@ -55,7 +56,7 @@ class HeartbeatMonitor:
         self._thread.start()
         log.info(
             "Heartbeat monitor started (URL: %s, Interval: %ds)",
-            self.url,
+            text_rules.redact_url(self.url),
             self.interval,
         )
 
@@ -75,7 +76,8 @@ class HeartbeatMonitor:
             log.debug("Heartbeat ping returned status code %s", res.status_code)
             return res.status_code == 200
         except Exception as e:
-            log.warning("Failed to send heartbeat ping to %s: %s", self.url, e)
+            # str(e) from requests embeds the full URL, which is a secret.
+            log.warning("Failed to send heartbeat ping to %s: %s", text_rules.redact_url(self.url), type(e).__name__)
             return False
 
     def _run_loop(self):

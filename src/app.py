@@ -2664,7 +2664,7 @@ def main():
     log.info("Admin Users: %s", config.ADMIN_SLACK_USER_IDS)
     log.info("Admin Alert Channel: %s", config.ADMIN_ALERT_CHANNEL or "Not configured")
     log.info("Purchasing Channel: %s", config.PURCHASING_CHANNEL or "Not configured")
-    log.info("Heartbeat URL: %s", config.HEALTHCHECK_URL or "Not configured")
+    log.info("Heartbeat URL: %s", text_rules.redact_url(config.HEALTHCHECK_URL) or "Not configured")
     log.info("=" * 70)
 
     # Validate channel configuration (Ticket 15: loud startup check)
