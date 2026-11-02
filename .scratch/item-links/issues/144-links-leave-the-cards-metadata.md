@@ -1,6 +1,6 @@
 # 144: Item links leave the card's metadata
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
