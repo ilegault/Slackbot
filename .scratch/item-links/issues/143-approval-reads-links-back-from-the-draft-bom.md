@@ -1,6 +1,6 @@
 # 143: Approval reads the item links back from the draft BOM
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
