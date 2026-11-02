@@ -28,6 +28,9 @@ This module provides the pure domain logic for multi-item orders:
    openpyxl or any non-Excel tool holds no cached formula results, so the reader would see None or
    the formula text. The total is recomputed as quantity x unit cost, and `check_bom_total` compares
    it with the typed Total Price to the cent. There is no shipping anywhere in this check.
+7. Merging draft links onto card items (Ticket 143, ADR 0020 decision 5): `merge_links` validates
+   that draft BOM items match card items by position (length, stripped name, integer quantity) and
+   populates `link` and `no_link_reason` onto copies of the card items, returning None on mismatch.
 
 All functions in this module are strictly pure (no Slack API, no filesystem I/O)
 to guarantee isolation and fast, deterministic testability.
@@ -527,3 +530,39 @@ def check_bom_total(items: List[Dict[str, Any]], total_price: Any) -> Optional[s
     if round(typed * 100) == round(total * 100):
         return None
     return f"The BOM totals ${total:,.2f} but you typed ${typed:,.2f} — they must match."
+
+
+def merge_links(
+    card_items: List[Dict[str, Any]], draft_items: List[Dict[str, Any]]
+) -> Optional[List[Dict[str, Any]]]:
+    """Merge links and no-link reasons from draft BOM items onto card items by position.
+
+    WHY THIS EXISTS:
+    Ticket 143 / ADR 0020 Decision 5: Line items stored in card metadata do not
+    carry links. At approval, this pure function verifies that the draft BOM items
+    match the card's items in length, stripped name, and integer quantity. If so,
+    it returns copies of the card items with link and no_link_reason populated
+    from the draft items. If anything differs, returns None.
+    """
+    if len(card_items) != len(draft_items):
+        return None
+    merged: List[Dict[str, Any]] = []
+    for c_item, d_item in zip(card_items, draft_items):
+        c_name = str(c_item.get("name") if c_item.get("name") is not None else c_item.get("item_name", "")).strip()
+        d_name = str(d_item.get("name") if d_item.get("name") is not None else d_item.get("item_name", "")).strip()
+        if c_name != d_name:
+            return None
+        try:
+            c_qty_raw = c_item.get("quantity") if c_item.get("quantity") is not None else c_item.get("qty")
+            d_qty_raw = d_item.get("quantity") if d_item.get("quantity") is not None else d_item.get("qty")
+            c_qty = int(c_qty_raw)
+            d_qty = int(d_qty_raw)
+        except (ValueError, TypeError):
+            return None
+        if c_qty != d_qty:
+            return None
+        item_copy = dict(c_item)
+        item_copy["link"] = d_item.get("link") or ""
+        item_copy["no_link_reason"] = d_item.get("no_link_reason") or ""
+        merged.append(item_copy)
+    return merged
