@@ -515,40 +515,45 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-10-20 18:39. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-02 21:05. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: /blank-template sends the template kit privately (138–139)
+# Active work: every item has a link or a reason (140–144)
 
 This is a pointer, not the work. The work is the spec and the tickets below.
 
-- Spec: `.scratch/blank-template-private-kit/spec.md`
-- Tickets: `.scratch/blank-template-private-kit/issues/138-template-is-not-a-keyword.md` and `139-blank-template-is-private.md` (2 tickets, both agent, both auto-merge)
-- Binding: ADR 0002 (a thing with no target is a slash command), ADR 0016 (who is told), ADR 0019 (the BOM template), ADR 0001 (tests first)
-- Glossary: `CONTEXT.md`. New: **Template kit**
+- Spec: `.scratch/item-links/spec.md`
+- Tickets: `.scratch/item-links/issues/140-…` through `144-…` (5 tickets, all agent, all auto-merge)
+- Binding: ADR 0020 (every item has a link or a reason; links live in the BOM file), ADR 0019 (BOMs come in through the lab template), ADR 0015 (thread files at approval), ADR 0006 (as superseded by 0020), ADR 0001 (tests first)
+- Glossary: `CONTEXT.md`. New: **Item link**, **No-link reason**. Rewritten: **Line item**, **BOM template**, **BOM check**
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Next:** 138 is the only unblocked ticket. **Start with 138.** It removes the `template` keyword, which is the only other caller of `ops.handle_template_command`, so 139 can replace that function cleanly.
+**Next:** 140 is the only unblocked ticket. **Start with 140.** It changes the template, the reader and the builder that every other ticket uses. Once it lands, 141, 142 and 143 can all run in parallel.
 
 ## Dependency graph
 
-    138 ──► 139
+    140 ──► 141
+        ├─► 142
+        └─► 143 ──► 144
 
-No ticket is `ready-for-developer` and none is held. After both merge, the developer deploys (`@Purchasing update`).
+No ticket is `ready-for-developer` and none is held. After all five merge, the developer deploys. Every BOM template copy handed out before then stops working on the form path.
 
 ## Requirements an implementer might treat as preferences — they are not
 
-- `ops.send_template_kit(client, user_id)` takes no channel and no `say`. It posts only to the asker's DM and the alert channel. That is what makes "never public" testable.
-- The kit is one DM message: one `files_upload_v2` with `file_uploads` (EPIF first, then BOM) and the guide as `initial_comment`.
-- The private note uses `respond` (via `slack_io.deny`), never `chat_postEphemeral`.
-- The note is skipped only when the command's `channel_id` equals the DM the bot opened. Any other DM or group DM still gets it.
-- A missing template file never stops the rest of the kit. The asker is told in the DM, and the alert channel gets `text_rules.storage_problem_message`.
-- Tests that pinned the public behaviour are rewritten in place under the same names. None are deleted.
+- `bom.read_bom_template` stays a pure function from bytes to `(items, problems)`. Each item carries `row`, `link` and `no_link_reason`. A blank link is not a reader problem.
+- The reason radios on the BOM check are `optional: true` in Slack. The submit handler refuses unpicked ones. Slack enforces required inputs in the client, which would block a re-upload submit.
+- A one-row BOM is refused on the BOM check (the developer decided this on 2026-11-02; it is not in the spec).
+- `slack_io.thread_files` skips bot-posted files, so approval finds the draft with the new `slack_io.newest_bot_draft_bom`, not the thread-file classifier.
+- A missing or mismatched draft never blocks approval. It reuses the Off-template flag and the Replace BOM wording.
+- Links are stripped only from the copy written into card `metadata` (`bom.items_for_card`), never from the items handed to `upload_draft_bom`.
+- 144 must land after 143, or approval loses links in between.
+- Tests built on the old eight-column layout are rewritten in place under their names. None are deleted.
 
 ## Deliberately not in this set
 
-- Any public way to get the kit (keyword or flag).
-- Changes to `ops.send_bom_template` or the Screen 2 "Send me the BOM template" button.
-- Changes to the startup storage check.
+- Any link check on BOMs dropped straight into a thread.
+- Visiting links. Showing full URLs in Slack. A "same as row N" pointer.
+- The Workday details form's and Edit's link fields. EPIF-born requests.
+- Migrating already-posted cards. Editing `docs/adr/` or `CONTEXT.md`.
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol
