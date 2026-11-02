@@ -161,6 +161,8 @@ def test_archived_bom_has_the_drafts_links_and_reasons(temp_workbook, temp_boms_
 
     monkeypatch.setattr(slack_io, "download_file", lambda f: draft_bytes)
     monkeypatch.setattr(slack_io, "resolve_requester", lambda cl, uid: "Alex" if uid == "U_REQ" else "Dylan")
+    draft_spy = MagicMock(side_effect=slack_io.newest_bot_draft_bom)
+    monkeypatch.setattr(slack_io, "newest_bot_draft_bom", draft_spy)
 
     lifecycle.finalize_purchase_request(
         client=client,
@@ -353,6 +355,8 @@ def test_mismatched_draft_is_refused(temp_workbook, temp_boms_dir, sync_queue, m
 
     monkeypatch.setattr(slack_io, "download_file", lambda f: draft_bytes)
     monkeypatch.setattr(slack_io, "resolve_requester", lambda cl, uid: "Alex" if uid == "U_REQ" else "Dylan")
+    draft_spy = MagicMock(side_effect=slack_io.newest_bot_draft_bom)
+    monkeypatch.setattr(slack_io, "newest_bot_draft_bom", draft_spy)
 
     lifecycle.finalize_purchase_request(
         client=client,
@@ -428,6 +432,8 @@ def test_items_with_links_skip_the_lookup(temp_workbook, temp_boms_dir, sync_que
 
     monkeypatch.setattr(slack_io, "download_file", lambda f: draft_bytes)
     monkeypatch.setattr(slack_io, "resolve_requester", lambda cl, uid: "Alex" if uid == "U_REQ" else "Dylan")
+    draft_spy = MagicMock(side_effect=slack_io.newest_bot_draft_bom)
+    monkeypatch.setattr(slack_io, "newest_bot_draft_bom", draft_spy)
 
     lifecycle.finalize_purchase_request(
         client=client,
@@ -459,6 +465,7 @@ def test_items_with_links_skip_the_lookup(temp_workbook, temp_boms_dir, sync_que
     # Card does NOT have off_template_bom
     update_meta = client.chat_update.call_args[1]["metadata"]["event_payload"]
     assert update_meta.get("off_template_bom") is None or update_meta.get("off_template_bom") is False
+    draft_spy.assert_not_called()
 
 
 def test_merge_links_pure_cases():

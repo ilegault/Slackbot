@@ -552,9 +552,11 @@ def merge_links(
         d_name = str(d_item.get("name") if d_item.get("name") is not None else d_item.get("item_name", "")).strip()
         if c_name != d_name:
             return None
+        c_qty_raw = c_item.get("quantity") if c_item.get("quantity") is not None else c_item.get("qty")
+        d_qty_raw = d_item.get("quantity") if d_item.get("quantity") is not None else d_item.get("qty")
+        if c_qty_raw is None or d_qty_raw is None:
+            return None
         try:
-            c_qty_raw = c_item.get("quantity") if c_item.get("quantity") is not None else c_item.get("qty")
-            d_qty_raw = d_item.get("quantity") if d_item.get("quantity") is not None else d_item.get("qty")
             c_qty = int(c_qty_raw)
             d_qty = int(d_qty_raw)
         except (ValueError, TypeError):
