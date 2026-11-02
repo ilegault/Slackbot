@@ -1,6 +1,6 @@
 # 140: Link column in the BOM template, the reader and the builder
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
