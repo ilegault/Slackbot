@@ -11,6 +11,7 @@ tests can pin it.
 
 The p-card / req/po FAQ answers reuse config.PAYMENT_METHOD_HINT so the form hint and the
 FAQ cannot drift apart (ADR 0017 decision 4).
+Ticket 142 / ADR 0020 decision 4: build_parsed_from_stages carries no_link_reason from stage2 next to link.
 """
 import datetime
 import difflib
@@ -173,6 +174,7 @@ def build_parsed_from_stages(
         "item_description": str(stage2.get("item_description") or "").strip(),
         "purpose": purpose,
         "link": link,
+        "no_link_reason": str(stage2.get("no_link_reason") or "").strip(),
         "total_price": price_num,
         "total_price_raw": price_raw,
         "vendor": final_vendor,

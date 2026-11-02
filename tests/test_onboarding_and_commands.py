@@ -265,6 +265,7 @@ def test_screen2_to_screen3_or_finalize(monkeypatch):
             "values": {
                 "block_item_description": {"item_description": {"value": "Flange Part"}},
                 "block_purpose": {"purpose": "Vacuum chamber upgrade"},
+                "block_link": {"link": {"value": "https://fishersci.com/flange"}},
                 "block_total_price": {"total_price": {"value": "250.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
@@ -296,6 +297,7 @@ def test_screen2_to_screen3_or_finalize(monkeypatch):
             "values": {
                 "block_item_description": {"item_description": {"value": "Box of Gloves"}},
                 "block_purpose": {"purpose": "General lab use"},
+                "block_link": {"link": {"value": "https://fishersci.com/gloves"}},
                 "block_total_price": {"total_price": {"value": "120.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
@@ -365,7 +367,7 @@ def test_screen3_to_finalize(monkeypatch):
     assert parsed["asset_id"] == "TAG-44556"
     assert parsed["name_of_system"] == "Target Chamber Alpha"
     assert parsed["payment_method"] == "Workday"
-    assert len(parsed) == 20  # the parser's keys, with request_date (ISO string) in place of date_of_purchase
+    assert len(parsed) == 21  # the parser's keys + no_link_reason, with request_date (ISO string) in place of date_of_purchase
 
 
 def test_private_metadata_budget():
@@ -951,6 +953,7 @@ def test_screen2_validation_errors():
             "values": {
                 "block_item_description": {"item_description": {"value": "Box of Gloves"}},
                 "block_purpose": {"purpose": "General lab use"},
+                "block_link": {"link": {"value": "https://fishersci.com/gloves"}},
                 "block_total_price": {"total_price": {"value": "NOT_A_PRICE"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},

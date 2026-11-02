@@ -24,6 +24,7 @@ Ticket 96: Adds nudge_summary_text (built from nudge_settings.load()) rendered u
 Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted when is_edit=True). build_request_blocks strips attachments from safe_req and renders Quotes summary line (ADR 0012 Decisions 1, 2).
 Ticket 86: keep_quotes_input lists a card's current quotes as pre-ticked checkboxes on both edit forms (Edit, Edit items); Edit also gains the BOM and quotes fields (ADR 0012 Decision 6). Current quotes never ride in private_metadata.
 Ticket 120: Screen 2's Purpose asks only why (the link has its own field and is added to the EPIF), and request_summary_lines drops the Link line when the URL is already in Purpose (text_rules.link_in_purpose), so both cards show a link once.
+Ticket 142 / ADR 0020: Screen 2 link field is labelled 'Link to the item\'s web page' with required hint; block_no_link checkbox added; request_summary_lines shows No web page when link is empty and no_link_reason is set.
 
 Imports:
     - bom, config, interview, nudge_settings, roster, text_rules
@@ -625,6 +626,8 @@ def request_summary_lines(request: dict, state: str, requester: str | None = Non
     link = parsed.get("link")
     if link and not text_rules.link_in_purpose(purpose, link):
         summary_lines.append(f"• *Link:* {link}")
+    elif not link and parsed.get("no_link_reason"):
+        summary_lines.append(f"• *Link:* {parsed['no_link_reason']}")
     assignee_id = request.get("assignee_id")
     assignee = request.get("assignee")
     if assignee_id:
@@ -1637,7 +1640,22 @@ def build_stage2_view(meta: dict) -> dict:
                 "https://... (vendor product page or quote link)",
                 prefill_key="link",
             ),
-            "label": {"type": "plain_text", "text": "Product Page / Quote Link (added to the EPIF)"},
+            "label": {"type": "plain_text", "text": "Link to the item's web page"},
+            "hint": {
+                "type": "plain_text",
+                "text": "Required unless you attach a BOM or tick No web page.",
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "block_no_link",
+            "optional": True,
+            "label": {"type": "plain_text", "text": "No link?"},
+            "element": {
+                "type": "checkboxes",
+                "action_id": "no_link",
+                "options": [{"text": {"type": "plain_text", "text": "No web page"}, "value": "no_web_page"}],
+            },
         },
         {
             "type": "input",
