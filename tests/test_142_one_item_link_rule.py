@@ -187,6 +187,9 @@ def test_rule_skipped_with_a_bom(monkeypatch):
     roster.add_requester("U_ISAAC", "Isaac")
 
     meta = _sample_stage1_meta()
+    s2 = blocks.build_stage2_view(meta)
+    assert "block_no_link" in [b.get("block_id") for b in s2["blocks"]]
+
     base_view = _make_stage2_view_submission(meta, link="", purpose="Multiple parts")
     base_view = _with_no_link_box(base_view, ticked=False)
     view = _with_bom(base_view, [{"id": "F_BOM", "name": "order.xlsx"}], ticked=True)
