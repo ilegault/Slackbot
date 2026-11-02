@@ -1828,27 +1828,52 @@ def _bom_row_line(item: dict) -> str:
     price = float(item.get("unit_price") or 0.0)
     name = str(item.get("name") or item.get("item_name") or "")[:60]
     part = str(item.get("part_number") or "") or "no part #"
-    return f"{qty} × {name} — {part} — ${price:,.2f} = ${qty * price:,.2f}"
+    base = f"{qty} × {name} — {part} — ${price:,.2f} = ${qty * price:,.2f}"
+    link = str(item.get("link") or "").strip()
+    reason = str(item.get("no_link_reason") or "").strip()
+    if link:
+        site = bom.link_site(link)
+        if len(link) <= 2000:
+            return f"{base} — <{link}|{site}>"
+        return f"{base} — {site}"
+    if reason:
+        return f"{base} — {reason}"
+    return f"{base} — no link"
 
 
 def build_bom_check_view(meta: dict, items: list[dict], problems: list[str], total: float, typed_total: float | None) -> dict:
     """The BOM check screen: the rows as read, both totals, every problem, and a re-upload field.
 
-    WHY THIS EXISTS (Ticket 134, ADR 0019 decision 5): nothing is posted until the requester has
-    seen what the bot read. The screen lists up to `config.BOM_CHECK_PREVIEW_ROWS` rows, the BOM
-    total beside the typed Total Price, and either every problem or a green line saying the
-    total matches. The flow's state rides in `private_metadata` (`bom_ok` says whether the
-    submit may continue; `bom_problems` is the text a refused submit shows, capped because
-    Slack allows 3,000 characters there). Items never go in a button value.
+    WHY THIS EXISTS (Ticket 134, ADR 0019 decision 5; Ticket 141, ADR 0020 decisions 3, 5):
+    nothing is posted until the requester has seen what the bot read. The screen lists up to
+    `config.BOM_CHECK_PREVIEW_ROWS` rows with clickable site names (packed under the 3,000-char
+    section block limit), the BOM total beside the typed Total Price, reason inputs for rows
+    without links, and either every problem or a green line saying the total matches. The flow's
+    state rides in `private_metadata` (`bom_ok` says whether the submit may continue;
+    `no_link_rows` lists rows needing reasons; `bom_problems` is the text a refused submit shows).
+    Items never go in a button value.
     """
     n = len(items)
     shown = items[: config.BOM_CHECK_PREVIEW_ROWS]
     blocks_list: list[dict] = []
-    for start in range(0, len(shown), 10):
+    current_lines: list[str] = []
+    for item in shown:
+        line = _bom_row_line(item)
+        candidate = "\n".join(current_lines + [line])
+        if current_lines and (len(current_lines) >= 10 or len(candidate) > 3000):
+            blocks_list.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
+            })
+            current_lines = [line]
+        else:
+            current_lines.append(line)
+    if current_lines:
         blocks_list.append({
             "type": "section",
-            "text": {"type": "mrkdwn", "text": "\n".join(_bom_row_line(i) for i in shown[start:start + 10])},
+            "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
         })
+
     if n > len(shown):
         blocks_list.append({"type": "context", "elements": [
             {"type": "mrkdwn", "text": f"…and {n - len(shown)} more rows"}]})
@@ -1858,10 +1883,42 @@ def build_bom_check_view(meta: dict, items: list[dict], problems: list[str], tot
     if problems:
         blocks_list.append({"type": "section", "block_id": "block_bom_problems", "text": {
             "type": "mrkdwn", "text": "\n".join(f"⚠️ {p}" for p in problems)}})
+        blocks_list.append(send_bom_template_block())
     else:
         blocks_list.append({"type": "section", "block_id": "block_bom_problems", "text": {
             "type": "mrkdwn",
             "text": f"✅ The bot read {n} item{'s' if n != 1 else ''} totalling ${total:,.2f}. This matches your total."}})
+
+    no_link_rows: list[int] = []
+    if not problems:
+        for item in items:
+            link = str(item.get("link") or "").strip()
+            reason = str(item.get("no_link_reason") or "").strip()
+            if not link and not reason:
+                row = item.get("row")
+                no_link_rows.append(int(row))
+                name = str(item.get("name") or item.get("item_name") or "")[:60]
+                blocks_list.append({
+                    "type": "input",
+                    "block_id": f"block_no_link_{row}",
+                    "optional": True,
+                    "element": {
+                        "type": "radio_buttons",
+                        "action_id": "no_link_reason",
+                        "options": [
+                            {
+                                "text": {"type": "plain_text", "text": config.NO_LINK_REASONS[0]},
+                                "value": "no_web_page",
+                            },
+                            {
+                                "text": {"type": "plain_text", "text": config.NO_LINK_REASONS[1]},
+                                "value": "covered_by_other_row",
+                            },
+                        ],
+                    },
+                    "label": {"type": "plain_text", "text": f"Row {row}: {name} has no link. Why?"},
+                })
+
     blocks_list.append({
         "type": "input",
         "block_id": "block_bom_reupload",
@@ -1870,7 +1927,7 @@ def build_bom_check_view(meta: dict, items: list[dict], problems: list[str], tot
         "label": {"type": "plain_text", "text": "Upload a corrected BOM"},
         "hint": {"type": "plain_text", "text": "Fix the spreadsheet, then attach it here. Leave this empty to continue."},
     })
-    new_meta = {**meta, "bom_ok": not problems, "bom_problems": "\n".join(problems)[:500]}
+    new_meta = {**meta, "bom_ok": not problems, "bom_problems": "\n".join(problems)[:500], "no_link_rows": no_link_rows}
     return {
         "type": "modal",
         "callback_id": config.BOM_CHECK_CALLBACK_ID,

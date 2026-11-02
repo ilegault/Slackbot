@@ -676,6 +676,31 @@ def handle_bom_check_submit(ack, body, client, view):
         ack(response_action="errors", errors={
             "block_bom_reupload": meta.get("bom_problems") or "Upload a corrected BOM to continue."})
         return
+    no_link_rows = meta.get("no_link_rows") or []
+    if no_link_rows:
+        errors = {}
+        picks: dict[int, str] = {}
+        val_map = {
+            "no_web_page": config.NO_LINK_REASONS[0],
+            "covered_by_other_row": config.NO_LINK_REASONS[1],
+        }
+        for row in no_link_rows:
+            block_id = f"block_no_link_{row}"
+            block_val = values.get(block_id, {})
+            sel = (block_val.get("no_link_reason") or {}).get("selected_option")
+            if not sel or not sel.get("value"):
+                errors[block_id] = "Pick why this row has no link."
+            else:
+                opt_val = sel.get("value")
+                picks[int(row)] = val_map.get(opt_val, opt_val)
+        if errors:
+            ack(response_action="errors", errors=errors)
+            return
+        view_id = _view_id(body, view)
+        if not lifecycle.apply_no_link_reasons(view_id, picks):
+            ack(response_action="errors", errors={
+                "block_bom_reupload": "This form timed out. Close it and submit again."})
+            return
     if origin != "interview":
         view_id = _view_id(body, view)
         form = lifecycle.take_bom_form(view_id)
@@ -692,6 +717,7 @@ def handle_bom_check_submit(ack, body, client, view):
         return
     meta.pop("bom_ok", None)
     meta.pop("bom_problems", None)
+    meta.pop("no_link_rows", None)
     stage2 = meta.get("stage2", {})
     if interview.needs_asset_details(stage2.get("category")):
         ack(response_action="update", view=blocks.build_stage3_view(meta))
