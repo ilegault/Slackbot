@@ -434,6 +434,8 @@ def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch
     call_kwargs = next(c[1] for c in client.chat_postMessage.call_args_list if "metadata" in c[1])
     parsed = call_kwargs["metadata"]["event_payload"]["parsed"]
     assert parsed.get("link") == "https://fishersci.com/direct-gloves"
+    assert parsed.get("no_link_reason") == ""
+    assert parsed.get("item_description") == "Box of Gloves"
 
     card_text = call_kwargs["blocks"][0]["text"]["text"]
     assert "• *Link:* https://fishersci.com/direct-gloves" in card_text
