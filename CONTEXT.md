@@ -207,23 +207,27 @@ from the same uploader for the same vendor collapse to the newest. A batch canno
 a BOM file (ADR 0015).
 
 **Line item** — one row of an order: item name, description, product number, vendor,
-unit cost, quantity, notes, and the item's link if the requester hyperlinked it. Arrives
+unit cost, quantity, notes, and its **item link** or **no-link reason**. Arrives
 only through a **BOM template** upload (interview Screen 2, **Add items**, **Edit**,
 **Replace BOM**); the paste box is gone. A one-item request has no line items — the
-ordinary Screen 2 fields describe it. Carried in the card message's Slack metadata,
-never in a button value. See ADR 0006, ADR 0019.
+ordinary Screen 2 fields describe it. Carried in the card message's Slack metadata
+without its item link, never in a button value; the item links live only in the BOM
+file. See ADR 0006, ADR 0019, ADR 0020.
 
 **BOM template** — the lab's standard BOM spreadsheet, `templates/HIRST_LAB_BOM_TEMPLATE.xlsx`.
 A header block (Order Description, BOM Creator, Total Cost), then the columns
-`Item | Description | Product # | Vendor | Unit Cost | Quantity | Total Cost | Notes`,
-then a Total row. `.xlsx` only. The only spreadsheet layout the bot reads (ADR 0019).
+`Item | Description | Product # | Link | Vendor | Unit Cost | Quantity | Total Cost | Notes`,
+then a Total row. `.xlsx` only. The only spreadsheet layout the bot reads (ADR 0019,
+ADR 0020). A copy without the Link column is the **old BOM template** and is refused.
 
 **Template kit** — the guide for filling in an EPIF by hand, the blank EPIF template and the **BOM template**, handed out together by `/blank-template` and only by it. Always sent **privately** to the asker's **DM**; where they asked, a note only they can see says so (no note when they asked in their own DM with the bot). Never posted where others can see it. A missing template file never stops the rest of the kit: the asker is told in the kit's DM and the **Alert channel** is told.
 
 **BOM check** — the screen a form moves to after a BOM is uploaded: the rows as the bot
-read them, the BOM total, and every problem by spreadsheet row. It will not go on while
-there is a problem or while the BOM total differs from the typed Total Price by a cent.
-Fixing means editing the spreadsheet and uploading it again.
+read them (each row's **item link** shown as its site name), the BOM total, and every
+problem by spreadsheet row. Each row with no item link asks for its **no-link reason**.
+It will not go on while there is a problem, while a row without an item link has no
+reason picked, or while the BOM total differs from the typed Total Price by a cent.
+Fixing a problem means editing the spreadsheet and uploading it again.
 
 **BOM** — bill of materials. The spreadsheet that breaks one EPIF's amount into its
 line items, for requests with **two or more** of them. **One EPIF per vendor is
@@ -255,6 +259,16 @@ card and the log (its own column). Only on a **Filled EPIF** is it added to the 
 Purpose, as a last line `Link: <url>`, and not if the exact URL is already in Purpose.
 Left blank, the first URL in Purpose is used. Reading any EPIF, a Purpose whose last
 line is only a URL (with or without `Link:`) gives that URL back as the link.
+
+**Item link** — the web address of one **line item**'s product page, given in the
+**BOM template**'s Link column (or, if that is blank, the Item cell's hyperlink).
+Distinct from **Link**, which belongs to the whole request. For a one-item request, its
+**Link** is its item link. Every item on a form has an item link or a **no-link
+reason** (ADR 0020).
+
+**No-link reason** — why an item has no **item link**, picked on the form rather than
+typed: **No web page**, or **Covered by another row's link** (BOM rows only). Written
+into the BOM's Link cell so purchasing sees the gap is on purpose.
 
 **Thread files at approval** — at `@Purchasing approved` in a thread with no posted
 card, the bot takes every file a person posted, by type: a PDF with the EPIF form
