@@ -27,6 +27,15 @@ def _to_bytes(wb) -> bytes:
     return buf.getvalue()
 
 
+def test_131_read_bom_template():
+    """Verify that read_bom_template reads the 9-column lab template."""
+    with open(FILLED, "rb") as fh:
+        items, problems = bom.read_bom_template(fh.read())
+    assert problems == []
+    assert len(items) == 4
+    assert all("link" in item and "no_link_reason" in item for item in items)
+
+
 def test_reads_the_real_lab_bom():
     with open(FILLED, "rb") as fh:
         items, problems = bom.read_bom_template(fh.read())

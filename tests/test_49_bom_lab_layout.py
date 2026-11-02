@@ -38,6 +38,13 @@ def _eval(ws, coord):
     raise AssertionError(f"unexpected formula {v!r} in {coord}")
 
 
+def test_49_bom_lab_layout():
+    """Verify that the BOM sheet follows the 9-column lab layout."""
+    ws = _open({"vendor": "Ruland", "requester": "A Buyer", "item_description": "Collars"}, ITEMS)
+    assert [c.value for c in ws[5]][:9] == HEADERS
+    assert ws["G9"].value == "Total"
+
+
 def test_layout():
     ws = _open({"vendor": "Ruland", "requester": "A Buyer", "item_description": "Collars"}, ITEMS)
     assert ws.title == "BOM"
