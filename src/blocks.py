@@ -1255,7 +1255,7 @@ def bom_inputs() -> list[dict]:
             "label": {"type": "plain_text", "text": "BOM spreadsheet (optional)"},
             "hint": {
                 "type": "plain_text",
-                "text": "Two or more items? Fill in the lab BOM template.",
+                "text": "Two or more items? Fill in the lab BOM template, with each item's web page in the Link column.",
             },
         },
         send_bom_template_block(),

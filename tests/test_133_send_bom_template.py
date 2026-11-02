@@ -47,7 +47,7 @@ def test_screen2_offers_the_template():
     bl = blocks.build_stage2_view(_meta())["blocks"]
     idx = next(i for i, b in enumerate(bl) if b.get("block_id") == "block_bom")
     assert "lab BOM template" in bl[idx]["hint"]["text"]
-    assert bl[idx]["hint"]["text"] == "Two or more items? Fill in the lab BOM template."
+    assert bl[idx]["hint"]["text"] == "Two or more items? Fill in the lab BOM template, with each item's web page in the Link column."
     nxt = bl[idx + 1]
     assert nxt["type"] == "actions"
     assert [e["action_id"] for e in nxt["elements"]] == [ACTION]

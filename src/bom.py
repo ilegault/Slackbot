@@ -13,18 +13,21 @@ This module provides the pure domain logic for multi-item orders:
 2. Building the BOM by filling the committed lab template (ADR 0019 decision 6; it replaced
    ADR 0008's hand-built layout). Totals are live formulas, so Slack's preview shows them
    blank because openpyxl stores no cached results. The sheet has no shipping row.
-3. Hyperlinking the Item cell to the item's URL so Tina can click straight through to parts.
+3. Hyperlinking the Item cell and Link cell to the item's URL so Tina and buyers can click
+   straight through to parts (ADR 0020 decision 6).
 4. Generating the lab's file names, HIRST_LAB_BOM_<Description>_<MM.DD.YYYY>.xlsx.
 5. Computing concise change descriptions for card edit threads.
 
-6. Reading the lab BOM template (ADR 0019): `read_bom_template` parses an uploaded .xlsx
+6. Reading the lab BOM template (ADR 0019, ADR 0020): `read_bom_template` parses an uploaded .xlsx
    whose header row exactly matches `config.BOM_TEMPLATE_HEADERS`. It never guesses headers:
-   a sheet in any other layout is refused with one sentence pointing at the template, because
-   a wrong guess writes a wrong quantity into a purchase. It never reads formula cells (the
-   Total Cost column): a file written by openpyxl or any non-Excel tool holds no cached
-   formula results, so the reader would see None or the formula text. The total is
-   recomputed as quantity x unit cost, and `check_bom_total` compares it with the typed
-   Total Price to the cent. There is no shipping anywhere in this check.
+   a sheet matching `config.BOM_OLD_TEMPLATE_HEADERS` (the 8-column pre-link template) is refused
+   with an explicit sentence pointing at the old template; any other layout is refused with one
+   sentence pointing at the template. The Link column holds a normalized web address (or falls
+   back to an Item cell hyperlink) or a no-link reason phrase. Each row returns `row`, `link`,
+   and `no_link_reason`. It never reads formula cells (the Total Cost column): a file written by
+   openpyxl or any non-Excel tool holds no cached formula results, so the reader would see None or
+   the formula text. The total is recomputed as quantity x unit cost, and `check_bom_total` compares
+   it with the typed Total Price to the cent. There is no shipping anywhere in this check.
 
 All functions in this module are strictly pure (no Slack API, no filesystem I/O)
 to guarantee isolation and fast, deterministic testability.
@@ -238,8 +241,26 @@ def quote_filename(row: int, vendor: str, k: int) -> str:
     return f"{int(row):04d}_{_vendor_slug(vendor)}_Quote_{int(k)}.pdf"
 
 
+def normalize_link(text: str) -> Optional[str]:
+    """Return text normalized to a web address, or None if it cannot be one.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0020 / Ticket 140: requesters paste URLs with or without scheme from their
+    browser address bar. Strips leading/trailing whitespace; returns None if empty,
+    contains spaces, or lacks a '.'; otherwise prepends 'https://' unless the string
+    already starts with 'http://' or 'https://' (case-insensitive).
+    """
+    s = (text or "").strip()
+    if not s or " " in s or "." not in s:
+        return None
+    if s.lower().startswith(("http://", "https://")):
+        return s
+    return f"https://{s}"
+
+
 def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> bytes:
-    """Fill the committed lab BOM template (ADR 0019 decision 6) and return its bytes.
+    """Fill the committed lab BOM template (ADR 0019 decision 6, ADR 0020) and return its bytes.
 
     The template is loaded from `config.BOM_TEMPLATE_PATH`, so the rebuilt file is the lab's
     own sheet with its styles, not a look-alike. B2 is the order description, B3 the
@@ -254,11 +275,11 @@ def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> 
     with open(config.BOM_TEMPLATE_PATH, "rb") as fh:
         wb = openpyxl.load_workbook(io.BytesIO(fh.read()))
     ws = wb.worksheets[0]
-    first_row, ncols = 6, 8
+    first_row, ncols = 6, 9
 
     item_styles = [copy.copy(ws.cell(row=first_row, column=c)._style) for c in range(1, ncols + 1)]
     template_total = next(
-        r for r in range(first_row, ws.max_row + 1) if str(ws.cell(row=r, column=6).value or "").strip() == "Total"
+        r for r in range(first_row, ws.max_row + 1) if str(ws.cell(row=r, column=7).value or "").strip() == "Total"
     )
     total_styles = [copy.copy(ws.cell(row=template_total, column=c)._style) for c in range(1, ncols + 1)]
     height = ws.row_dimensions[first_row].height
@@ -275,26 +296,37 @@ def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> 
         if height:
             ws.row_dimensions[r].height = height
         link = str(item.get("link") or "").strip()
+        target = normalize_link(link) if link else None
         a = ws.cell(row=r, column=1, value=str(item.get("name", "")).strip())
-        if link.startswith(("http://", "https://")):
-            a.hyperlink = link
+        if target:
+            a.hyperlink = target
             a.font = Font(name=a.font.name, size=a.font.sz, color="467886", underline="single")
         ws.cell(row=r, column=2, value=str(item.get("description") or "").strip() or None)
         ws.cell(row=r, column=3, value=str(item.get("part_number") or "").strip() or None)
-        ws.cell(row=r, column=4, value=str(item.get("vendor") or "").strip() or default_vendor)
-        ws.cell(row=r, column=5, value=float(item.get("unit_price", 0.0))).number_format = '"$"#,##0.00'
-        ws.cell(row=r, column=6, value=int(item.get("qty", 1)))
-        ws.cell(row=r, column=7, value=f"=F{r}*E{r}")
-        ws.cell(row=r, column=8, value=str(item.get("notes") or "").strip() or None)
+
+        d = ws.cell(row=r, column=4)
+        if target:
+            d.value = target
+            d.hyperlink = target
+            d.font = Font(name=d.font.name, size=d.font.sz, color="467886", underline="single")
+        else:
+            reason = str(item.get("no_link_reason") or "").strip()
+            d.value = reason or None
+
+        ws.cell(row=r, column=5, value=str(item.get("vendor") or "").strip() or default_vendor)
+        ws.cell(row=r, column=6, value=float(item.get("unit_price", 0.0))).number_format = '"$"#,##0.00'
+        ws.cell(row=r, column=7, value=int(item.get("qty", 1)))
+        ws.cell(row=r, column=8, value=f"=G{r}*F{r}")
+        ws.cell(row=r, column=9, value=str(item.get("notes") or "").strip() or None)
 
     total_row = first_row + len(items)
     for c in range(1, ncols + 1):
         ws.cell(row=total_row, column=c)._style = copy.copy(total_styles[c - 1])
     if height:
         ws.row_dimensions[total_row].height = height
-    ws.cell(row=total_row, column=6, value="Total")
-    ws.cell(row=total_row, column=7, value=f"=SUM(G{first_row}:G{total_row - 1})")
-    ws["B4"] = f"=G{total_row}"
+    ws.cell(row=total_row, column=7, value="Total")
+    ws.cell(row=total_row, column=8, value=f"=SUM(H{first_row}:H{total_row - 1})")
+    ws["B4"] = f"=H{total_row}"
 
     bio = io.BytesIO()
     wb.save(bio)
@@ -302,12 +334,16 @@ def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> 
 
 
 # ---------------------------------------------------------------------------
-# Lab BOM template reader (ADR 0019)
+# Lab BOM template reader (ADR 0019, ADR 0020)
 # ---------------------------------------------------------------------------
 
 _NOT_TEMPLATE = (
     "This isn't the lab BOM template — get it with the “Send me the BOM template” "
     "button. Vendor carts and quotes go in the Quotes field."
+)
+_OLD_TEMPLATE = (
+    "This is the old BOM template, which has no Link column — get the new one with "
+    "the “Send me the BOM template” button."
 )
 _HEADER_SCAN_ROWS = 10
 
@@ -349,7 +385,8 @@ def read_bom_template(xlsx_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str
 
     Each item carries the existing line-item keys (`qty`, `name`, `part_number`,
     `unit_price`, `link`, `description`) so the card, the BOM builder and the summary
-    lines keep working, plus `quantity`, `item_name`, `vendor` and `notes`.
+    lines keep working, plus `quantity`, `item_name`, `vendor`, `notes`, `row`,
+    and `no_link_reason`.
     """
     not_template: Tuple[List[Dict[str, Any]], List[str]] = ([], [_NOT_TEMPLATE])
     try:
@@ -359,14 +396,23 @@ def read_bom_template(xlsx_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str
         return not_template
 
     headers = [h.lower() for h in config.BOM_TEMPLATE_HEADERS]
+    old_headers = [h.lower() for h in getattr(config, "BOM_OLD_TEMPLATE_HEADERS", ())]
     width = len(headers)
+    old_width = len(old_headers)
     header_row = None
+    old_template_found = False
+
     for row_no in range(1, _HEADER_SCAN_ROWS + 1):
         cells = [_text(ws.cell(row=row_no, column=c).value).lower() for c in range(1, width + 1)]
         if cells == headers:
             header_row = row_no
             break
+        if old_headers and cells[:old_width] == old_headers:
+            old_template_found = True
+
     if header_row is None:
+        if old_template_found:
+            return ([], [_OLD_TEMPLATE])
         return not_template
 
     items: List[Dict[str, Any]] = []
@@ -394,11 +440,34 @@ def read_bom_template(xlsx_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str
         if price is None:
             problems.append(f"Row {row_no}: Unit Cost '{_text(cost_raw)}' isn't a number.")
             row_ok = False
+
+        link_raw = _text(cell["link"].value)
+        link = ""
+        no_link_reason = ""
+        reason_match = next((r for r in config.NO_LINK_REASONS if r.lower() == link_raw.lower()), None)
+        if reason_match:
+            link = ""
+            no_link_reason = reason_match
+        elif link_raw:
+            norm = normalize_link(link_raw)
+            if norm is None:
+                problems.append(f"Row {row_no}: Link '{link_raw}' isn't a web address.")
+                row_ok = False
+            else:
+                link = norm
+                no_link_reason = ""
+        else:
+            if cell["item"].hyperlink and cell["item"].hyperlink.target:
+                link = cell["item"].hyperlink.target
+            else:
+                link = ""
+            no_link_reason = ""
+
         if not row_ok:
             continue
 
-        link = cell["item"].hyperlink.target if cell["item"].hyperlink else None
         items.append({
+            "row": row_no,
             "item_name": name,
             "name": name,
             "description": _text(cell["description"].value),
@@ -408,8 +477,13 @@ def read_bom_template(xlsx_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str
             "quantity": qty,
             "qty": qty,
             "notes": _text(cell["notes"].value),
-            "link": link or "",
+            "link": link,
+            "no_link_reason": no_link_reason,
         })
+
+    if rows_seen > config.BOM_MAX_ROWS:
+        problems.append(f"This BOM has {rows_seen} rows — the most is {config.BOM_MAX_ROWS}.")
+    return items, problems
 
     if rows_seen > config.BOM_MAX_ROWS:
         problems.append(f"This BOM has {rows_seen} rows — the most is {config.BOM_MAX_ROWS}.")

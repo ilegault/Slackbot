@@ -27,7 +27,7 @@ def test_rebuilt_bom_reads_back():
     assert ws["B3"].value == "A Lab Member"
     template_ws = openpyxl.load_workbook(bom.config.BOM_TEMPLATE_PATH).worksheets[0]
     header_row = next(r for r in range(1, 11) if template_ws.cell(r, 1).value == "Item")
-    assert ws.cell(header_row, 1).value == "Item" and ws.cell(header_row, 8).value == "Notes"
+    assert ws.cell(header_row, 1).value == "Item" and ws.cell(header_row, 9).value == "Notes"
     assert bom.check_bom_total(again, 858.50) is None
 
 

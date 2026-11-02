@@ -126,24 +126,28 @@ def test_build_bom_workbook_content_and_numbers():
     assert ws["A1"].value == "BILL OF MATERIALS"
     assert ws["A2"].value == "Order Description" and ws["B2"].value == "Shaft collars"
     assert ws["A3"].value == "BOM Creator" and ws["B3"].value == "Dylan"
-    assert ws["A4"].value == "Total Cost" and ws["B4"].value == "=G8"
-    assert [c.value for c in ws[5]][:8] == [
-        "Item", "Description ", "Product #", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes"]
+    assert ws["A4"].value == "Total Cost" and ws["B4"].value == "=H8"
+    assert [c.value for c in ws[5]][:9] == [
+        "Item", "Description ", "Product #", "Link", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes"]
 
     # Item rows carry the entered numbers; totals are live formulas, not concrete values.
-    assert [ws.cell(6, c).value for c in (1, 3, 4, 5, 6)] == ["Shaft Collar", "SC-100", "Ruland", 12.50, 2]
+    assert [ws.cell(6, c).value for c in (1, 3, 4, 5, 6, 7)] == [
+        "Shaft Collar", "SC-100", "https://ruland.com/sc100", "Ruland", 12.50, 2]
     # An item's own vendor and notes win over the request's vendor.
-    assert [ws.cell(7, c).value for c in (1, 3, 4, 5, 6, 8)] == [
+    assert [ws.cell(7, c).value for c in (1, 3, 5, 6, 7, 9)] == [
         "Clamp Collar", "CC-200", "Other Co", 15.00, 4, "rush"]
-    assert ws["G6"].value == "=F6*E6"
-    assert ws["G7"].value == "=F7*E7"
-    assert ws["F8"].value == "Total"
-    assert ws["G8"].value == "=SUM(G6:G7)"
+    assert ws["H6"].value == "=G6*F6"
+    assert ws["H7"].value == "=G7*F7"
+    assert ws["G8"].value == "Total"
+    assert ws["H8"].value == "=SUM(H6:H7)"
 
     # Hyperlink only for a real URL.
     assert ws["A6"].hyperlink is not None
     assert ws["A6"].hyperlink.target == "https://ruland.com/sc100"
+    assert ws["D6"].hyperlink is not None
+    assert ws["D6"].hyperlink.target == "https://ruland.com/sc100"
     assert ws["A7"].hyperlink is None
+    assert ws["D7"].hyperlink is None
 
     # Nothing about project, fund, date or shipping.
     text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
@@ -167,9 +171,9 @@ def test_build_bom_workbook_draft_header():
     ws = openpyxl.load_workbook(io.BytesIO(bom.build_bom_workbook(request, items))).active
 
     assert ws["A1"].value == "BILL OF MATERIALS"
-    assert ws["D6"].value == "DigiKey"
-    assert ws["G7"].value == "=SUM(G6:G6)"
-    assert ws["B4"].value == "=G7"
+    assert ws["E6"].value == "DigiKey"
+    assert ws["H7"].value == "=SUM(H6:H6)"
+    assert ws["B4"].value == "=H7"
     assert ws.freeze_panes == "A6"
     assert not any("DRAFT" in str(c.value) for row in ws.iter_rows() for c in row if c.value)
     today = datetime.date.today().strftime("%m.%d.%Y")
@@ -178,7 +182,7 @@ def test_build_bom_workbook_draft_header():
 
     # Unknown vendor fallback (ADR 0008 decision 1, kept by ADR 0019).
     ws2 = openpyxl.load_workbook(io.BytesIO(bom.build_bom_workbook({}, items))).active
-    assert ws2["D6"].value == "Unknown Vendor"
+    assert ws2["E6"].value == "Unknown Vendor"
 
 
 def test_bom_filename():

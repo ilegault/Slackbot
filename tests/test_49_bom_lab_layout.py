@@ -1,4 +1,4 @@
-"""Tickets 49 and 132: the BOM sheet follows the lab template (ADR 0019). Real bytes, nothing faked."""
+"""Tickets 49, 132 and 140: the BOM sheet follows the lab template (ADR 0019, ADR 0020). Real bytes, nothing faked."""
 import io
 import re
 
@@ -14,7 +14,7 @@ ITEMS = [
     {"qty": 3, "name": "Coupling", "part_number": "", "unit_price": 7.25,
      "link": "see quote", "description": ""},
 ]
-HEADERS = ["Item", "Description ", "Product #", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes"]
+HEADERS = ["Item", "Description ", "Product #", "Link", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes"]
 
 
 def _open(request, items):
@@ -26,15 +26,15 @@ def _eval(ws, coord):
     v = ws[coord].value
     if not (isinstance(v, str) and v.startswith("=")):
         return v
-    m = re.fullmatch(r"=F(\d+)\*E(\d+)", v)
+    m = re.fullmatch(r"=G(\d+)\*F(\d+)", v)
     if m and m.group(1) == m.group(2):
-        return _eval(ws, f"E{m.group(1)}") * _eval(ws, f"F{m.group(1)}")
-    m = re.fullmatch(r"=SUM\(G(\d+):G(\d+)\)", v)
+        return _eval(ws, f"F{m.group(1)}") * _eval(ws, f"G{m.group(1)}")
+    m = re.fullmatch(r"=SUM\(H(\d+):H(\d+)\)", v)
     if m:
-        return sum(_eval(ws, f"G{r}") for r in range(int(m.group(1)), int(m.group(2)) + 1))
-    m = re.fullmatch(r"=G(\d+)", v)
+        return sum(_eval(ws, f"H{r}") for r in range(int(m.group(1)), int(m.group(2)) + 1))
+    m = re.fullmatch(r"=H(\d+)", v)
     if m:
-        return _eval(ws, f"G{m.group(1)}")
+        return _eval(ws, f"H{m.group(1)}")
     raise AssertionError(f"unexpected formula {v!r} in {coord}")
 
 
@@ -46,35 +46,37 @@ def test_layout():
     assert (ws["A2"].value, ws["B2"].value) == ("Order Description", "Collars")
     assert (ws["A3"].value, ws["B3"].value) == ("BOM Creator", "A Buyer")
     assert ws["A4"].value == "Total Cost"
-    assert [c.value for c in ws[5]][:8] == HEADERS
+    assert [c.value for c in ws[5]][:9] == HEADERS
     for i, it in enumerate(ITEMS):
         r = 6 + i
         # openpyxl reads an empty-string cell back as None
-        assert [ws.cell(r, c).value for c in range(1, 7)] == [
-            it["name"], it["description"] or None, it["part_number"] or None, "Ruland",
+        link_val = it["link"] if it["link"].startswith(("http://", "https://")) else None
+        assert [ws.cell(r, c).value for c in range(1, 8)] == [
+            it["name"], it["description"] or None, it["part_number"] or None, link_val, "Ruland",
             it["unit_price"], it["qty"]]
-        assert ws.cell(r, 8).value is None
-    assert ws["F9"].value == "Total"
+        assert ws.cell(r, 9).value is None
+    assert ws["G9"].value == "Total"
     assert ws.freeze_panes == "A6"
     assert ws["A6"].hyperlink is not None and ws["A6"].hyperlink.target == ITEMS[0]["link"]
+    assert ws["D6"].hyperlink is not None and ws["D6"].hyperlink.target == ITEMS[0]["link"]
     assert ws["A7"].hyperlink is None and ws["A8"].hyperlink is None
     # The template's own styling survives (not a look-alike built from scratch).
-    assert ws["G6"].number_format == ws["G8"].number_format
-    assert ws["F9"].font.b
+    assert ws["H6"].number_format == ws["H8"].number_format
+    assert ws["G9"].font.b
 
 
 def test_formulas_compute_right_total():
     ws = _open({"vendor": "Ruland"}, ITEMS)
     for i, it in enumerate(ITEMS):
-        assert _eval(ws, f"G{6 + i}") == it["qty"] * it["unit_price"]
+        assert _eval(ws, f"H{6 + i}") == it["qty"] * it["unit_price"]
     expected = sum(it["qty"] * it["unit_price"] for it in ITEMS)
-    assert _eval(ws, "G9") == expected
+    assert _eval(ws, "H9") == expected
     assert _eval(ws, "B4") == expected
 
 
 def test_unknown_vendor_fallback():
     ws = _open({"vendor": "  "}, ITEMS)
-    assert ws["D6"].value == "Unknown Vendor"
+    assert ws["E6"].value == "Unknown Vendor"
 
 
 def test_nothing_the_adr_removed():
@@ -97,4 +99,4 @@ def test_nothing_the_adr_removed():
     assert ws["B3"].value == "ZZrequester"
     # More items than the template's four rows: the sheet grows, total row follows the items.
     last = max(c.row for row in ws.iter_rows() for c in row if c.value is not None)
-    assert last == 13 and ws["F13"].value == "Total"
+    assert last == 13 and ws["G13"].value == "Total"

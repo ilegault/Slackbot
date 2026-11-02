@@ -579,7 +579,7 @@ _TEMPLATE_KIT_GUIDE = (
     "📄 *Hirst Lab Manual EPIF Submission Kit:*\n\n"
     "1. Open the attached `EPIF_TEMPLATE_HIRST.pdf` in Adobe Acrobat or your PDF editor.\n"
     "2. Fill in the required fields: *What*, *Why / URL*, *Amount*, *Vendor*, *Vendor Email*, *Date*, *Room*, *Project ID*, and tick *1 Category* + *Payment Method*.\n"
-    "3. *Two or more items?* Also fill in the attached `HIRST_LAB_BOM_TEMPLATE.xlsx`. One vendor per BOM, and its total must equal the EPIF *Amount*.\n"
+    "3. *Two or more items?* Also fill in the attached `HIRST_LAB_BOM_TEMPLATE.xlsx`. One vendor per BOM, and its total must equal the EPIF *Amount*. Put each item's web page in the *Link* column.\n"
     "4. Post your completed PDF (and BOM, if you have one) in a thread in the purchasing channel and tag Charlie for approval.\n"
     "5. Once approved, the Purchasing bot will validate and log your request automatically!"
 )

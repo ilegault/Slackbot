@@ -50,7 +50,7 @@ def test_screen2_has_bom_fields_when_not_edit():
     assert bom_block["element"]["max_files"] == 1
     assert bom_block["label"]["text"] == "BOM spreadsheet (optional)"
     assert bom_block["hint"]["text"] == (
-        "Two or more items? Fill in the lab BOM template."
+        "Two or more items? Fill in the lab BOM template, with each item's web page in the Link column."
     )
 
     box = blk["block_bom_one_vendor"]
