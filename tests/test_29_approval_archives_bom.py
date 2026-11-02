@@ -201,7 +201,8 @@ def test_approval_three_items_archives_bom_writes_notes_and_uploads(temp_workboo
     wb = openpyxl.load_workbook(saved_bom_path)
     ws = wb.active
     assert ws["A1"].value == "BILL OF MATERIALS"
-    assert [ws.cell(r, 4).value for r in (6, 7, 8)] == ["Ruland"] * 3
+    assert [ws.cell(r, 4).value for r in (6, 7, 8)] == ["https://ruland.com/1", "https://ruland.com/2", "https://ruland.com/3"]
+    assert [ws.cell(r, 5).value for r in (6, 7, 8)] == ["Ruland"] * 3
     # ADR 0019: Order Description and BOM Creator (the requester) are in the header block.
     assert ws["B2"].value == "Shaft Couplings" and ws["B3"].value == "Alex"
     all_text = [str(c.value) for row in ws.iter_rows() for c in row

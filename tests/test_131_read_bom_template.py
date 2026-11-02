@@ -27,6 +27,15 @@ def _to_bytes(wb) -> bytes:
     return buf.getvalue()
 
 
+def test_131_read_bom_template():
+    """Verify that read_bom_template reads the 9-column lab template."""
+    with open(FILLED, "rb") as fh:
+        items, problems = bom.read_bom_template(fh.read())
+    assert problems == []
+    assert len(items) == 4
+    assert all("link" in item and "no_link_reason" in item for item in items)
+
+
 def test_reads_the_real_lab_bom():
     with open(FILLED, "rb") as fh:
         items, problems = bom.read_bom_template(fh.read())
@@ -37,6 +46,8 @@ def test_reads_the_real_lab_bom():
     assert first["unit_price"] == 23.75
     assert first["part_number"] == "G-0133"
     assert first["link"] == "https://www.duniway.com/part/g-0133"
+    assert first["row"] == 6
+    assert first["no_link_reason"] == ""
     assert bom.bom_total(items) == 858.50
 
 
@@ -60,8 +71,8 @@ def test_not_the_template():
 def test_row_problems_by_row_number():
     wb = _filled_wb()
     ws = wb.active
-    ws["E7"] = "TBD"
-    ws["F8"] = 2.5
+    ws["F7"] = "TBD"
+    ws["G8"] = 2.5
     ws["A9"] = None
     # openpyxl refills a blank cell from its hyperlink on load, so clear that too.
     ws["A9"].hyperlink = None
@@ -89,7 +100,7 @@ def test_row_cap():
     ws.append(list(config.BOM_TEMPLATE_HEADERS))
     n = config.BOM_MAX_ROWS + 1
     for i in range(n):
-        ws.append([f"Part {i}", "", f"P{i}", "V", 1.0, 1, None, ""])
-    ws.append([None, None, None, None, None, "Total"])
+        ws.append([f"Part {i}", "", f"P{i}", "", "V", 1.0, 1, None, ""])
+    ws.append([None, None, None, None, None, None, "Total"])
     items, problems = bom.read_bom_template(_to_bytes(wb))
     assert problems == [f"This BOM has {n} rows — the most is {config.BOM_MAX_ROWS}."]

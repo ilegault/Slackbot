@@ -53,7 +53,7 @@ def test_kit_is_one_dm_with_both_files(client):
     kw = client.files_upload_v2.call_args.kwargs
     assert kw["channel"] == "D_ASKER"
     assert [u["filename"] for u in kw["file_uploads"]] == [EPIF_NAME, BOM_NAME]
-    for needle in ("Hirst Lab Manual EPIF Submission Kit", "Two or more items?", BOM_NAME):
+    for needle in ("Hirst Lab Manual EPIF Submission Kit", "Two or more items?", BOM_NAME, "Put each item's web page in the *Link* column."):
         assert needle in kw["initial_comment"]
     assert "could not be attached" not in kw["initial_comment"]
     client.chat_postMessage.assert_not_called()

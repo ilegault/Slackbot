@@ -59,7 +59,7 @@ def test_no_default_paths_and_no_template_dir(clean_config_env, monkeypatch):
         if isinstance(val, str):
             # BASE_DIR and paths anchored to it (like LOG_FILE, LOADED_ENV_PATH) reflect the checkout path
             # on the local machine (e.g. C:\Users\IGLeg\...).
-            if attr_name in ("BASE_DIR", "LOG_FILE", "REJECTIONS_LOG_FILE", "LOADED_ENV_PATH"):
+            if attr_name in ("BASE_DIR", "LOG_FILE", "REJECTIONS_LOG_FILE", "LOADED_ENV_PATH", "BOM_TEMPLATE_PATH"):
                 continue
             assert "IGLeg" not in val, f"config.{attr_name} contains 'IGLeg': {val}"
 

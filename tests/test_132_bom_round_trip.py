@@ -10,6 +10,16 @@ from src import bom, log_writer
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "BOM_TEMPLATE_FILLED_EXAMPLE.xlsx")
 
 
+def test_132_bom_round_trip():
+    """Verify that build_bom_workbook and read_bom_template round-trip under the 9-column layout."""
+    with open(FIXTURE, "rb") as f:
+        items, problems = bom.read_bom_template(f.read())
+    rebuilt = bom.build_bom_workbook({"item_description": "Round trip", "requester": "Tester"}, items)
+    again, problems2 = bom.read_bom_template(rebuilt)
+    assert problems2 == []
+    assert again == items
+
+
 def test_rebuilt_bom_reads_back():
     with open(FIXTURE, "rb") as f:
         items, problems = bom.read_bom_template(f.read())
@@ -27,7 +37,7 @@ def test_rebuilt_bom_reads_back():
     assert ws["B3"].value == "A Lab Member"
     template_ws = openpyxl.load_workbook(bom.config.BOM_TEMPLATE_PATH).worksheets[0]
     header_row = next(r for r in range(1, 11) if template_ws.cell(r, 1).value == "Item")
-    assert ws.cell(header_row, 1).value == "Item" and ws.cell(header_row, 8).value == "Notes"
+    assert ws.cell(header_row, 1).value == "Item" and ws.cell(header_row, 9).value == "Notes"
     assert bom.check_bom_total(again, 858.50) is None
 
 

@@ -140,10 +140,16 @@ if getattr(sys, "frozen", False) and not os.path.isfile(BOM_TEMPLATE_PATH):
         BOM_TEMPLATE_PATH = _bundled
 
 # Column headers of the template, in order. The reader matches these exactly (case and
-# surrounding spaces ignored) and never guesses.
+# surrounding spaces ignored) and never guesses. ADR 0020 / Ticket 140 added the Link column.
 BOM_TEMPLATE_HEADERS = (
+    "Item", "Description", "Product #", "Link", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes",
+)
+BOM_OLD_TEMPLATE_HEADERS = (
     "Item", "Description", "Product #", "Vendor", "Unit Cost", "Quantity", "Total Cost", "Notes",
 )
+
+# ADR 0020: Every item has a link or a reason.
+NO_LINK_REASONS = ("No web page", "Covered by another row's link")
 
 # Most data rows a BOM may hold. The line items ride in the card message's Slack metadata
 # (never in a button value). The Slack message-metadata page (https://docs.slack.dev/messaging/message-metadata/)
