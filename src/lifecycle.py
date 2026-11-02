@@ -675,6 +675,11 @@ def finalize_purchase_request(
     template, row problems, a total mismatch) it is an Off-template BOM: approval is never
     blocked or delayed, the file is archived as given, `off_template_bom` and the problem are
     stored on the card payload, and the thread asks the requester to use Replace BOM.
+
+    Ticket 143 / ADR 0020 decision 5: when approving a card whose line items carry no link key,
+    recovers the newest bot draft BOM from the thread, reads its links and no-link reasons, and
+    merges them onto the items. If the draft is missing or mismatched, approval still proceeds
+    with link-less items and flags the BOM as off-template asking for Replace BOM.
     """
     display_file = file_name or "Purchase Request"
     if items:
@@ -777,6 +782,34 @@ def finalize_purchase_request(
             attached_quotes = [a for a in (attachments or []) if a.get("role") == "quote"]
 
             build_items = items if (items and bom.needs_bom(items)) else None
+            if (
+                card_ts
+                and build_items is not None
+                and not attached_boms
+                and not any("link" in item for item in build_items)
+            ):
+                merged_items = None
+                try:
+                    draft = slack_io.newest_bot_draft_bom(client, channel, thread_ts)
+                    if draft:
+                        draft_bytes = slack_io.download_file(draft)
+                        draft_items, draft_problems = bom.read_bom_template(draft_bytes)
+                        if not draft_problems and draft_items:
+                            merged_items = bom.merge_links(build_items, draft_items)
+                except Exception as e:
+                    log.warning("Could not read draft BOM for row %s: %s", row_num, e)
+                    merged_items = None
+
+                if merged_items is not None:
+                    build_items = merged_items
+                else:
+                    bom_read["problem"] = "I couldn't recover the item links from the draft BOM in this thread"
+                    log.warning(
+                        "Off-template BOM (missing or mismatched draft) for row %s: %s",
+                        row_num,
+                        bom_read["problem"],
+                    )
+
             if attached_boms:
                 a = attached_boms[0]
                 content = _fetch_attachment(client, a, row_num)

@@ -1,6 +1,6 @@
 # 143: Approval reads the item links back from the draft BOM
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -64,11 +64,11 @@ return real bytes from `bom.build_bom_workbook`. May be faked: the Slack client,
 download, the clock. Must be real: the reader, the builder, the workbook row write and the
 archive written to the temporary BOMs folder.
 
-- [ ] `test_archived_bom_has_the_drafts_links_and_reasons` — card items (three, no `link` key) + a draft whose rows carry one link and the two reasons: the archived `.xlsx` in the BOMs folder, opened with openpyxl, has that URL as the hyperlink of row 6's Link and Item cells and the two reason texts in rows 7 and 8's Link cells.
-- [ ] `test_newest_bot_draft_wins_and_requester_files_are_ignored` — two bot drafts with different links (ts `1.1`, `1.2`) and a requester-posted file also named `DRAFT_HIRST_LAB_BOM_x.xlsx`: the archive carries the links of the ts `1.2` draft.
-- [ ] `test_missing_draft_still_approves_and_asks_for_replace_bom` — no draft in the thread: the log row is written, the archived BOM has no hyperlink in any Link cell, the approved card's metadata payload has `off_template_bom is True`, and a thread message contains `Replace BOM` and `couldn't recover the item links`.
-- [ ] `test_mismatched_draft_is_refused` — a draft whose second row's quantity differs from the card: same outcome as the missing draft.
-- [ ] `test_items_with_links_skip_the_lookup` — card items that carry `link` keys and a bot draft in the thread with *different* links: the archive carries the card items' links, not the draft's (proves cards posted before ticket 144 still work).
+- [x] `test_archived_bom_has_the_drafts_links_and_reasons` — card items (three, no `link` key) + a draft whose rows carry one link and the two reasons: the archived `.xlsx` in the BOMs folder, opened with openpyxl, has that URL as the hyperlink of row 6's Link and Item cells and the two reason texts in rows 7 and 8's Link cells.
+- [x] `test_newest_bot_draft_wins_and_requester_files_are_ignored` — two bot drafts with different links (ts `1.1`, `1.2`) and a requester-posted file also named `DRAFT_HIRST_LAB_BOM_x.xlsx`: the archive carries the links of the ts `1.2` draft.
+- [x] `test_missing_draft_still_approves_and_asks_for_replace_bom` — no draft in the thread: the log row is written, the archived BOM has no hyperlink in any Link cell, the approved card's metadata payload has `off_template_bom is True`, and a thread message contains `Replace BOM` and `couldn't recover the item links`.
+- [x] `test_mismatched_draft_is_refused` — a draft whose second row's quantity differs from the card: same outcome as the missing draft.
+- [x] `test_items_with_links_skip_the_lookup` — card items that carry `link` keys and a bot draft in the thread with *different* links: the archive carries the card items' links, not the draft's (proves cards posted before ticket 144 still work).
 
 ## Gate
 
@@ -83,3 +83,9 @@ Stripping links from card metadata (144). Replace BOM itself (already reads link
 own upload). BOMs dropped in the thread (`card_ts` is None there; unchanged). Visiting links.
 
 ## Comments
+
+Summary (2026-11-02):
+- Implemented `slack_io.newest_bot_draft_bom` to search thread replies for bot-posted draft BOM workbooks starting with `"DRAFT_HIRST_LAB_BOM_"`, picking the one with the latest timestamp.
+- Implemented pure `bom.merge_links` to match card items and draft items by length, stripped name, and integer quantity, returning copies with `link` and `no_link_reason` populated.
+- Updated `lifecycle.finalize_purchase_request` (`write_action`) to recover links and reasons from the newest bot draft when line items lack links on a card-based approval. On missing or mismatched draft, flags the BOM as off-template asking for Replace BOM.
+- Added comprehensive tests in `tests/test_143_approval_reads_the_draft.py` covering all 5 acceptance criteria plus pure helper unit tests. Gate passes with 0 failures (914 passed).

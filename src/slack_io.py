@@ -353,6 +353,44 @@ def thread_files(client, channel: str, thread_ts: str) -> dict[str, list[dict]]:
     return classify_thread_files(messages, b_id, _read_fields)
 
 
+def newest_bot_draft_bom(client, channel: str, thread_ts: str) -> dict | None:
+    """Find the newest draft BOM file posted by the bot in the thread.
+
+    WHY THIS EXISTS:
+    Ticket 143 / ADR 0020 Decision 5: Line items stored in card metadata do not
+    carry links. At approval, this recovers the newest draft BOM workbook posted
+    by the bot in the thread so its links and no-link reasons can be merged
+    onto the card items when building the archived BOM. classify_thread_files
+    skips bot messages (its Rule 1), so this dedicated lookup finds the bot's
+    own draft without user-posted files interfering.
+    """
+    try:
+        replies = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
+        messages = replies.get("messages", []) if isinstance(replies, dict) else []
+        b_id = bot_user_id(client)
+        newest_file: dict | None = None
+        newest_ts = -1.0
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            is_bot = (b_id and msg.get("user") == b_id) or bool(msg.get("bot_id"))
+            if not is_bot:
+                continue
+            try:
+                msg_ts = float(msg.get("ts", 0))
+            except (ValueError, TypeError):
+                continue
+            for f in (msg.get("files") or []):
+                if isinstance(f, dict) and (f.get("name") or "").startswith("DRAFT_HIRST_LAB_BOM_"):
+                    if msg_ts > newest_ts:
+                        newest_ts = msg_ts
+                        newest_file = f
+        return newest_file
+    except Exception as e:
+        log.warning("Could not find newest bot draft BOM for thread %s in %s: %s", thread_ts, channel, e)
+        return None
+
+
 def find_epif_in_thread(client, channel: str, thread_ts: str):
     """Find the newest EPIF in the thread, returning (file_obj, poster).
 
