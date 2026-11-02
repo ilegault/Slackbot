@@ -36,6 +36,7 @@ import copy
 import datetime
 import io
 import re
+import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
 import openpyxl
@@ -257,6 +258,25 @@ def normalize_link(text: str) -> Optional[str]:
     if s.lower().startswith(("http://", "https://")):
         return s
     return f"https://{s}"
+
+
+def link_site(url: str) -> str:
+    """Return the site name (hostname with leading www. removed) for a URL, or the URL itself if no host.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0020 / Ticket 141: the BOM check screen displays compact clickable site names
+    (<url|site>) rather than raw URLs, which can be thousands of characters long.
+    """
+    try:
+        host = urllib.parse.urlsplit(url).hostname
+    except Exception:
+        host = None
+    if not host:
+        return url
+    if host.startswith("www."):
+        return host[4:]
+    return host
 
 
 def build_bom_workbook(request: Dict[str, Any], items: List[Dict[str, Any]]) -> bytes:

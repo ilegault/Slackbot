@@ -1,6 +1,6 @@
 # 141: The BOM check shows each link and asks why a row has none
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -73,12 +73,12 @@ New file `tests/test_141_no_link_reasons.py`. Drive it through `app.handle_stage
 client and file download. Must be real: `bom.read_bom_template`, `bom.build_bom_workbook`,
 `blocks.build_bom_check_view` and `lifecycle._BOM_READ_CACHE`.
 
-- [ ] `test_check_view_shows_site_names_and_one_input_per_unlinked_row` — a 3-row BOM (row 6 linked to `https://www.mcmaster.com/91251A540`, rows 7 and 8 unlinked): the view passed to `client.views_update` contains `<https://www.mcmaster.com/91251A540|mcmaster.com>`, `no link` twice, input blocks `block_no_link_7` and `block_no_link_8` each with exactly the two option texts, no `block_no_link_6`, and every section's text is ≤ 3,000 characters.
-- [ ] `test_continue_refused_until_every_reason_is_picked` — submitting the check view with only row 7 picked returns `response_action == "errors"` with `"block_no_link_8": "Pick why this row has no link."` and nothing posted to the purchasing channel; picking both continues to posting.
-- [ ] `test_picked_reasons_reach_the_draft_bom` — after the passing submit above, the bytes given to `client.files_upload_v2` (the draft) read back with `bom.read_bom_template` give row 7 `no_link_reason == "No web page"` and row 8 `"Covered by another row's link"`, and row 6 its link.
-- [ ] `test_every_bom_route_reaches_the_reason_inputs` — Add items, Edit, Replace BOM and Workday details (set up as in `test_135_edit_and_add_items_bom` and `test_137_replace_bom`) each produce a check view containing `block_no_link_7` for the same BOM.
-- [ ] `test_old_template_and_one_row_boms_are_refused` — an upload with `config.BOM_OLD_TEMPLATE_HEADERS` shows the old-template sentence and a block with `block_id == "block_bom_template"`; a clean one-row BOM shows the one-item sentence and Continue is refused.
-- [ ] Existing tests that break because they upload one-row BOMs or assert the old row line are rewritten in place under their existing names; none deleted. (no test: existing tests rewritten in place; the full suite passing is the proof)
+- [x] `test_check_view_shows_site_names_and_one_input_per_unlinked_row` — a 3-row BOM (row 6 linked to `https://www.mcmaster.com/91251A540`, rows 7 and 8 unlinked): the view passed to `client.views_update` contains `<https://www.mcmaster.com/91251A540|mcmaster.com>`, `no link` twice, input blocks `block_no_link_7` and `block_no_link_8` each with exactly the two option texts, no `block_no_link_6`, and every section's text is ≤ 3,000 characters.
+- [x] `test_continue_refused_until_every_reason_is_picked` — submitting the check view with only row 7 picked returns `response_action == "errors"` with `"block_no_link_8": "Pick why this row has no link."` and nothing posted to the purchasing channel; picking both continues to posting.
+- [x] `test_picked_reasons_reach_the_draft_bom` — after the passing submit above, the bytes given to `client.files_upload_v2` (the draft) read back with `bom.read_bom_template` give row 7 `no_link_reason == "No web page"` and row 8 `"Covered by another row's link"`, and row 6 its link.
+- [x] `test_every_bom_route_reaches_the_reason_inputs` — Add items, Edit, Replace BOM and Workday details (set up as in test_135_edit_and_add_items_bom and test_137_replace_bom) each produce a check view containing `block_no_link_7` for the same BOM.
+- [x] `test_old_template_and_one_row_boms_are_refused` — an upload with `config.BOM_OLD_TEMPLATE_HEADERS` shows the old-template sentence and a block with `block_id == "block_bom_template"`; a clean one-row BOM shows the one-item sentence and Continue is refused.
+- [x] Existing tests that break because they upload one-row BOMs or assert the old row line are rewritten in place under their existing names; none deleted. (no test: existing tests rewritten in place; the full suite passing is the proof)
 
 ## Gate
 
@@ -94,3 +94,13 @@ straight into a thread: no link check there (ADR 0020 decision 7). A "same as ro
 pointer. Showing full URLs in Slack.
 
 ## Comments
+
+2026-11-02: Completed implementation of Ticket 141.
+- Implemented `bom.link_site` to extract URL host with leading `www.` removed.
+- Updated `blocks._bom_row_line` to show clickable `<url|site>` (or raw site if url > 2000 chars), reason phrase, or "no link".
+- Updated `blocks.build_bom_check_view` to pack preview sections under 3,000 chars (max 10 rows per section), generate radio button inputs for unlinked rows, store `no_link_rows` in private metadata, and display `send_bom_template_block` on problems.
+- Updated `lifecycle.read_bom_file` to refuse 1-row BOMs with an explicit directive to use the form's link field.
+- Added `lifecycle.apply_no_link_reasons` to apply user-picked reason phrases to cached items by spreadsheet row number.
+- Updated `app.handle_bom_check_submit` to validate that every unlinked row has a selected reason, return field errors if unpicked, and apply picks via `lifecycle.apply_no_link_reasons`.
+- Added test suite `tests/test_141_no_link_reasons.py` covering all acceptance criteria.
+- Full gate passed cleanly: ruff, check_tests_first, type_gate, and pytest (901 passed).

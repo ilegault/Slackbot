@@ -3056,6 +3056,20 @@ def take_checked_items(view_id: str | None) -> list[dict] | None:
     return _BOM_READ_CACHE.pop(view_id, None) if view_id else None
 
 
+def apply_no_link_reasons(view_id: str | None, picks: dict[int, str]) -> bool:
+    """Set no-link reasons on cached items by spreadsheet row number (Ticket 141, ADR 0020).
+
+    Returns False when there is no cache entry for the view (e.g. after restart or timeout).
+    """
+    if not view_id or view_id not in _BOM_READ_CACHE:
+        return False
+    for item in _BOM_READ_CACHE[view_id]:
+        row = item.get("row")
+        if row in picks:
+            item["no_link_reason"] = picks[row]
+    return True
+
+
 def read_bom_file(client, file_ref: dict, typed_total) -> tuple[list[dict], list[str], float]:
     """Fetch an uploaded BOM from Slack, read it with the template reader and check its total.
 
@@ -3075,6 +3089,8 @@ def read_bom_file(client, file_ref: dict, typed_total) -> tuple[list[dict], list
     total = bom.bom_total(items) if items else 0.0
     if not problems and not items:
         problems = ["I found no item rows in that BOM."]
+    if not problems and len(items) == 1:
+        problems = ["This BOM has one item. Leave the BOM field empty and give that item's link on the form instead."]
     if not problems:
         mismatch = bom.check_bom_total(items, typed_total)
         if mismatch:
