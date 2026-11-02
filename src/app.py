@@ -556,6 +556,37 @@ def handle_stage2_submit(ack, body, client, view):
         ack(response_action="errors", errors=bom_errors)
         return
 
+    # Ticket 142 / ADR 0020 Decision 4: One-item link rule applies when no BOM is attached.
+    if not raw_bom_files:
+        raw_link = (stage2.get("link") or "").strip()
+        if raw_link:
+            norm = bom.normalize_link(raw_link)
+            if norm is None:
+                ack(
+                    response_action="errors",
+                    errors={"block_link": "That isn't a web address. Paste the item's web page, or tick No web page."},
+                )
+                return
+            stage2["link"] = norm
+        else:
+            purpose_text = str(stage2.get("purpose") or "")
+            if not epif_parser.first_url(purpose_text):
+                no_link_ticked = any(
+                    o.get("value") == "no_web_page"
+                    for o in (
+                        values.get("block_no_link", {}).get("no_link", {}).get("selected_options")
+                        or []
+                    )
+                )
+                if no_link_ticked:
+                    stage2["no_link_reason"] = config.NO_LINK_REASONS[0]
+                else:
+                    ack(
+                        response_action="errors",
+                        errors={"block_link": "Paste the item's web page, or tick No web page."},
+                    )
+                    return
+
     # Ticket 134 / ADR 0019: the BOM is read, not kept. Only quotes ride on as attachments.
     raw_quote_files = text_rules.extract_modal_files(values, "block_quotes", "quotes")
     attachments = [{"role": "quote", **f} for f in raw_quote_files]

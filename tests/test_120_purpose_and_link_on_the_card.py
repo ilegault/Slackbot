@@ -54,7 +54,7 @@ def test_screen_2_purpose_asks_only_why():
     assert purpose["label"]["text"] == "Purpose / Why Necessary"
     assert purpose["element"]["placeholder"]["text"] == "Why this is needed for the research"
     assert purpose["hint"]["text"] == HINT
-    assert by_id["block_link"]["label"]["text"] == "Product Page / Quote Link (added to the EPIF)"
+    assert by_id["block_link"]["label"]["text"] == "Link to the item's web page"
 
 
 def test_card_shows_a_link_once():

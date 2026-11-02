@@ -53,6 +53,9 @@ Per Ticket 83 / ADR 0012 decision 5:
 - _send_assignee_dm uploads the archived quotes to the buyer beside the BOM; handle_assign
   rebuilds their paths from quote_count + row + vendor.
 
+Per Ticket 142 / ADR 0020 decision 4:
+- _process_interview_completion shows No web page on the link_line when link is empty and no_link_reason is set.
+
 Per Ticket 82 / ADR 0012 Decisions 1-4:
 - An attachment with role 'bom' (the requester's own sheet, carried never read) adds a
   '📎 BOM attached: <name>' summary line and is posted to the thread like a quote; no
@@ -3232,7 +3235,11 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
     link_line = (
         f"\n• *Link:* {parsed['link']}"
         if parsed.get("link") and not text_rules.link_in_purpose(parsed["purpose"], parsed["link"])
-        else ""
+        else (
+            f"\n• *Link:* {parsed['no_link_reason']}"
+            if not parsed.get("link") and parsed.get("no_link_reason")
+            else ""
+        )
     )
     items_line = f"\n📋 {len(items)} line items (BOM attached in thread)" if (items and bom.needs_bom(items)) else ""
     quote_count = sum(1 for a in (attachments or []) if a.get("role") == "quote")

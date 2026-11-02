@@ -1,6 +1,6 @@
 # 142: A one-item request needs a link or "No web page"
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -53,12 +53,12 @@ with the helpers of `tests/test_81_quotes_on_new_purchase.py`
 faked: the Slack client. Must be real: the handler, `bom.normalize_link`,
 `interview.build_parsed_from_stages`, `blocks.request_summary_lines`.
 
-- [ ] `test_blank_link_no_url_no_tick_is_refused` — `ack` is called with `response_action="errors"` and `errors == {"block_link": "Paste the item's web page, or tick No web page."}`; `client.chat_postMessage` is not called.
-- [ ] `test_bad_link_is_refused` — link `see the quote` gives the "That isn't a web address…" error on `block_link`.
-- [ ] `test_link_without_scheme_is_stored_with_https` — link `mcmaster.com/91251A540` posts a card whose text contains `https://mcmaster.com/91251A540`.
-- [ ] `test_url_in_purpose_counts_and_no_web_page_shows_on_card` — blank link with `https://x.org/p` in Purpose is accepted; blank link, no URL, `no_web_page` ticked is accepted and the posted card's text contains `• *Link:* No web page`.
-- [ ] `test_rule_skipped_with_a_bom` — blank link, no tick, a BOM attached: no `block_link` error (the BOM check view is shown instead).
-- [ ] Existing Screen 2 tests that submit a blank link without a URL in Purpose are updated in place (give them a link) under their existing names; none deleted. (no test: existing tests rewritten in place; the full suite passing is the proof)
+- [x] `test_blank_link_no_url_no_tick_is_refused` — `ack` is called with `response_action="errors"` and `errors == {"block_link": "Paste the item's web page, or tick No web page."}`; `client.chat_postMessage` is not called.
+- [x] `test_bad_link_is_refused` — link `see the quote` gives the "That isn't a web address…" error on `block_link`.
+- [x] `test_link_without_scheme_is_stored_with_https` — link `mcmaster.com/91251A540` posts a card whose text contains `https://mcmaster.com/91251A540`.
+- [x] `test_url_in_purpose_counts_and_no_web_page_shows_on_card` — blank link with `https://x.org/p` in Purpose is accepted; blank link, no URL, `no_web_page` ticked is accepted and the posted card's text contains `• *Link:* No web page`.
+- [x] `test_rule_skipped_with_a_bom` — blank link, no tick, a BOM attached: no `block_link` error (the BOM check view is shown instead).
+- [x] Existing Screen 2 tests that submit a blank link without a URL in Purpose are updated in place (give them a link) under their existing names; none deleted. (no test: existing tests rewritten in place; the full suite passing is the proof)
 
 ## Gate
 
@@ -73,3 +73,12 @@ The Workday details form's link field, Edit's link field, EPIF-born requests. Th
 (141). Visiting the link.
 
 ## Comments
+
+2026-11-02: Completed Ticket 142.
+- Updated `build_stage2_view` in `src/blocks.py`: labelled link field 'Link to the item\'s web page' with required hint, and added `block_no_link` checkboxes input with 'No web page' option.
+- Updated `handle_stage2_submit` in `src/app.py`: when `raw_bom_files` is empty, validates link with `bom.normalize_link`, accepts URL in Purpose, sets `stage2["no_link_reason"] = config.NO_LINK_REASONS[0]` if ticked, or returns error on `block_link`.
+- Updated `build_parsed_from_stages` in `src/interview.py`: carries `no_link_reason` alongside `link`.
+- Updated `request_summary_lines` in `src/blocks.py` and `link_line` in `src/lifecycle.py`: renders `• *Link:* No web page` when `link` is empty and `no_link_reason` is set.
+- Added `tests/test_142_one_item_link_rule.py` covering all acceptance criteria.
+- Updated existing Screen 2 tests in `tests/test_interview.py`, `tests/test_120_purpose_and_link_on_the_card.py`, and `tests/test_onboarding_and_commands.py` in place.
+- All gates passed: ruff, check_tests_first, type_gate, full test suite (902 passed).

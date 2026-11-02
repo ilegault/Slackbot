@@ -78,7 +78,7 @@ def test_build_parsed_from_stages_workday_non_fabrication(monkeypatch):
     parsed = interview.build_parsed_from_stages(stage1, stage2, stage3=None)
 
     expected_keys = {
-        "raw_fields", "item_description", "purpose", "link", "total_price",
+        "raw_fields", "item_description", "purpose", "link", "no_link_reason", "total_price",
         "total_price_raw", "vendor", "vendor_contact_name", "vendor_contact_email",
         "request_date", "name_of_system", "delivery_room", "project_id",
         "fund", "asset_id", "pi_of_funding", "end_user", "category",
@@ -90,6 +90,7 @@ def test_build_parsed_from_stages_workday_non_fabrication(monkeypatch):
     assert parsed["total_price"] == 145.50
     assert parsed["total_price_raw"] == "$145.50"
     assert parsed["link"] == "https://fishersci.com/gloves"
+    assert parsed["no_link_reason"] == ""
     assert parsed["request_date"] == "2026-09-14"  # the posting day; the form asks for no date
     assert parsed["delivery_room"] == "ERB 212"
     assert parsed["project_id"] == "PG000025831"
@@ -396,7 +397,7 @@ def test_stage2_modal_submit_omitting_link_falls_back_to_purpose_url(monkeypatch
 
 
 def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch):
-    """Submitting Screen 2 with neither link nor URL produces no link bullet in post or card."""
+    """Submitting Screen 2 with a link posts the link on the card and payload."""
     ack = MagicMock()
     body = {"user": {"id": "U123"}}
     client = MagicMock()
@@ -408,7 +409,7 @@ def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch
             "values": {
                 "block_item_description": {"item_description": {"value": "Box of Gloves"}},
                 "block_purpose": {"purpose": {"value": "Plain purpose without link"}},
-                "block_link": {"link": {"value": None}},
+                "block_link": {"link": {"value": "https://fishersci.com/direct-gloves"}},
                 "block_total_price": {"total_price": {"value": "120.00"}},
                 "block_vendor_contact_name": {"vendor_contact_name": {"value": "Rep"}},
                 "block_vendor_contact_email": {"vendor_contact_email": {"value": "rep@vendor.com"}},
@@ -432,13 +433,11 @@ def test_stage2_modal_submit_neither_link_nor_url_has_no_link_bullet(monkeypatch
 
     call_kwargs = next(c[1] for c in client.chat_postMessage.call_args_list if "metadata" in c[1])
     parsed = call_kwargs["metadata"]["event_payload"]["parsed"]
-    assert not parsed.get("link")
+    assert parsed.get("link") == "https://fishersci.com/direct-gloves"
 
     card_text = call_kwargs["blocks"][0]["text"]["text"]
-    assert "• *Link:*" not in card_text
-    assert "*Link:*" not in card_text
-    assert "• *Link:*" not in call_kwargs["text"]
-    assert "*Link:*" not in call_kwargs["text"]
+    assert "• *Link:* https://fishersci.com/direct-gloves" in card_text
+    assert "• *Link:* https://fishersci.com/direct-gloves" in call_kwargs["text"]
 
 
 
