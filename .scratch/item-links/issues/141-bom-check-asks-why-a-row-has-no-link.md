@@ -1,6 +1,6 @@
 # 141: The BOM check shows each link and asks why a row has none
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
