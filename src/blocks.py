@@ -1895,8 +1895,8 @@ def build_bom_check_view(meta: dict, items: list[dict], problems: list[str], tot
             link = str(item.get("link") or "").strip()
             reason = str(item.get("no_link_reason") or "").strip()
             if not link and not reason:
-                row = item.get("row")
-                no_link_rows.append(int(row))
+                row = int(item.get("row") or 0)
+                no_link_rows.append(row)
                 name = str(item.get("name") or item.get("item_name") or "")[:60]
                 blocks_list.append({
                     "type": "input",
