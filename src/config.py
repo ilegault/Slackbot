@@ -90,6 +90,8 @@ PURCHASING_CHANNEL = os.environ.get("PURCHASING_CHANNEL", "").strip()
 
 # --- External Heartbeat (Dead-Man's Switch) -----------------------------------
 HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "").strip()
+# The Log link (ADR 0021): where App Home and help send people to open Purchasing-Log.xlsx. Not a storage setting.
+PURCHASING_LOG_URL = os.environ.get("PURCHASING_LOG_URL", "").strip()
 try:
     HEALTHCHECK_INTERVAL_SECONDS = int(os.environ.get("HEALTHCHECK_INTERVAL_SECONDS", "300"))
 except ValueError:
@@ -401,6 +403,7 @@ MAX_LINE_ITEMS_LEN = 1500  # Ticket 28: keeps carried stage2 state under 3000 ch
 ACTION_REQ_ASSIGN_SELECT = "req_assign_select"
 ACTION_OPEN_ROSTER_SET_NAME = "open_roster_set_name"
 ACTION_OPEN_NUDGE_SETTINGS = "open_nudge_settings"
+ACTION_OPEN_PURCHASING_LOG = "open_purchasing_log"  # Ticket 145 / ADR 0021: link button, click is only acked
 NUDGE_SETTINGS_CALLBACK_ID = "nudge_settings_submit"
 ACTION_REQ_ITEMS = "req_items"
 ACTION_SEND_BOM_TEMPLATE = "send_bom_template"  # Ticket 133 / ADR 0019: DMs the BOM template from Screen 2

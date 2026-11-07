@@ -71,6 +71,29 @@ def purpose_with_link(purpose: str | None, link: str | None) -> str:
     return f"{text}\n\nLink: {link}"
 
 
+def log_link_url(raw: str | None) -> str | None:
+    """Return the Log link if ``raw`` is a usable web address, else None.
+
+    WHY THIS EXISTS:
+    ----------------
+    ADR 0021: App Home, help and the health screen all point people at
+    Purchasing-Log.xlsx, and they must give the same answer about whether the link is
+    set. Slack rejects a whole ``views.publish`` on one malformed button URL, which
+    would blank App Home for everyone, so anything that is not plainly http(s) with no
+    whitespace counts as "not set". Unlike ``bom.normalize_link`` no ``https://`` is
+    prepended: guessing a scheme onto a OneDrive/SharePoint link would hide a typo.
+    Pure: no logging and no config read; the caller passes the raw value.
+    """
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text.lower().startswith(("http://", "https://")):
+        return None
+    if any(ch.isspace() for ch in text):
+        return None
+    return text
+
+
 _TRAILING_LINK_RE = re.compile(r"^(?:link:\s*)?(https?://\S+)$", re.IGNORECASE)
 
 

@@ -2324,6 +2324,18 @@ def handle_open_roster_set_name_action(ack, body, client):
         log.error("Failed to open /roster-set-name modal from button: %s", e)
 
 
+@app.action(config.ACTION_OPEN_PURCHASING_LOG)
+def handle_open_purchasing_log_action(ack, body) -> None:
+    """Acknowledge a click on the Open Purchasing Log link button and do nothing else (ticket 145).
+
+    Slack sends a block_actions payload even for a link button and shows an error
+    triangle on it if the payload is not acknowledged. The browser opens the URL on
+    its own, so there is nothing to post, update or DM.
+    """
+    ack()
+    log.debug("Open Purchasing Log clicked by %s", (body.get("user") or {}).get("id"))
+
+
 @app.action(config.ACTION_OPEN_NUDGE_SETTINGS)
 def handle_open_nudge_settings_action(ack, body, client):
     """Open the nudge settings form for an admin; refuse everyone else (ticket 95)."""
