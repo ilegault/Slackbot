@@ -515,45 +515,46 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-11-02 21:05. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-07 04:24. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: every item has a link or a reason (140–144)
+# Active work: App Home and help link the Purchasing Log (145–148)
 
 This is a pointer, not the work. The work is the spec and the tickets below.
 
-- Spec: `.scratch/item-links/spec.md`
-- Tickets: `.scratch/item-links/issues/140-…` through `144-…` (5 tickets, all agent, all auto-merge)
-- Binding: ADR 0020 (every item has a link or a reason; links live in the BOM file), ADR 0019 (BOMs come in through the lab template), ADR 0015 (thread files at approval), ADR 0006 (as superseded by 0020), ADR 0001 (tests first)
-- Glossary: `CONTEXT.md`. New: **Item link**, **No-link reason**. Rewritten: **Line item**, **BOM template**, **BOM check**
+- Spec: `.scratch/log-link/spec.md`
+- Tickets: `.scratch/log-link/issues/145-…` through `148-…` (3 agent tickets, all auto-merge; 1 developer ticket)
+- Binding: ADR 0021 (App Home and help link the Purchasing Log — supersedes the "no link" half of ADR 0002 decision 9), ADR 0009 (six storage settings stay six; health screen), ADR 0010 decision 5 (help packed by `chunk_mrkdwn`), ADR 0001 (tests first)
+- Glossary: `CONTEXT.md`. New: **Log link** (distinct from **Link** and **Item link**)
 - Tracker conventions: `docs/agents/issue-tracker.md`
 
-**Next:** 140 is the only unblocked ticket. **Start with 140.** It changes the template, the reader and the builder that every other ticket uses. Once it lands, 141, 142 and 143 can all run in parallel.
+**Next:** 145 is the only unblocked ticket in this set. **Start with 145.** It adds `PURCHASING_LOG_URL`, the pure rule `text_rules.log_link_url`, the shared strings and `blocks._log_link()` that 146 and 147 both reuse. Once it lands, 146 and 147 can run in parallel.
+
+Also still open from the previous set: 144 (`.scratch/item-links/issues/144-…`, blocked only by 143, which is done). It touches `src/bom.py`, `src/lifecycle.py` and `src/store.py`, none of which this set changes, so it can run alongside 145.
 
 ## Dependency graph
 
-    140 ──► 141
-        ├─► 142
-        └─► 143 ──► 144
+    145 ──► 146 ──┐
+        └─► 147 ──┴─► 148 (ready-for-developer: deploy, set PURCHASING_LOG_URL on the server)
 
-No ticket is `ready-for-developer` and none is held. After all five merge, the developer deploys. Every BOM template copy handed out before then stops working on the form path.
+No ticket is held. 148 is the developer's; an agent must not claim it.
 
 ## Requirements an implementer might treat as preferences — they are not
 
-- `bom.read_bom_template` stays a pure function from bytes to `(items, problems)`. Each item carries `row`, `link` and `no_link_reason`. A blank link is not a reader problem.
-- The reason radios on the BOM check are `optional: true` in Slack. The submit handler refuses unpicked ones. Slack enforces required inputs in the client, which would block a re-upload submit.
-- A one-row BOM is refused on the BOM check (the developer decided this on 2026-11-02; it is not in the spec).
-- `slack_io.thread_files` skips bot-posted files, so approval finds the draft with the new `slack_io.newest_bot_draft_bom`, not the thread-file classifier.
-- A missing or mismatched draft never blocks approval. It reuses the Off-template flag and the Replace BOM wording.
-- Links are stripped only from the copy written into card `metadata` (`bom.items_for_card`), never from the items handed to `upload_draft_bom`.
-- 144 must land after 143, or approval loses links in between.
-- Tests built on the old eight-column layout are rewritten in place under their names. None are deleted.
+- `text_rules.log_link_url` is a pure function (no logging, no `config` read). App Home, help and the health screen must give the same answer, and it must be testable without Slack.
+- No `https://` is prepended to the Log link (unlike `bom.normalize_link`). Anything not starting `http://`/`https://`, or containing whitespace, is "not set".
+- `blocks._log_link()` reads `config.PURCHASING_LOG_URL` at call time, never at import.
+- When not set, no block anywhere in the App Home view has a `url` key — Slack rejects the whole `views.publish` on a malformed button URL, which would blank App Home for everyone.
+- The two strings `Open Purchasing Log` and `The Purchasing Log link isn't set up yet. Ask an admin.` exist once each, as `blocks._LOG_LINK_LABEL` / `blocks._LOG_LINK_NOT_SET`.
+- The click listener only `ack()`s. Slack sends `block_actions` even for a link button and shows an error triangle if it is not acknowledged.
+- `PURCHASING_LOG_URL` is not added to `config.STORAGE_SETTINGS`, the startup path check or the startup alert.
+- The health screen never shows the URL, and `build_health_blocks` uses `h.get("log_link_set")` so hand-built health dicts still render.
 
 ## Deliberately not in this set
 
-- Any link check on BOMs dropped straight into a thread.
-- Visiting links. Showing full URLs in Slack. A "same as row N" pointer.
-- The Workday details form's and Edit's link fields. EPIF-born requests.
-- Migrating already-posted cards. Editing `docs/adr/` or `CONTEXT.md`.
+- The Log link on thread cards, buyer DMs, the DM card, nudges or the email draft.
+- A link to a request's own row; reading the workbook to show its contents.
+- Setting the link from Slack; storing it anywhere but `.env`.
+- Rewording the rest of App Home, help or `docs/SETUP.md`. Editing `docs/adr/` or `CONTEXT.md`.
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol
