@@ -1,6 +1,6 @@
 # 145: The Log link rule, the App Home button and the silent click
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -65,12 +65,12 @@ New file `tests/test_145_log_link_app_home.py`. Set the setting only with
 may be faked as `tests/test_22_live_roster_panel.py` fakes it; `blocks.build_app_home_view`,
 `blocks._log_link` and `text_rules.log_link_url` must be the real ones.
 
-- [ ] `test_app_home_button_opens_the_log_link` — with `https://example.sharepoint.com/:x:/r/log?e=1`, the section after the header has `accessory["type"] == "button"`, `accessory["url"]` equal to that exact string, `accessory["text"]["text"] == blocks._LOG_LINK_LABEL == "Open Purchasing Log"`, `accessory["action_id"] == config.ACTION_OPEN_PURCHASING_LOG`; with `HTTP://example.org/log` (upper-case scheme) the `url` is that string unchanged; with `"  https://example.org/log  "` the `url` is `https://example.org/log`.
-- [ ] `test_app_home_not_set_shows_the_sentence_and_no_url` — parametrized over `""`, `"www.example.com/log"`, `"C:\\Users\\x\\Purchasing-Log.xlsx"`, `"https://exa mple.com"`: walking every block and every nested dict of the view finds no `"url"` key, the Welcome section has no `accessory`, and its text contains `blocks._LOG_LINK_NOT_SET`, which equals `"The Purchasing Log link isn't set up yet. Ask an admin."`.
-- [ ] `test_app_home_reads_the_setting_at_render_time` — build the view with `""`, then set `https://example.org/log` and build again in the same test: the first has no `url` key anywhere, the second's Welcome `accessory["url"] == "https://example.org/log"`.
-- [ ] `test_malformed_setting_warns_and_empty_does_not` — with `caplog` at `WARNING`: building the view with `www.example.com/log` produces exactly one `WARNING` record whose message contains `PURCHASING_LOG_URL`; building with `""` produces no `WARNING` record mentioning `PURCHASING_LOG_URL`.
-- [ ] `test_log_link_click_is_acked_and_silent` — find the listener in `app.app._listeners` whose `ack_function is app.handle_open_purchasing_log_action` (prior art: `tests/test_62_ignore_slack_events.py`); assert `listener.matches(req=BoltRequest(body=body, mode="socket_mode"), resp=BoltResponse(status=200))` is `True` for a `block_actions` body whose `actions[0]["action_id"] == config.ACTION_OPEN_PURCHASING_LOG` and `False` for `action_id == "start_purchase_interview"` (`from slack_bolt import BoltRequest, BoltResponse`); the handler's parameters (`inspect.signature`) are exactly `ack, body`, so it has no Slack client to call; with `slack_io.tell`, `slack_io.deny` and `slack_io.alert_admins` monkeypatched to `MagicMock`s, calling `app.handle_open_purchasing_log_action(ack=ack, body=body)` with a `MagicMock` `ack` calls `ack` exactly once and none of the three mocks.
-- [ ] `test_log_link_is_not_a_storage_setting` — `"PURCHASING_LOG_URL"` appears in no entry of `config.STORAGE_SETTINGS` and `len(config.STORAGE_SETTINGS) == 6`.
+- [x] `test_app_home_button_opens_the_log_link` — with `https://example.sharepoint.com/:x:/r/log?e=1`, the section after the header has `accessory["type"] == "button"`, `accessory["url"]` equal to that exact string, `accessory["text"]["text"] == blocks._LOG_LINK_LABEL == "Open Purchasing Log"`, `accessory["action_id"] == config.ACTION_OPEN_PURCHASING_LOG`; with `HTTP://example.org/log` (upper-case scheme) the `url` is that string unchanged; with `"  https://example.org/log  "` the `url` is `https://example.org/log`.
+- [x] `test_app_home_not_set_shows_the_sentence_and_no_url` — parametrized over `""`, `"www.example.com/log"`, `"C:\\Users\\x\\Purchasing-Log.xlsx"`, `"https://exa mple.com"`: walking every block and every nested dict of the view finds no `"url"` key, the Welcome section has no `accessory`, and its text contains `blocks._LOG_LINK_NOT_SET`, which equals `"The Purchasing Log link isn't set up yet. Ask an admin."`.
+- [x] `test_app_home_reads_the_setting_at_render_time` — build the view with `""`, then set `https://example.org/log` and build again in the same test: the first has no `url` key anywhere, the second's Welcome `accessory["url"] == "https://example.org/log"`.
+- [x] `test_malformed_setting_warns_and_empty_does_not` — with `caplog` at `WARNING`: building the view with `www.example.com/log` produces exactly one `WARNING` record whose message contains `PURCHASING_LOG_URL`; building with `""` produces no `WARNING` record mentioning `PURCHASING_LOG_URL`.
+- [x] `test_log_link_click_is_acked_and_silent` — find the listener in `app.app._listeners` whose `ack_function is app.handle_open_purchasing_log_action` (prior art: `tests/test_62_ignore_slack_events.py`); assert `listener.matches(req=BoltRequest(body=body, mode="socket_mode"), resp=BoltResponse(status=200))` is `True` for a `block_actions` body whose `actions[0]["action_id"] == config.ACTION_OPEN_PURCHASING_LOG` and `False` for `action_id == "start_purchase_interview"` (`from slack_bolt import BoltRequest, BoltResponse`); the handler's parameters (`inspect.signature`) are exactly `ack, body`, so it has no Slack client to call; with `slack_io.tell`, `slack_io.deny` and `slack_io.alert_admins` monkeypatched to `MagicMock`s, calling `app.handle_open_purchasing_log_action(ack=ack, body=body)` with a `MagicMock` `ack` calls `ack` exactly once and none of the three mocks.
+- [x] `test_log_link_is_not_a_storage_setting` — `"PURCHASING_LOG_URL"` appears in no entry of `config.STORAGE_SETTINGS` and `len(config.STORAGE_SETTINGS) == 6`.
 
 No existing test is deleted, skipped or marked xfail. If an existing App Home test breaks, fix the code, not the test.
 
@@ -89,3 +89,5 @@ Home. Editing `docs/adr/`, `CONTEXT.md` or `AGENTS.md`.
 
 ## Comments
 
+
+2026-11-07: Added `config.PURCHASING_LOG_URL` and `ACTION_OPEN_PURCHASING_LOG`, pure `text_rules.log_link_url`, `blocks._LOG_LINK_LABEL` / `_LOG_LINK_NOT_SET` / `_log_link()`, the Welcome-section button (or not-set sentence) in `build_app_home_view`, and the ack-only `app.handle_open_purchasing_log_action`. All six criteria are covered by the same-named tests in `tests/test_145_log_link_app_home.py`. Gate: ruff clean, pytest 925 passed / 31 skipped, type_gate ratchet unchanged (95). No bench or deploy step; 148 owns setting the URL on the server.

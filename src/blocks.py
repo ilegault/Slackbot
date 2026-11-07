@@ -34,6 +34,7 @@ May NOT import:
     - lifecycle/ops handlers
 """
 import json
+import logging
 from datetime import date
 
 try:
@@ -46,6 +47,8 @@ except ImportError:
     import roster
     import text_rules
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Shared text constants — the single source for content rendered by both
 # build_app_home_view() and get_help_message().  Edit here; never paste a
@@ -56,6 +59,21 @@ _INTERFACE_RULE = (
     "> *Rule:* If the action needs a target, it's a button on that target. "
     "If it doesn't, it's a slash command."
 )
+
+# Ticket 145 / ADR 0021: the Log link's two strings live here once; help and the
+# health screen (tickets 146, 147) reuse them.
+_LOG_LINK_LABEL = "Open Purchasing Log"
+_LOG_LINK_NOT_SET = "The Purchasing Log link isn't set up yet. Ask an admin."
+
+
+def _log_link() -> str | None:
+    """The usable Log link, or None. Read at call time so a changed setting shows at once."""
+    raw = config.PURCHASING_LOG_URL
+    url = text_rules.log_link_url(raw)
+    if raw and url is None:
+        log.warning("PURCHASING_LOG_URL is set but is not a web address; the Log link is treated as not set")
+    return url
+
 
 _BUTTON_LIST = (
     "• Click the action buttons on the request message: *Approve* (approvers) or *Decline* (approvers and buyers), "
@@ -230,6 +248,23 @@ def build_app_home_view(user_id: str | None = None) -> dict:
             }
         ]
 
+    log_url = _log_link()
+    welcome_text = (
+        "Welcome! *Purchasing* automates logging, tracking, and archiving lab purchase requests "
+        "directly to `Purchasing-Log.xlsx` and OneDrive.\n\n"
+        + _INTERFACE_RULE
+    )
+    welcome_block: dict = {"type": "section", "text": {"type": "mrkdwn", "text": welcome_text}}
+    if log_url:
+        welcome_block["accessory"] = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": _LOG_LINK_LABEL, "emoji": True},
+            "url": log_url,
+            "action_id": config.ACTION_OPEN_PURCHASING_LOG,
+        }
+    else:
+        welcome_block["text"]["text"] = welcome_text + "\n\n" + _LOG_LINK_NOT_SET
+
     return {
         "type": "home",
         "blocks": [
@@ -241,17 +276,7 @@ def build_app_home_view(user_id: str | None = None) -> dict:
                     "emoji": True,
                 },
             },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        "Welcome! *Purchasing* automates logging, tracking, and archiving lab purchase requests "
-                        "directly to `Purchasing-Log.xlsx` and OneDrive.\n\n"
-                        + _INTERFACE_RULE
-                    ),
-                },
-            },
+            welcome_block,
             {"type": "divider"},
             profile_block,
             {"type": "divider"},
