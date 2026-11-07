@@ -389,6 +389,12 @@ says which setting and path in the thread (ADR 0009).
 for the current status of a purchase.** Slack is where the conversation happens;
 the workbook is what the lab reads and acts on.
 
+**Log link** — the web address that opens **the Purchasing Log** in a browser, shown
+to everyone on App Home and in help. A plain link: whoever follows it is let in or
+not by Microsoft's own sign-in, never by the bot. It is not a **storage setting** —
+the bot never reads or writes through it. Distinct from a request's **Link** and from
+an **Item link** (ADR 0021).
+
 **The lock queue** — the retry queue that serialises every workbook write. The
 file is routinely open in Excel on somebody's desktop; the queue turns "locked,
 try later" into "written" instead of "lost".

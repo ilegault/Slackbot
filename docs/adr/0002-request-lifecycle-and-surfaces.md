@@ -2,6 +2,7 @@
 
 **Status:** accepted
 **Date:** 2026-09-16
+**Superseded in part:** decision 9's "no link to the log" by ADR 0021
 **Supersedes:** nothing. This is the first written record of decisions that were
 previously only made in conversation.
 
