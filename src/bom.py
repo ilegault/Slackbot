@@ -130,6 +130,21 @@ def needs_bom(items: List[Dict[str, Any]]) -> bool:
     return len(items) >= 2
 
 
+def items_for_card(items: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Copies of `items` without `link` and `row`: the form that is allowed into card metadata.
+
+    WHY THIS EXISTS:
+    Ticket 144 / ADR 0020 decision 5. Slack documents no size for message metadata, only a
+    `metadata_too_large` error, so a 50-row BOM with long product URLs must never ride there.
+    Links live in the draft BOM file in the thread (ticket 143 reads them back at approval).
+    `row` is the reader's spreadsheet row number, meaningless once the file is gone. Every other
+    key, `no_link_reason` included, is kept: it only flags that the row was explained.
+    Strip ONLY the copy written into `metadata`; the list handed to `upload_draft_bom` must stay
+    unstripped or the links are lost for good.
+    """
+    return [{k: v for k, v in item.items() if k not in ("link", "row")} for item in (items or [])]
+
+
 def describe_changes(old_request: Dict[str, Any], new_request: Dict[str, Any]) -> List[str]:
     """Return concise change fragments between old_request and new_request."""
     fragments: List[str] = []

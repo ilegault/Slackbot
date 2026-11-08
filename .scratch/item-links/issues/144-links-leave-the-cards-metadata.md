@@ -1,6 +1,6 @@
 # 144: Item links leave the card's metadata
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -55,11 +55,11 @@ real: the reader, the builder, the workbook and archive writes on temporary copi
 test asserts on the `metadata=` argument actually passed to `client.chat_postMessage` /
 `client.chat_update`.
 
-- [ ] `test_posted_card_metadata_has_no_links_but_the_draft_does` — Screen 2 with a linked 3-row BOM: no item in the posted card's `metadata["event_payload"]["items"]` has a `link` or `row` key, and the draft BOM bytes passed to `files_upload_v2` read back with the links.
-- [ ] `test_add_items_and_edit_keep_links_out_of_metadata` — Add items and Edit with a new linked BOM: same assertion on the `chat_update` metadata; each re-posts a draft carrying the new links.
-- [ ] `test_edit_with_only_new_links_reposts_the_draft` — Edit with a BOM whose rows equal the card's but whose links differ: the thread edit line contains `BOM re-uploaded`, and a new draft with the new links is uploaded.
-- [ ] `test_approval_and_replace_bom_keep_links_out_of_metadata` — approving that card (draft present in the thread, as in ticket 143's tests) and then Replace BOM: neither card's metadata items carry `link`, and the archived BOM has the draft's links (approval) and the new file's links (Replace BOM).
-- [ ] Existing tests that asserted `link` inside card metadata items are rewritten in place under their existing names to assert its absence; none deleted. (no test: existing tests rewritten in place; the full suite passing is the proof)
+- [x] `test_posted_card_metadata_has_no_links_but_the_draft_does` — Screen 2 with a linked 3-row BOM: no item in the posted card's `metadata["event_payload"]["items"]` has a `link` or `row` key, and the draft BOM bytes passed to `files_upload_v2` read back with the links.
+- [x] `test_add_items_and_edit_keep_links_out_of_metadata` — Add items and Edit with a new linked BOM: same assertion on the `chat_update` metadata; each re-posts a draft carrying the new links.
+- [x] `test_edit_with_only_new_links_reposts_the_draft` — Edit with a BOM whose rows equal the card's but whose links differ: the thread edit line contains `BOM re-uploaded`, and a new draft with the new links is uploaded.
+- [x] `test_approval_and_replace_bom_keep_links_out_of_metadata` — approving that card (draft present in the thread, as in ticket 143's tests) and then Replace BOM: neither card's metadata items carry `link`, and the archived BOM has the draft's links (approval) and the new file's links (Replace BOM).
+- [x] Existing tests that asserted `link` inside card metadata items are rewritten in place under their existing names to assert its absence; none deleted. (no test: existing tests rewritten in place; the full suite passing is the proof)
 
 ## Gate
 
@@ -75,3 +75,5 @@ them). `src/store.py`. The request-level `link` field of a one-item request (it 
 short URL on `parsed`, not a line item).
 
 ## Comments
+
+2026-11-08: `bom.items_for_card` strips `link` and `row`; every lifecycle write of items into card metadata goes through it (approval x2, Replace BOM, interview completion, Add items, Edit). Edit compares stripped rows and appends `BOM re-uploaded` when a fresh file carries only new links, re-posting the draft from the unstripped items. Tests: `tests/test_144_links_leave_metadata.py` (one per criterion, plus the pure rule and a no-BOM-change Edit); `test_edit_with_a_new_bom_replaces_the_rows` in test_135 rewritten in place. Gate: ruff, tests-first, type gate (ratchet 95) and pytest all green locally except `test_59::test_docs_adr_is_unmodified`, which diffs against a stale local `master` ref (it passes against `origin/master`).
