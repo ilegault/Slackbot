@@ -3988,7 +3988,12 @@ def handle_request_edit(
 
     fragments = bom.describe_changes(old_compare, new_compare)
     # Rows read from a newly uploaded BOM carry the `link` key; rows read back from metadata never do.
-    fresh = any("link" in i for i in items)
+    # A card posted before ticket 144 still carries links in its metadata, and an Edit with no new
+    # file hands those same rows back, so "has a link key" alone would call that a re-upload: the
+    # links must also differ from the card's own.
+    fresh = any("link" in i for i in items) and [i.get("link") for i in items] != [
+        i.get("link") for i in old_items
+    ]
     if fresh and not any(f.startswith("items") for f in fragments):
         fragments.append("BOM re-uploaded")
     # Ticket 86: `attachments` is the final merged list (None = untouched). A file change

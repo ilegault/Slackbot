@@ -171,16 +171,15 @@ def test_edit_with_only_new_links_reposts_the_draft(new_links_file):
     assert "items changed" not in lines[0]
     assert _uploaded_draft_links(client.files_upload_v2) == expected
 
-
-def test_edit_without_a_bom_upload_is_not_a_bom_change():
-    """Rows from metadata never carry links, so an Edit that only touches Purpose uploads nothing."""
-    card = _sample_modal_card_payload(items=_stripped(_fixture_items()), total_price=858.50)
-    client = _client(card)
-    ack = _submit_edit(client, _edit_body(purpose="A different purpose"))
-    ack.assert_called_once_with()
-    lines = [c.kwargs["text"] for c in client.chat_postMessage.call_args_list if "Edited by" in c.kwargs.get("text", "")]
-    assert len(lines) == 1 and "BOM re-uploaded" not in lines[0]
-    client.files_upload_v2.assert_not_called()
+    # A card posted before ticket 144 still holds links in its metadata. An Edit that uploads no
+    # file hands those rows back unchanged and must not be mistaken for a re-upload.
+    legacy = _sample_modal_card_payload(items=_fixture_items(), total_price=858.50)
+    client2 = _client(legacy)
+    ack2 = _submit_edit(client2, _edit_body(purpose="A different purpose"))
+    ack2.assert_called_once_with()
+    lines2 = [c.kwargs["text"] for c in client2.chat_postMessage.call_args_list if "Edited by" in c.kwargs.get("text", "")]
+    assert len(lines2) == 1 and "BOM re-uploaded" not in lines2[0]
+    client2.files_upload_v2.assert_not_called()
 
 
 # --- Approval, then Replace BOM --------------------------------------------------------------
