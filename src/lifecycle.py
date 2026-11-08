@@ -1000,11 +1000,11 @@ def finalize_purchase_request(
             if pdf_bytes:
                 req_payload["source"] = "epif"
             if items:
-                req_payload["items"] = items
+                req_payload["items"] = bom.items_for_card(items)
 
         req_payload["state"] = "approved"
         if bom_read.get("items"):
-            req_payload["items"] = bom_read["items"]
+            req_payload["items"] = bom.items_for_card(bom_read["items"])
         if bom_read.get("problem"):
             req_payload["off_template_bom"] = True
             req_payload["off_template_problem"] = bom_read["problem"]
@@ -2368,7 +2368,7 @@ def handle_replace_bom(client, channel: str, thread_ts: str, card_ts: str, user_
     req_data.pop("off_template_problem", None)
     new_payload = {k: v for k, v in payload.items() if k not in ("off_template_bom", "off_template_problem")}
     new_payload.update({k: v for k, v in req_data.items()})
-    new_payload["items"] = items
+    new_payload["items"] = bom.items_for_card(items)
     new_payload["state"] = "approved"
 
     client.chat_update(
@@ -3274,7 +3274,7 @@ def _process_interview_completion(ack, client, body, meta: dict, stage2: dict, s
         "source": "modal",
     }
     if items:
-        req_payload["items"] = items
+        req_payload["items"] = bom.items_for_card(items)
     attachments = stage2.get("attachments")
     if attachments:
         req_payload["attachments"] = attachments
@@ -3852,7 +3852,7 @@ def handle_items_update(
     new_payload = dict(card_payload)
     items_given = items is not None
     if items_given:
-        new_payload["items"] = items
+        new_payload["items"] = bom.items_for_card(items)
     else:
         items = list(card_payload.get("items") or [])
     if "source" not in new_payload:
@@ -3981,10 +3981,16 @@ def handle_request_edit(
     old_parsed = card_payload.get("parsed") or {}
     old_items = card_payload.get("items") or []
 
-    old_compare = {**old_parsed, "items": old_items}
-    new_compare = {**new_parsed_stored, "items": items}
+    # Ticket 144: card metadata carries no links, so compare rows without them; otherwise an Edit that
+    # leaves the BOM alone would differ from the freshly read rows by links alone.
+    old_compare = {**old_parsed, "items": bom.items_for_card(old_items)}
+    new_compare = {**new_parsed_stored, "items": bom.items_for_card(items)}
 
     fragments = bom.describe_changes(old_compare, new_compare)
+    # Rows read from a newly uploaded BOM carry the `link` key; rows read back from metadata never do.
+    fresh = any("link" in i for i in items)
+    if fresh and not any(f.startswith("items") for f in fragments):
+        fragments.append("BOM re-uploaded")
     # Ticket 86: `attachments` is the final merged list (None = untouched). A file change
     # counts as a change; only files new to the card are re-posted to the thread.
     current_attachments = list(card_payload.get("attachments") or [])
@@ -4005,7 +4011,7 @@ def handle_request_edit(
     new_payload = dict(card_payload)
     new_payload["parsed"] = new_parsed_stored
     new_payload["history"] = history
-    new_payload["items"] = items
+    new_payload["items"] = bom.items_for_card(items)
     if attachments is not None:
         if attachments:
             new_payload["attachments"] = list(attachments)
@@ -4047,7 +4053,7 @@ def handle_request_edit(
 
     # Re-post draft BOM when items changed and there are enough items for a BOM
     items_changed = any(f.startswith("items") for f in fragments)
-    if items_changed and bom.needs_bom(items):
+    if (items_changed or fresh) and bom.needs_bom(items):
         upload_draft_bom(
             client=client,
             channel=channel,

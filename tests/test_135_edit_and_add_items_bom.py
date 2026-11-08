@@ -85,7 +85,9 @@ def test_edit_with_a_new_bom_replaces_the_rows():
 
     payload = client.chat_update.call_args[1]["metadata"]["event_payload"]
     fixture_items, problems = bom.read_bom_template(open(FIXTURE, "rb").read())
-    assert problems == [] and payload["items"] == fixture_items
+    # Ticket 144: the card's metadata carries the rows but never their links (ADR 0020 decision 5).
+    assert problems == [] and payload["items"] == bom.items_for_card(fixture_items)
+    assert all("link" not in item and "row" not in item for item in payload["items"])
     lines = [c[1]["text"] for c in client.chat_postMessage.call_args_list if "Edited by" in c[1].get("text", "")]
     assert len(lines) == 1 and "items 0 → 4" in lines[0]
     drafts = [c[1]["filename"] for c in client.files_upload_v2.call_args_list]
