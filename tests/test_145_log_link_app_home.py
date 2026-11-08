@@ -129,5 +129,7 @@ def test_log_link_click_is_acked_and_silent(monkeypatch):
 
 
 def test_log_link_is_not_a_storage_setting():
+    # It is a setting (so this fails before the ticket lands) but not one of the six storage settings.
+    assert hasattr(config, "PURCHASING_LOG_URL")
     assert not any("PURCHASING_LOG_URL" in entry for entry in config.STORAGE_SETTINGS)
     assert len(config.STORAGE_SETTINGS) == 6
