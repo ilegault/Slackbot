@@ -515,9 +515,29 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-11-07 04:24. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-10 05:58. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: App Home and help link the Purchasing Log (145–148)
+# Active work: tests-first gate fix (149, waiting on ticket-engine 87), plus the work below
+
+This is a pointer, not the work.
+
+## Tests-first gate fix (new)
+
+- **Spec:** `.scratch/tests-first-gate-holes/spec.md` in `ilegault/ticket-engine`.
+- **Binding:** `docs/adr/0001-tests-first-and-no-muted-failures.md`. Glossary: no change.
+- **Ticket:** `.scratch/tests-first-gate-holes/issues/149-take-the-fixed-tests-first-check-and-rerun-on-pr-edits.md`.
+  `ready-for-developer` until ticket 87 in `ilegault/ticket-engine` is merged; the
+  developer then sets it to `ready-for-agent`. Held (`Auto-merge: no`), a leaf, blocks
+  nothing, touches no application code or tests.
+- **Next:** nothing new is claimable yet; carry on with the sets below.
+
+Requirements an implementer might treat as preferences: `scripts/check_tests_first.py`
+is the canonical file byte for byte and is never edited here, not even for lint.
+If it cannot land as is, the ticket is escalated (`Status: blocked`).
+
+---
+
+## Active work: App Home and help link the Purchasing Log (145–148)
 
 This is a pointer, not the work. The work is the spec and the tickets below.
 
@@ -531,14 +551,14 @@ This is a pointer, not the work. The work is the spec and the tickets below.
 
 Also still open from the previous set: 144 (`.scratch/item-links/issues/144-…`, blocked only by 143, which is done). It touches `src/bom.py`, `src/lifecycle.py` and `src/store.py`, none of which this set changes, so it can run alongside 145.
 
-## Dependency graph
+### Dependency graph
 
     145 ──► 146 ──┐
         └─► 147 ──┴─► 148 (ready-for-developer: deploy, set PURCHASING_LOG_URL on the server)
 
 No ticket is held. 148 is the developer's; an agent must not claim it.
 
-## Requirements an implementer might treat as preferences — they are not
+### Requirements an implementer might treat as preferences — they are not
 
 - `text_rules.log_link_url` is a pure function (no logging, no `config` read). App Home, help and the health screen must give the same answer, and it must be testable without Slack.
 - No `https://` is prepended to the Log link (unlike `bom.normalize_link`). Anything not starting `http://`/`https://`, or containing whitespace, is "not set".
@@ -549,7 +569,7 @@ No ticket is held. 148 is the developer's; an agent must not claim it.
 - `PURCHASING_LOG_URL` is not added to `config.STORAGE_SETTINGS`, the startup path check or the startup alert.
 - The health screen never shows the URL, and `build_health_blocks` uses `h.get("log_link_set")` so hand-built health dicts still render.
 
-## Deliberately not in this set
+### Deliberately not in this set
 
 - The Log link on thread cards, buyer DMs, the DM card, nudges or the email draft.
 - A link to a request's own row; reading the workbook to show its contents.
