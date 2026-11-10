@@ -65,13 +65,16 @@ written there is never pushed and no reviewer, human or agent, ever sees it. The
 ticket file travels with the branch, so the draft PR plus its failing CI run *is*
 the handoff.
 
-**5. The escape from the tests-first gate is explicit and visible.** For a change
-under `src/` that genuinely needs no test change — a comment-only clarification, a
-pure structural move fully covered by existing tests — the author declares it:
-`[no-test-needed: <reason>]`, `[tests-exempt: <reason>]` or `[skip-test-gate]` in
-the commit message or PR body, or a `tests-exempt` / `skip-test-gate` label. The
-reason is recorded in the PR history and read during review. Silent bypassing is
-not available.
+**5. The escape from the tests-first gate is explicit and visible.** A change under
+`src/` must also touch `tests/`. A `.py` file whose code is unchanged
+once docstrings and comments are removed does not count as a change. Otherwise the
+escape is explicit and visible, and its reach depends on where it is written: a tag
+(`[no-test-needed: <reason>]`, `[tests-exempt: <reason>]` or `[skip-test-gate]`) in
+a commit message covers only the files that commit changed, and a file is exempt
+only when every commit that changed it is tagged; the same tag in the PR title or
+body, or the `tests-exempt` / `skip-test-gate` label, covers the whole PR, and CI
+re-runs when the PR text or labels change. The check fails, never passes, when it
+cannot work out what changed.
 
 **6. Zero failures before a push.** Not "the remaining failures look unrelated" —
 zero. A failure that looks unrelated is a claim, and the way to support it is to
