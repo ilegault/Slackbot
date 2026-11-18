@@ -391,9 +391,11 @@ only the tool that has that command.
    (`human-task` is a legacy spelling the dispatcher cannot read), and
    nothing else — three spellings of "finished" make the frontier unreadable.
 4. One ticket per branch. One pull request per ticket. Never commit to `master`.
-5. Run the full gate before you start and before you open the PR:
-   `ruff check .`, `python scripts/check_tests_first.py`, `pytest -q`.
-   **Zero failures before you push.** Not "the failures look unrelated" — zero.
+5. Run the gate before you open the PR: `ruff check .`,
+   `python scripts/check_tests_first.py`, and `pytest -q` limited to the tests
+   your change touches. **Zero failures before you push.** Not "the failures look
+   unrelated" — zero. CI runs the full suite on the PR, merged with the latest
+   `master`.
 6. **A failing test is fixed or escalated, never muted.** No `xfail`, no deleted
    or weakened assertions, no loosened tolerances, no narrowed inputs.
    `docs/adr/0001-tests-first-and-no-muted-failures.md` is binding.
