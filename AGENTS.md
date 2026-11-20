@@ -516,66 +516,67 @@ someone else's bug fix smuggled into it cannot be reviewed.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-11-10 06:33. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-20 22:16. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: tests-first gate fix (149, ready for an agent), plus the work below
+# Active work: one running bot (151–154), plus the open Log-link and tests-first work
 
 This is a pointer, not the work.
 
-## Tests-first gate fix (new)
+## One running bot (new) — 151–154
 
-- **Spec:** `.scratch/tests-first-gate-holes/spec.md` in `ilegault/ticket-engine`.
-- **Binding:** `docs/adr/0001-tests-first-and-no-muted-failures.md`. Glossary: no change.
-- **Ticket:** `.scratch/tests-first-gate-holes/issues/149-take-the-fixed-tests-first-check-and-rerun-on-pr-edits.md`.
-  `ready-for-agent` (ticket-engine 87 is merged). Held (`Auto-merge: no`), a leaf, blocks
-  nothing, touches no application code or tests.
-- **Next:** this ticket is unblocked and can run alongside the sets below. It edits
-  `AGENTS.md` and ADR 0001, so a PR open on those files may need a rebase first.
+- **Spec:** `.scratch/one-running-bot/spec.md`
+- **Tickets:** `.scratch/one-running-bot/issues/151-…` through `154-…` (2 agent tickets, both auto-merge; 2 developer tickets)
+- **Binding:** ADR 0022 (one running bot, one launcher), ADR 0010 decision 7 (failures go to the Alert channel), ADR 0009 (the bot's name; "P-Bot" stays out of `docs/`), ADR 0001 (tests first)
+- **Glossary:** `CONTEXT.md`. New: **The server**, **Pluto**.
+- **Tracker conventions:** `docs/agents/issue-tracker.md`
 
-Requirements an implementer might treat as preferences: `scripts/check_tests_first.py`
-is the canonical file byte for byte and is never edited here, not even for lint.
-If it cannot land as is, the ticket is escalated (`Status: blocked`).
-
----
-
-## Active work: App Home and help link the Purchasing Log (145–148)
-
-This is a pointer, not the work. The work is the spec and the tickets below.
-
-- Spec: `.scratch/log-link/spec.md`
-- Tickets: `.scratch/log-link/issues/145-…` through `148-…` (3 agent tickets, all auto-merge; 1 developer ticket)
-- Binding: ADR 0021 (App Home and help link the Purchasing Log — supersedes the "no link" half of ADR 0002 decision 9), ADR 0009 (six storage settings stay six; health screen), ADR 0010 decision 5 (help packed by `chunk_mrkdwn`), ADR 0001 (tests first)
-- Glossary: `CONTEXT.md`. New: **Log link** (distinct from **Link** and **Item link**)
-- Tracker conventions: `docs/agents/issue-tracker.md`
-
-**Next:** 145 is the only unblocked ticket in this set. **Start with 145.** It adds `PURCHASING_LOG_URL`, the pure rule `text_rules.log_link_url`, the shared strings and `blocks._log_link()` that 146 and 147 both reuse. Once it lands, 146 and 147 can run in parallel.
-
-Also still open from the previous set: 144 (`.scratch/item-links/issues/144-…`, blocked only by 143, which is done). It touches `src/bom.py`, `src/lifecycle.py` and `src/store.py`, none of which this set changes, so it can run alongside 145.
+**Next:** 151 and 152 are both unblocked and touch different files (151: `src/single_instance.py`, `src/config.py`, `src/app.py`, `.gitignore`; 152: `scripts/setup_autostart.py`, `docs/SETUP.md`). **Start with 151** — it is the fix; 152 only stops the launcher that triggers it. They can run in parallel. 153 is the developer's and can be done today.
 
 ### Dependency graph
 
-    145 ──► 146 ──┐
-        └─► 147 ──┴─► 148 (ready-for-developer: deploy, set PURCHASING_LOG_URL on the server)
+    151 ──┐
+    152 ──┼─► 154 (ready-for-developer: update, rerun setup_autostart.py, reboot, check)
+    153 ──┘
+    (ready-for-developer: stop the second bot on the server now)
 
-No ticket is held. 148 is the developer's; an agent must not claim it.
+No ticket is held. 153 and 154 are the developer's; an agent must not claim them.
 
 ### Requirements an implementer might treat as preferences — they are not
 
-- `text_rules.log_link_url` is a pure function (no logging, no `config` read). App Home, help and the health screen must give the same answer, and it must be testable without Slack.
-- No `https://` is prepended to the Log link (unlike `bom.normalize_link`). Anything not starting `http://`/`https://`, or containing whitespace, is "not set".
-- `blocks._log_link()` reads `config.PURCHASING_LOG_URL` at call time, never at import.
-- When not set, no block anywhere in the App Home view has a `url` key — Slack rejects the whole `views.publish` on a malformed button URL, which would blank App Home for everyone.
-- The two strings `Open Purchasing Log` and `The Purchasing Log link isn't set up yet. Ask an admin.` exist once each, as `blocks._LOG_LINK_LABEL` / `blocks._LOG_LINK_NOT_SET`.
-- The click listener only `ack()`s. Slack sends `block_actions` even for a link button and shows an error triangle if it is not acknowledged.
-- `PURCHASING_LOG_URL` is not added to `config.STORAGE_SETTINGS`, the startup path check or the startup alert.
-- The health screen never shows the URL, and `build_health_blocks` uses `h.get("log_link_set")` so hand-built health dicts still render.
+- The lock is held by the operating system (`msvcrt.locking` on Windows, `fcntl.flock` elsewhere). No process id is written or read and the lock file is never deleted — a crash or power cut must never leave a stale lock.
+- `src/single_instance.py` imports only the standard library: it is tested against a real second process.
+- The lock is claimed in `main()` after the startup banner and before everything else — the purchasing-channel check, the write queue, the heartbeat, the nudge timer, the startup alert, the Socket Mode connection. A refused copy starts none of them.
+- Every start waits up to `config.INSTANCE_LOCK_WAIT_SECONDS` (15). No "started by restart" flag. Without the wait, `@Purchasing restart` takes the bot down.
+- The refusal text is exactly `🛑 A second Purchasing bot tried to start on <host> and stopped — one is already running.`, posted with `slack_io.alert_admins`, then `sys.exit(1)`.
+- The lock tests use a real child process and the real `single_instance.acquire` in both processes.
+- The scheduled task is renamed `Purchasing-Bot`; the old name never appears under `docs/` (`tests/test_59_readme_and_docs.py`).
 
 ### Deliberately not in this set
 
-- The Log link on thread cards, buyer DMs, the DM card, nudges or the email draft.
-- A link to a request's own row; reading the workbook to show its contents.
-- Setting the link from Slack; storing it anywhere but `.env`.
-- Rewording the rest of App Home, help or `docs/SETUP.md`. Editing `docs/adr/` or `CONTEXT.md`.
+- A second copy on another computer (practice, not code — see **Pluto**).
+- Making `nudge.run_if_due` safe against two copies on its own.
+- Changing `admin.execute_restart` or `ops.handle_update`.
+- Host, process or start time on the health screen. Running the bot as a Windows service.
+
+---
+
+## App Home and help link the Purchasing Log — 146–148 still open
+
+- Spec: `.scratch/log-link/spec.md`. Binding: ADR 0021, ADR 0009, ADR 0010 decision 5, ADR 0001. Glossary: **Log link**.
+- 145 is done. **146 and 147 are unblocked** and can run in parallel. 148 is ready-for-developer (deploy, set `PURCHASING_LOG_URL` on the server).
+- 147 and 152 both edit `docs/SETUP.md` in different sections; whichever lands second rebases.
+
+    145 (done) ──► 146 ──┐
+               └─► 147 ──┴─► 148 (ready-for-developer)
+
+Requirements that are not preferences: `text_rules.log_link_url` is pure (no logging, no `config` read); no `https://` is prepended; `blocks._log_link()` reads `config.PURCHASING_LOG_URL` at call time; the strings live once each as `blocks._LOG_LINK_LABEL` / `blocks._LOG_LINK_NOT_SET`; `PURCHASING_LOG_URL` is not a storage setting; the health screen never shows the URL and uses `h.get("log_link_set")`.
+
+---
+
+## Tests-first gate fix — 149
+
+- Spec: `.scratch/tests-first-gate-holes/spec.md` in `ilegault/ticket-engine`. Binding: ADR 0001.
+- 149 is `blocked` on `test_docs_adr_is_unmodified` (see its `## Comments`). Held, a leaf; touches no application code. Its follow-up is being planned separately.
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol

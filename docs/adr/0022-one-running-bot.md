@@ -29,7 +29,8 @@ exists to guarantee.
    new copy a moment before the old one exits; the wait lets the handover succeed. A real
    second launcher arrives minutes later and is still refused. There is no "started by
    restart" flag.
-4. **One launcher.** The server starts the bot from the Task Scheduler task `P-Bot` only.
+4. **One launcher.** The server starts the bot from one Task Scheduler task,
+   `Purchasing-Bot`, only.
    No Startup-folder shortcut, no "backup" launcher: the lock would refuse it on every
    reboot, and an alert that fires on every reboot teaches the admin to ignore it.
 5. **The lock is per machine.** A copy on another machine with the same tokens is not

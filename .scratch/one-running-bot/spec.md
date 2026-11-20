@@ -52,10 +52,11 @@ The brief wait is what keeps `@Purchasing restart` and `@Purchasing update` work
 both start the new copy a moment before the old one exits, so the new copy waits for the
 old one's lock instead of being refused.
 
-`setup_autostart.py` installs exactly one launcher, the Task Scheduler task `P-Bot`. It
-no longer creates the Startup-folder shortcut, and it removes one it finds, along with
-any Task Scheduler task left over under the old name `Purchasing-Bot`. `docs/SETUP.md`
-names the task correctly and explains the refusal alert.
+`setup_autostart.py` installs exactly one launcher, a Task Scheduler task named
+`Purchasing-Bot` — the name `docs/SETUP.md` already uses, and the bot's current name
+(ADR 0009 keeps "P-Bot" out of `docs/`). It no longer creates the Startup-folder shortcut,
+and it removes one it finds, along with the task it used to register under the old name
+`P-Bot`. `docs/SETUP.md` explains the one launcher and the refusal alert.
 
 ## User Stories
 
@@ -76,8 +77,8 @@ names the task correctly and explains the refusal alert.
 15. As an admin, I want a genuinely second launcher — one that starts minutes later — still refused, so that the wait does not reopen the hole.
 16. As an admin, I want `setup_autostart.py` to install exactly one launcher, so that a reboot starts exactly one bot.
 17. As an admin, I want `setup_autostart.py` to remove the Startup-folder shortcut a previous run created, so that rerunning it repairs the server instead of leaving the old launcher behind.
-18. As an admin, I want `setup_autostart.py` to remove any old `Purchasing-Bot` task, so that a launcher from an older setup cannot add a third copy.
-19. As an admin, I want `docs/SETUP.md` to name the task `P-Bot`, so that the commands it gives me find the task that exists.
+18. As an admin, I want `setup_autostart.py` to replace the old `P-Bot` task with one named `Purchasing-Bot`, so that a launcher from an older setup cannot add a second copy and the task carries the bot's current name.
+19. As an admin, I want the task name in `docs/SETUP.md` and the task the script registers to be the same, so that the commands `SETUP.md` gives me find the task that exists.
 20. As an admin, I want `docs/SETUP.md` to explain the refusal alert, so that I know what it means and what to do when I see it.
 21. As the developer, I want the lock file to live next to the roster, the request log and the log file, so that it is always on the server's disk and never synced anywhere.
 22. As the developer, I want the lock file ignored by git, so that it never shows up as a change or gets pulled onto another machine.
@@ -124,14 +125,17 @@ names the task correctly and explains the refusal alert.
 - **The autostart script.** `scripts/setup_autostart.py` stops creating the Startup-folder
   shortcut: the function that creates it is removed, and so is the "Bot will also start via
   Startup folder" output. A new step removes `P-Bot.lnk` and the legacy `EPIF-Bot.lnk` from
-  the Startup folder if present, reporting each removal. The PowerShell that registers the
-  task also unregisters a task named `Purchasing-Bot`, alongside the `P-Bot` and `EPIF-Bot`
-  names it already unregisters. The Startup-folder path is resolved from `%APPDATA%` as
-  today, and the removal step takes the folder as an argument so it can be tested against
-  a temporary folder.
+  the Startup folder if present, reporting each removal. The task is registered as
+  `Purchasing-Bot` (the script's task-name constant changes from `P-Bot`), and the
+  PowerShell that registers it first unregisters `Purchasing-Bot`, `P-Bot` and
+  `EPIF-Bot`, so rerunning the script on the server replaces the old `P-Bot` task.
+  `scripts/` is not under `docs/`, so the old name may appear there as a string. The Startup-folder path is resolved from `%APPDATA%` as
+  today, by one small function, and the removal step takes the folder as an argument so it
+  can be tested against a temporary folder.
 - **Docs.** `docs/SETUP.md`'s auto-start section says the script installs one Task
-  Scheduler task named `P-Bot` (every `Purchasing-Bot` in its commands becomes `P-Bot`),
-  drops the "backup startup folder shortcut" lines, and gains a troubleshooting entry for
+  Scheduler task named `Purchasing-Bot` (the name its commands already use) and nothing
+  else, drops the "backup startup folder shortcut" and "Startup Shortcut" lines, never
+  writes the old name (`tests/test_59_readme_and_docs.py` forbids it under `docs/`), and gains a troubleshooting entry for
   the refusal alert: it means a second copy tried to start on that computer; check for a
   second launcher (`Get-ScheduledTask`, the Startup folder) and rerun the script.
 - **Rollout is two developer tickets.** One can be done today, before any code lands:
@@ -168,12 +172,13 @@ names the task correctly and explains the refusal alert.
   happy path is unchanged. Prior art for config monkeypatching and the startup alert:
   `tests/test_24_startup_storage_check.py`.
 - **The autostart script** is tested with `subprocess.run` replaced by a recorder (no
-  PowerShell on CI) and the Startup folder pointed at `tmp_path` through `APPDATA`:
+  PowerShell on CI) and the Startup folder pointed at `tmp_path` (the function that
+  resolves it from `%APPDATA%` is monkeypatched; `%VAR%` does not expand on Linux):
   running `main()` leaves no `P-Bot.lnk` in it, removes a `P-Bot.lnk` and an `EPIF-Bot.lnk`
-  placed there beforehand, and the recorded PowerShell that registers the task unregisters
-  `Purchasing-Bot`. No recorded PowerShell creates a shortcut.
-- **Docs** are checked by text: `docs/SETUP.md` contains no `Purchasing-Bot` and mentions
-  the refusal alert. Prior art: `tests/test_59_readme_and_docs.py`.
+  placed there beforehand, and the recorded PowerShell registers `Purchasing-Bot` and
+  unregisters `P-Bot`. No recorded PowerShell creates a shortcut.
+- **Docs** are checked by text: `docs/SETUP.md` no longer describes a Startup-folder
+  shortcut and mentions the refusal alert. Prior art: `tests/test_59_readme_and_docs.py`.
 
 ## Out of Scope
 
