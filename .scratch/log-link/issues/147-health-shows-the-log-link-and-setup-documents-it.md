@@ -1,6 +1,6 @@
 # 147: The health screen shows whether the Log link is set, and SETUP.md documents it
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -52,11 +52,11 @@ does; set the link only with `monkeypatch.setattr(config, "PURCHASING_LOG_URL", 
 `admin.get_system_health`, `admin.build_health_blocks` and `text_rules.log_link_url` must
 be the real ones; read the real `docs/SETUP.md` from the repo.
 
-- [ ] `test_health_says_log_link_set` — with `https://example.org/log?e=1`, the text of the blocks from `admin.build_health_blocks(admin.get_system_health())` contains `"Log link: set"`, does not contain `"Log link: not set"`, and does not contain `example.org` anywhere.
-- [ ] `test_health_says_log_link_not_set` — parametrized over `""`, `"www.example.com/log"`, `"https://exa mple.com"`: the block text contains `"Log link: not set"`.
-- [ ] `test_log_link_line_sits_outside_storage` — with a good URL, the block whose text is `"Log link: set"` is not one of the blocks containing `"Storage & OneDrive Directory Health"` or any storage setting name, and the storage text still names every setting in `config.STORAGE_SETTINGS` and not `PURCHASING_LOG_URL`.
-- [ ] `test_hand_built_health_dict_still_renders` — `admin.build_health_blocks(h)` for a dict with the keys `host, os, uptime, disk, memory, bot_version`, `storage=[]`, `queue={"pending_count": 0}` and no `log_link_set` returns blocks containing `"Log link: not set"` and raises nothing.
-- [ ] `test_setup_documents_purchasing_log_url` — `docs/SETUP.md` contains `PURCHASING_LOG_URL=https://`, contains `### Purchasing Log link (optional)`, contains a table row starting `| **PURCHASING_LOG_URL** |` that includes `Not a storage path`, and the five original storage rows (`PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR`, `QUOTES_DIR`, `BOMS_DIR`) are still present.
+- [x] `test_health_says_log_link_set` — with `https://example.org/log?e=1`, the text of the blocks from `admin.build_health_blocks(admin.get_system_health())` contains `"Log link: set"`, does not contain `"Log link: not set"`, and does not contain `example.org` anywhere.
+- [x] `test_health_says_log_link_not_set` — parametrized over `""`, `"www.example.com/log"`, `"https://exa mple.com"`: the block text contains `"Log link: not set"`.
+- [x] `test_log_link_line_sits_outside_storage` — with a good URL, the block whose text is `"Log link: set"` is not one of the blocks containing `"Storage & OneDrive Directory Health"` or any storage setting name, and the storage text still names every setting in `config.STORAGE_SETTINGS` and not `PURCHASING_LOG_URL`.
+- [x] `test_hand_built_health_dict_still_renders` — `admin.build_health_blocks(h)` for a dict with the keys `host, os, uptime, disk, memory, bot_version`, `storage=[]`, `queue={"pending_count": 0}` and no `log_link_set` returns blocks containing `"Log link: not set"` and raises nothing.
+- [x] `test_setup_documents_purchasing_log_url` — `docs/SETUP.md` contains `PURCHASING_LOG_URL=https://`, contains `### Purchasing Log link (optional)`, contains a table row starting `| **PURCHASING_LOG_URL** |` that includes `Not a storage path`, and the five original storage rows (`PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR`, `QUOTES_DIR`, `BOMS_DIR`) are still present.
 
 No existing test is deleted, skipped or marked xfail. If an existing health test breaks,
 fix the code, not the test.
@@ -76,4 +76,6 @@ screen. Rewording other parts of `docs/SETUP.md`. Editing `docs/adr/`, `CONTEXT.
 `AGENTS.md`.
 
 ## Comments
+
+2026-11-20: Added `text_rules` import, `log_link_set` in `admin.get_system_health()` (via `text_rules.log_link_url`), and the `Log link: set` / `Log link: not set` section block in `admin.build_health_blocks()` outside the storage section; documented `PURCHASING_LOG_URL` in `docs/SETUP.md`. All five criteria are covered by the same-named tests in `tests/test_147_log_link_health_and_setup.py`. No bench/deploy step; ticket 148 owns setting `PURCHASING_LOG_URL` on the server.
 
