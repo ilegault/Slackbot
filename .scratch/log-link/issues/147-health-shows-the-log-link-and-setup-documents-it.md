@@ -1,6 +1,6 @@
 # 147: The health screen shows whether the Log link is set, and SETUP.md documents it
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
