@@ -1,6 +1,6 @@
 # 152: The autostart script installs one launcher and removes the old ones
 
-**Status:** done
+**Status:** blocked
 
 **Runner:** any
 
@@ -91,4 +91,11 @@ Summary (2026-11-20):
 - Updated `scripts/setup_autostart.py`: set `TASK_NAME = "Purchasing-Bot"`, updated `create_scheduled_task` to unregister `$taskName`, `"P-Bot"`, and `"EPIF-Bot"`, removed `create_startup_shortcut`, added `startup_dir()` and `remove_startup_shortcuts()`, and updated `main()` to remove legacy shortcuts and report only Task Scheduler setup.
 - Updated `docs/SETUP.md`: removed references to the backup startup folder shortcut and added troubleshooting guidance for `"A second Purchasing bot tried to start … and stopped"`.
 - Added `tests/test_152_one_launcher.py` covering all 4 named test criteria (seen failing before implementation; 10 passed across `tests/test_152_one_launcher.py` and `tests/test_59_readme_and_docs.py` after).
+
+Escalation (2026-11-20):
+- Implementation and local gate (`ruff check .`, `check_tests_first.py`, `type_gate.py`, and `pytest` on `tests/test_152_one_launcher.py` + `tests/test_59_readme_and_docs.py` — 10 passed) are complete and green, and all 4 tests in `tests/test_152_one_launcher.py` failed on the base code before implementation.
+- However, `ticket_engine.integrity_runner --local --repo-path . --base-ref origin/master` failed with:
+  `Check 7 hold: New test(s) passed on base code: tests/test_152_one_launcher.py::test_autostart_installs_no_startup_shortcut, ...` and `Check 9 fail: ... did not fail on the base code, so it does not prove the criterion`.
+- Root cause: `integrity_runner.temporary_base_source` defaults to `source_paths=("src",)`, and `.ticket-engine.toml` does not override `source_paths` to include `scripts` or `docs`. Because ticket 152 only modifies `scripts/setup_autostart.py` and `docs/SETUP.md` (not `src/`), Check 7 leaves the PR's `scripts/` and `docs/` in place when testing against `origin/master`.
+- Human decision needed: either add `source_paths = ["src", "scripts", "docs"]` (or equivalent) to `.ticket-engine.toml` / `ticket-engine`, or merge/override the integrity check for this non-`src/` ticket.
 
