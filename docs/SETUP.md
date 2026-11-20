@@ -25,6 +25,11 @@ BOMS_DIR=C:\Users\<your-windows-account>\OneDrive\Purchasing\BOMs
 
 *Replace `<your-windows-account>` with the Windows account OneDrive is signed in under on this machine. The bot does not fill it in, and the startup alert will flag it if you forget.*
 
+Optionally, give the browser link to the Purchasing Log so App Home and /purchasing-help can show it:
+```
+PURCHASING_LOG_URL=https://<the workbook's sharing link>
+```
+
 ### 3. First Run - Path Validation
 When you run the bot for the first time (or deploy to a new machine), it will validate storage paths:
 
@@ -136,6 +141,12 @@ The bot needs access to five OneDrive-synced locations:
 | **CONFIRMATIONS_DIR** | Where bot saves confirmation files | `C:\...\OneDrive\Purchasing\Order-Confirmations` |
 | **QUOTES_DIR** | Where bot saves vendor quote files | `C:\...\OneDrive\Purchasing\Quotes` |
 | **BOMS_DIR** | Where bot saves itemised BOM spreadsheets | `C:\...\OneDrive\Purchasing\BOMs` |
+
+### Purchasing Log link (optional)
+
+| Setting | Purpose | Example |
+|---------|---------|---------|
+| **PURCHASING_LOG_URL** | Browser link that opens the Purchasing Log from App Home and /purchasing-help. Not a storage path: the bot never reads or writes through it. Missing or not a web address shows "isn't set up yet" and `@Purchasing health` says `Log link: not set`. | `https://<the workbook's sharing link>` |
 
 ### How to Find Your Paths
 
