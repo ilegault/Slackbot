@@ -90,6 +90,9 @@ PURCHASING_CHANNEL = os.environ.get("PURCHASING_CHANNEL", "").strip()
 
 # --- External Heartbeat (Dead-Man's Switch) -----------------------------------
 HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "").strip()
+# Single-instance OS lock (ADR 0022): one running Purchasing bot per computer.
+INSTANCE_LOCK_PATH = os.path.join(BASE_DIR, "purchasing_bot.lock")
+INSTANCE_LOCK_WAIT_SECONDS = 15.0
 # The Log link (ADR 0021): where App Home and help send people to open Purchasing-Log.xlsx. Not a storage setting.
 PURCHASING_LOG_URL = os.environ.get("PURCHASING_LOG_URL", "").strip()
 try:
