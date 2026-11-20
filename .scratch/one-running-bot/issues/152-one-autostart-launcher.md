@@ -1,6 +1,6 @@
 # 152: The autostart script installs one launcher and removes the old ones
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
