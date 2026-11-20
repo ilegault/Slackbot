@@ -1,6 +1,6 @@
 # 146: /purchasing-help carries the Log link
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
