@@ -45,6 +45,7 @@ Flow of operations:
 import json
 import logging
 import os
+import platform
 import sys
 import threading
 import time
@@ -71,6 +72,7 @@ try:
         path_validator,
         queue_worker,
         roster,
+        single_instance,
         slack_io,
         store,
         text_rules,
@@ -91,6 +93,7 @@ except ImportError:
     import path_validator
     import queue_worker
     import roster
+    import single_instance  # type: ignore[no-redef]
     import slack_io
     import store  # type: ignore[no-redef]
     import text_rules
@@ -2735,6 +2738,16 @@ def main():
     log.info("Purchasing Channel: %s", config.PURCHASING_CHANNEL or "Not configured")
     log.info("Heartbeat URL: %s", config.HEALTHCHECK_URL or "Not configured")
     log.info("=" * 70)
+
+    # Claim the single-instance OS lock before starting any service or Slack connection (ADR 0022).
+    if single_instance.acquire(config.INSTANCE_LOCK_PATH, config.INSTANCE_LOCK_WAIT_SECONDS) is None:
+        host = platform.node() or "Unknown Host"
+        refusal_text = (
+            f"🛑 A second Purchasing bot tried to start on {host} and stopped — one is already running."
+        )
+        log.error("%s", refusal_text)
+        slack_io.alert_admins(app.client, refusal_text)
+        sys.exit(1)
 
     # Validate channel configuration (Ticket 15: loud startup check)
     path_validator.check_purchasing_channel()

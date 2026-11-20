@@ -1,6 +1,6 @@
 # 151: A second bot on the same computer refuses to start and says so
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -68,13 +68,13 @@ on, and kills the child in a `finally`. `single_instance.acquire` must be the re
 both processes — never faked. In the `main()` tests only the Slack call and the start
 functions are faked.
 
-- [ ] Test `test_second_start_waits_then_is_refused`: while the child holds the lock, `single_instance.acquire(path, 1.0)` returns `None` and takes at least 0.9 s (`time.monotonic()`).
-- [ ] Test `test_killed_holder_releases_the_lock`: the child holds the lock; `child.kill()` then `child.wait()` (the power-cut case, not a clean exit); `single_instance.acquire(path, 0)` then returns a `HeldLock` in under 1 s.
-- [ ] Test `test_holder_exiting_during_the_wait_hands_over`: the child holds the lock and exits on its own after about 1 s; `single_instance.acquire(path, 10.0)` started while it still holds returns a `HeldLock` and takes under 10 s (the `restart` case).
-- [ ] Test `test_refused_start_alerts_and_starts_nothing`: with the child holding the lock at `tmp_path/"purchasing_bot.lock"`, `monkeypatch` `config.INSTANCE_LOCK_PATH` to that path, `config.INSTANCE_LOCK_WAIT_SECONDS` to `1.0`, `app.setup_logging` to a no-op, and replace `queue_worker.start_queue_worker`, `heartbeat.start_heartbeat`, `nudge.start_nudge_scheduler`, `heartbeat.send_startup_alert`, `path_validator.check_purchasing_channel`, `app.SocketModeHandler` and `slack_io.alert_admins` with recorders. Calling `app.main()` raises `SystemExit` with code 1; `slack_io.alert_admins` was called exactly once and its text contains `A second Purchasing bot tried to start on`, `platform.node()`, and `one is already running`; `caplog` has an `ERROR` record containing `A second Purchasing bot tried to start`; and none of the other six recorders was called.
-- [ ] Test `test_free_lock_starts_everything_once`: same fakes, lock path a fresh file under `tmp_path`, no child. `app.main()` returns normally; each of the six start recorders was called exactly once (the `SocketModeHandler` recorder's instance had `start()` called once); `slack_io.alert_admins` was never called with text containing `A second Purchasing bot`. Release the lock in teardown via the `HeldLock` the module holds, or leave it — the file is the test's own.
-- [ ] Test `test_lock_file_is_ignored_by_git`: `subprocess.run(["git", "check-ignore", "-q", "purchasing_bot.lock"], cwd=<repo root>)` exits 0.
-- [ ] Existing tests still pass, including `restart` and `update` behaviour. (no test: CI's full suite)
+- [x] Test `test_second_start_waits_then_is_refused`: while the child holds the lock, `single_instance.acquire(path, 1.0)` returns `None` and takes at least 0.9 s (`time.monotonic()`).
+- [x] Test `test_killed_holder_releases_the_lock`: the child holds the lock; `child.kill()` then `child.wait()` (the power-cut case, not a clean exit); `single_instance.acquire(path, 0)` then returns a `HeldLock` in under 1 s.
+- [x] Test `test_holder_exiting_during_the_wait_hands_over`: the child holds the lock and exits on its own after about 1 s; `single_instance.acquire(path, 10.0)` started while it still holds returns a `HeldLock` and takes under 10 s (the `restart` case).
+- [x] Test `test_refused_start_alerts_and_starts_nothing`: with the child holding the lock at `tmp_path/"purchasing_bot.lock"`, `monkeypatch` `config.INSTANCE_LOCK_PATH` to that path, `config.INSTANCE_LOCK_WAIT_SECONDS` to `1.0`, `app.setup_logging` to a no-op, and replace `queue_worker.start_queue_worker`, `heartbeat.start_heartbeat`, `nudge.start_nudge_scheduler`, `heartbeat.send_startup_alert`, `path_validator.check_purchasing_channel`, `app.SocketModeHandler` and `slack_io.alert_admins` with recorders. Calling `app.main()` raises `SystemExit` with code 1; `slack_io.alert_admins` was called exactly once and its text contains `A second Purchasing bot tried to start on`, `platform.node()`, and `one is already running`; `caplog` has an `ERROR` record containing `A second Purchasing bot tried to start`; and none of the other six recorders was called.
+- [x] Test `test_free_lock_starts_everything_once`: same fakes, lock path a fresh file under `tmp_path`, no child. `app.main()` returns normally; each of the six start recorders was called exactly once (the `SocketModeHandler` recorder's instance had `start()` called once); `slack_io.alert_admins` was never called with text containing `A second Purchasing bot`. Release the lock in teardown via the `HeldLock` the module holds, or leave it — the file is the test's own.
+- [x] Test `test_lock_file_is_ignored_by_git`: `subprocess.run(["git", "check-ignore", "-q", "purchasing_bot.lock"], cwd=<repo root>)` exits 0.
+- [x] Existing tests still pass, including `restart` and `update` behaviour. (no test: CI's full suite)
 
 No existing test is deleted, skipped or marked xfail. `tools/mypy_ratchet.txt` may not go up.
 
@@ -95,4 +95,11 @@ computer. Showing host, process or start time on the health screen. Editing `doc
 `CONTEXT.md` or `AGENTS.md`.
 
 ## Comments
+
+Implemented (2026-11-20):
+- Added `src/single_instance.py` (stdlib-only OS lock via `msvcrt.locking` on Windows and `fcntl.flock` elsewhere, `HeldLock`, `acquire` with polling wait and module-level `_HELD_LOCKS`).
+- Added `INSTANCE_LOCK_PATH` and `INSTANCE_LOCK_WAIT_SECONDS = 15.0` to `src/config.py`.
+- Updated `src/app.py` (`main()`) to claim the lock after the startup banner and before `check_purchasing_channel()`; on refusal, logs `ERROR`, alerts admins via `slack_io.alert_admins`, and calls `sys.exit(1)`.
+- Added `purchasing_bot.lock` to `.gitignore`.
+- Added `tests/test_151_one_running_bot.py` covering all 6 criteria (`10 passed` with `tests/test_layering_and_isolation.py`, `ruff check .` clean).
 

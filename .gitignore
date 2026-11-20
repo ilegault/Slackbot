@@ -24,6 +24,7 @@ roster.json
 requests.json
 nudge_run.json
 nudge_settings.json
+purchasing_bot.lock
 *.bad
 
 # OS
