@@ -25,6 +25,7 @@ Ticket 81: Adds quotes_input helper for optional PDF quotes on Screen 2 (omitted
 Ticket 86: keep_quotes_input lists a card's current quotes as pre-ticked checkboxes on both edit forms (Edit, Edit items); Edit also gains the BOM and quotes fields (ADR 0012 Decision 6). Current quotes never ride in private_metadata.
 Ticket 120: Screen 2's Purpose asks only why (the link has its own field and is added to the EPIF), and request_summary_lines drops the Link line when the URL is already in Purpose (text_rules.link_in_purpose), so both cards show a link once.
 Ticket 142 / ADR 0020: Screen 2 link field is labelled 'Link to the item\'s web page' with required hint; block_no_link checkbox added; request_summary_lines shows No web page when link is empty and no_link_reason is set.
+Ticket 146 / ADR 0021: get_help_message() carries the Log link (or _LOG_LINK_NOT_SET) via _log_link() right after the title, sharing the constants with App Home.
 
 Imports:
     - bom, config, interview, nudge_settings, roster, text_rules
@@ -433,8 +434,15 @@ def get_help_message() -> str:
     surfaces cannot drift.  Edit the constants above; never add a second copy
     of a sentence here.
     """
+    log_url = _log_link()
+    log_line = (
+        f"*Purchasing Log:* <{log_url}|{_LOG_LINK_LABEL}>\n\n"
+        if log_url
+        else "*Purchasing Log:* " + _LOG_LINK_NOT_SET + "\n\n"
+    )
     return (
         "🤖 *Hirst Lab Purchasing Bot*\n\n"
+        + log_line
         + _INTERFACE_RULE + "\n\n"
         "*🛒 Start something (Slash Commands):*\n"
         + _SLASH_COMMANDS + "\n\n"
