@@ -1,6 +1,6 @@
 # 152: The autostart script installs one launcher and removes the old ones
 
-**Status:** blocked
+**Status:** done
 
 **Runner:** any
 
@@ -99,3 +99,7 @@ Escalation (2026-11-20):
 - Root cause: `integrity_runner.temporary_base_source` defaults to `source_paths=("src",)`, and `.ticket-engine.toml` does not override `source_paths` to include `scripts` or `docs`. Because ticket 152 only modifies `scripts/setup_autostart.py` and `docs/SETUP.md` (not `src/`), Check 7 leaves the PR's `scripts/` and `docs/` in place when testing against `origin/master`.
 - Human decision needed: either add `source_paths = ["src", "scripts", "docs"]` (or equivalent) to `.ticket-engine.toml` / `ticket-engine`, or merge/override the integrity check for this non-`src/` ticket.
 
+2026-11-20: Escalation answered by the developer. Check 7 only swapped `src/` back to
+master, so tests of `scripts/` and `docs/` looked like they passed on master. Fixed in
+#189 (`source_paths = ["src", "scripts", "docs"]`). Re-run locally: Check 7 passes, all
+4 new tests fail on master. Ticket closed.
