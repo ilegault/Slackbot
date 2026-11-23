@@ -59,8 +59,9 @@ still fails if someone runs a docs-wide rename over `docs/adr/`.
    `scripts/check_tests_first.py` is the canonical copy and is never edited.
 ## Acceptance criteria
 
-- [ ] `test_docs_adr_is_unmodified` no longer exists; `test_historical_adrs_keep_the_old_bot_name`
-  passes on master and on this branch. (test: the new test itself)
+- [ ] test_docs_adr_is_unmodified no longer exists, and test_historical_adrs_keep_the_old_bot_name
+  passes on master and on this branch. (no test: guard test, passes on base; integrity check 7
+  holds the PR and the developer merges it)
 - [ ] The new test fails when the old name is removed. Prove it by hand, not with a committed
   test: temporarily replace `P-Bot` with `Purchasing` in ADR 0009, run the test, confirm it fails
   and names `0009-…`, then `git checkout -- docs/adr`. Paste the failing output under
