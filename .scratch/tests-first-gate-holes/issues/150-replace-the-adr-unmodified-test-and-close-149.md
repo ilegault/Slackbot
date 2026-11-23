@@ -6,6 +6,8 @@
 
 **Auto-merge:** no
 
+**Deletes tests:** tests/test_59_readme_and_docs.py::test_docs_adr_is_unmodified
+
 **Blocked by:** None (can start immediately)
 
 **Binding:** `docs/adr/0001-tests-first-and-no-muted-failures.md`. The developer made the
@@ -55,11 +57,6 @@ still fails if someone runs a docs-wide rename over `docs/adr/`.
    which blocked every legitimate ADR change locally and could not run in CI's shallow checkout.
 4. Do **not** change any other test, any file under `src/`, `docs/adr/`, or `scripts/`.
    `scripts/check_tests_first.py` is the canonical copy and is never edited.
-5. Close ticket 149: in
-   `.scratch/tests-first-gate-holes/issues/149-take-the-fixed-tests-first-check-and-rerun-on-pr-edits.md`,
-   tick its last acceptance criterion, set its `Status:` to `done`, and append a dated line
-   under its `## Comments` naming this ticket's PR.
-
 ## Acceptance criteria
 
 - [ ] `test_docs_adr_is_unmodified` no longer exists; `test_historical_adrs_keep_the_old_bot_name`
@@ -74,7 +71,6 @@ still fails if someone runs a docs-wide rename over `docs/adr/`.
 - [ ] `tests/test_59_readme_and_docs.py` has no `subprocess` import left unless still used,
   and its module docstring carries the reworded bullet and the *why* from step 3.
   (no test: ruff plus reading the docstring)
-- [ ] Ticket 149 is `done` with its last criterion ticked. (no test: ticket file)
 
 ## Gate
 

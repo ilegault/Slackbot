@@ -1,6 +1,6 @@
 # 149: Take ticket-engine's fixed tests-first check, and re-run CI on PR edits and labels
 
-**Status:** blocked
+**Status:** done
 
 **Runner:** any
 
@@ -60,7 +60,7 @@ wiring with the commands below on the PR branch; paste their output under
   and its `branches:` line is unchanged. (no test: workflow file)
 - [x] ADR 0001 and `AGENTS.md` carry the step-3 text in place of the passages named in
   steps 3 and 4. (no test: documentation)
-- [ ] The gate below passes on the PR branch (this PR changes `scripts/`, `.github/`,
+- [x] The gate below passes on the PR branch (this PR changes `scripts/`, `.github/`,
   `docs/` and `AGENTS.md` only, so the tests-first check passes with no tag). (no test: the gate itself)
 
 ## Gate
@@ -136,3 +136,5 @@ a permanent ban on ADR changes. It also cannot fail in CI: the `test` job's dept
 has no `master`, `origin/master` or `HEAD^1`, so the diff half is skipped, which is why PR 182
 went green. 149's own changes are correct and are on master. The decided fix is ticket 150:
 replace the test with one that the historical ADRs still name P-Bot, then mark this ticket `done`.
+
+- 2026-11-23: Closed by ticket 150 (PR #191).
