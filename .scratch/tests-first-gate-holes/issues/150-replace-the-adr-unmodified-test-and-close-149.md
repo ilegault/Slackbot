@@ -1,6 +1,6 @@
 # 150: Replace `test_docs_adr_is_unmodified` with a test that holds everywhere, and close 149
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -62,19 +62,19 @@ still fails if someone runs a docs-wide rename over `docs/adr/`.
 
 ## Acceptance criteria
 
-- [ ] `test_docs_adr_is_unmodified` no longer exists; `test_historical_adrs_keep_the_old_bot_name`
+- [x] `test_docs_adr_is_unmodified` no longer exists; `test_historical_adrs_keep_the_old_bot_name`
   passes on master and on this branch. (test: the new test itself)
-- [ ] The new test fails when the old name is removed. Prove it by hand, not with a committed
+- [x] The new test fails when the old name is removed. Prove it by hand, not with a committed
   test: temporarily replace `P-Bot` with `Purchasing` in ADR 0009, run the test, confirm it fails
   and names `0009-…`, then `git checkout -- docs/adr`. Paste the failing output under
   `## Comments`. (no test: the pasted output)
-- [ ] The new test still passes on a branch that edits an ADR without touching the old name.
+- [x] The new test still passes on a branch that edits an ADR without touching the old name.
   Prove it by hand: append a blank line to ADR 0021, run the test, confirm it passes, then
   `git checkout -- docs/adr`. Paste the output under `## Comments`. (no test: the pasted output)
-- [ ] `tests/test_59_readme_and_docs.py` has no `subprocess` import left unless still used,
+- [x] `tests/test_59_readme_and_docs.py` has no `subprocess` import left unless still used,
   and its module docstring carries the reworded bullet and the *why* from step 3.
   (no test: ruff plus reading the docstring)
-- [ ] Ticket 149 is `done` with its last criterion ticked. (no test: ticket file)
+- [x] Ticket 149 is `done` with its last criterion ticked. (no test: ticket file)
 
 ## Gate
 
@@ -95,3 +95,36 @@ again. It passes in CI, which has no `.env`. Do not fix it on this branch and do
 against this gate; say in the PR body that you saw it. Every other test must pass.
 
 ## Comments
+
+### Summary (2026-11-23)
+
+- Replaced `test_docs_adr_is_unmodified` with `test_historical_adrs_keep_the_old_bot_name` in `tests/test_59_readme_and_docs.py`, checking ADRs 0001, 0002, 0007, and 0009 for `r"\bp-bot\b"` (case-insensitive).
+- Removed unused `import subprocess` and updated the module docstring with the reworded bullet and *why*.
+- Closed ticket 149 (`Status: done`, last criterion ticked).
+
+### Criterion 2 proof (removing `P-Bot` from ADR 0009)
+
+```
+=== PROOF 1: replace P-Bot with Purchasing in ADR 0009 ===
+F                                                                        [100%]
+================================== FAILURES ===================================
+_________________ test_historical_adrs_keep_the_old_bot_name __________________
+tests\test_59_readme_and_docs.py:130: in test_historical_adrs_keep_the_old_bot_name
+    assert not misses, "Historical ADRs must keep the old bot name:\n" + "\n".join(misses)
+E   AssertionError: Historical ADRs must keep the old bot name:
+E     0009-keywords-storage-settings-and-the-bot-name.md: missing P-Bot
+E   assert not ['0009-keywords-storage-settings-and-the-bot-name.md: missing P-Bot']
+=========================== short test summary info ===========================
+FAILED tests/test_59_readme_and_docs.py::test_historical_adrs_keep_the_old_bot_name
+1 failed, 5 deselected in 0.62s
+EXIT_CODE_1=1
+```
+
+### Criterion 3 proof (appending a blank line to ADR 0021)
+
+```
+=== PROOF 2: append blank line to ADR 0021 ===
+.                                                                        [100%]
+1 passed, 5 deselected in 0.41s
+EXIT_CODE_2=0
+```
