@@ -379,6 +379,14 @@ and purchase details.
 is the old name; it survives only in developer-only file names (`p_bot.log`,
 `p_bot.spec`) and in accepted ADRs.
 
+**The server** — the always-on lab computer that runs the Purchasing bot. Exactly one bot
+runs, there, at a time: a second copy refuses to start and says so in the **Alert channel**.
+Started at boot by one launcher, and by `restart` and `update`.
+
+**Pluto** — the developer's machine, where code is written and tested. It never runs the bot
+against the lab's Slack while **the server** does — two running bots each send every nudge
+and each write to the workbook.
+
 **Storage setting** — one of exactly six `.env` settings naming where the bot reads
 or writes a file: `PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR`,
 `QUOTES_DIR`, `BOMS_DIR`, `EPIF_TEMPLATE_PATH`. None has a default. The startup check

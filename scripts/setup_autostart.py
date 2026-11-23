@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Setup auto-start on boot for P-Bot (Purchasing Bot).
+Setup auto-start on boot for the Purchasing Bot.
 
-This script creates a Windows Task Scheduler entry that runs the bot at startup.
+This script creates one Windows Task Scheduler entry (`Purchasing-Bot`) that
+runs the bot at startup, and removes any legacy Startup-folder shortcuts so
+only one copy of the bot is launched on boot (ADR 0022).
 """
 import logging
 import os
@@ -19,7 +21,7 @@ if sys.platform == "win32":
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
-TASK_NAME = "P-Bot"
+TASK_NAME = "Purchasing-Bot"
 # Resolve project root directory
 BOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON_EXE = sys.executable
@@ -81,9 +83,10 @@ $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERNAME" -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
-# Remove existing task if it exists (check both P-Bot and legacy EPIF-Bot)
+# Remove existing task if it exists (check Purchasing-Bot, P-Bot, and legacy EPIF-Bot)
 try {{
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "P-Bot" -Confirm:$false -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName "EPIF-Bot" -Confirm:$false -ErrorAction SilentlyContinue
 }} catch {{
     # Task doesn't exist, that's fine
@@ -126,59 +129,29 @@ Write-Host "✅ Task '$taskName' created successfully!"
         return False
 
 
-def create_startup_shortcut() -> bool:
-    """Create a shortcut in Windows Startup folder (alternative method)."""
-    try:
-        startup_dir = os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup")
-        if not os.path.isdir(startup_dir):
-            log.warning(f"Startup directory not found: {startup_dir}")
-            return False
+def startup_dir() -> str:
+    """Return the Windows Startup folder path for the current user."""
+    return os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup")
 
-        batch_path = os.path.join(BOT_DIR, "run_bot.bat")
-        shortcut_path = os.path.join(startup_dir, "P-Bot.lnk")
 
-        # Clean up old shortcut if present
-        old_shortcut = os.path.join(startup_dir, "EPIF-Bot.lnk")
-        if os.path.exists(old_shortcut):
-            try:
-                os.remove(old_shortcut)
-            except Exception:
-                pass
-
-        # Use PowerShell to create the shortcut
-        ps_script = f"""
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
-$Shortcut.TargetPath = "{batch_path}"
-$Shortcut.WorkingDirectory = "{BOT_DIR}"
-$Shortcut.Description = "P-Bot (Purchasing Bot)"
-$Shortcut.Save()
-Write-Host "Shortcut created: {shortcut_path}"
-"""
-
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        if result.returncode == 0:
-            log.info(f"✅ Created startup shortcut at: {shortcut_path}")
-            return True
-        else:
-            log.warning("⚠️  Could not create startup shortcut")
-            return False
-
-    except Exception as e:
-        log.error(f"❌ Failed to create startup shortcut: {e}")
-        return False
+def remove_startup_shortcuts(folder: str) -> list[str]:
+    """Remove legacy Startup-folder shortcuts so only Task Scheduler launches the bot."""
+    if not os.path.isdir(folder):
+        return []
+    removed: list[str] = []
+    for name in ("P-Bot.lnk", "EPIF-Bot.lnk"):
+        path = os.path.join(folder, name)
+        if os.path.exists(path):
+            os.remove(path)
+            log.info(f"Removed legacy startup shortcut: {path}")
+            removed.append(path)
+    return removed
 
 
 def main():
     """Main setup routine."""
     print("\n" + "="*70)
-    print("🤖 P-Bot - Auto-start Setup")
+    print("🤖 Purchasing Bot - Auto-start Setup")
     print("="*70)
 
     # Check for compiled .exe first
@@ -199,22 +172,18 @@ def main():
             log.error(f"❌ Failed to create batch launcher: {e}")
             sys.exit(1)
 
-    # Try to create scheduled task (preferred method - runs without window)
+    # Try to create scheduled task (the single autostart launcher)
     log.info("\n📋 Attempting to create scheduled task...")
     task_created = create_scheduled_task(launcher_path, is_exe=is_exe)
 
-    # Also create startup shortcut as fallback
-    log.info("\n📁 Creating startup folder shortcut (backup method)...")
-    shortcut_created = create_startup_shortcut()
+    # Remove any legacy Startup-folder shortcuts
+    remove_startup_shortcuts(startup_dir())
 
     print("\n" + "="*70)
-    if task_created or shortcut_created:
+    if task_created:
         print("✅ Auto-start setup complete!")
         launcher_type = "executable" if is_exe else "batch file"
-        if task_created:
-            print(f"   → Bot will start automatically via Task Scheduler ({launcher_type})")
-        if shortcut_created:
-            print("   → Bot will also start via Startup folder")
+        print(f"   → Bot will start automatically via Task Scheduler ({launcher_type})")
     else:
         print("⚠️  Auto-start setup had issues. You may need to run manually.")
         print("   Or manually create a Windows Task Scheduler task:")

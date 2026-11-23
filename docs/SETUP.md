@@ -84,13 +84,14 @@ python setup_autostart.py
 
 This will:
 1. Create a `run_bot.bat` batch file launcher
-2. Create a Windows Task Scheduler entry to run it at startup
-3. Create a backup startup folder shortcut
+2. Create a Windows Task Scheduler entry (`Purchasing-Bot`) to run it at startup
+3. Remove any Startup-folder shortcut an older version left behind
+
+Only one Purchasing bot can run on a computer; a second copy refuses to start.
 
 ### What Gets Created
 - **run_bot.bat** — Batch file that launches the bot
 - **Windows Task Scheduler Task** — "Purchasing-Bot" task runs at system startup
-- **Startup Shortcut** — Fallback launcher in Windows Startup folder
 
 ### Verify Setup
 Check that the task was created:
@@ -185,6 +186,12 @@ The bot needs access to five OneDrive-synced locations:
 3. Right-click → Properties
 4. Verify the "Program/script" path is correct
 5. Check under "History" tab for error logs
+
+### "A second Purchasing bot tried to start … and stopped"
+This alert means a second copy of the bot tried to start on that computer while one was already running.
+1. Check for a second launcher in Task Scheduler (`Get-ScheduledTask | Where-Object TaskName -match 'Bot'`) and in the Windows Startup folder (`shell:startup`).
+2. Rerun `python scripts/setup_autostart.py` so only the `Purchasing-Bot` task remains.
+3. Remember that starting `run_bot.bat` by hand while the bot is already running causes the same alert.
 
 ### Bot runs but doesn't respond to Slack messages
 1. Verify bot is invited to the #hirst-lab channel
