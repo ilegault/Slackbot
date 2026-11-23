@@ -1,6 +1,6 @@
 # 150: Replace `test_docs_adr_is_unmodified` with a test that holds everywhere, and close 149
 
-**Status:** done
+**Status:** blocked
 
 **Runner:** any
 
@@ -128,3 +128,22 @@ EXIT_CODE_1=1
 1 passed, 5 deselected in 0.41s
 EXIT_CODE_2=0
 ```
+
+## Escalation — 2026-11-23
+Repo: Slackbot   Ticket: 150 Replace `test_docs_adr_is_unmodified` with a test that holds everywhere, and close 149   Branch: ticket/tests-first-gate-holes-150-replace-the-adr-unmodified-test-and-close-149
+Goal: Replace `test_docs_adr_is_unmodified` with `test_historical_adrs_keep_the_old_bot_name` in `tests/test_59_readme_and_docs.py` and close ticket 149.
+Attempt 1: Implemented steps 1–5 as specified, verified Criteria 1–5 (including both by-hand proofs), ran the local gate (`ruff`, `check_tests_first`, `type_gate`, `pytest tests/test_59_readme_and_docs.py` — all passed), and ran `ticket_engine.integrity_runner --local --repo-path . --base-ref origin/master` → Integrity Gate returned `fail` on Check 2 because `origin/master`'s copy of ticket 150 does not have a `Deletes tests:` line for `test_docs_adr_is_unmodified`, and because `test_59_readme_and_docs.py` has 20 assertions vs 23 on `origin/master` (1 assertion in the new test vs 4 in the deleted test).
+Failing output (exact, trimmed to the relevant lines):
+```
+## Integrity Gate Verdict: FAIL
+
+**Verdict:** `fail`
+
+### Reasons:
+- Check 2 fail: Deleted test function 'test_docs_adr_is_unmodified' in tests/test_59_readme_and_docs.py
+- Check 2 fail: Test file 'tests/test_59_readme_and_docs.py' has fewer assertions than on base (lost 3 assertion(s): 20 < 23)
+- Check 6 hold: the PR changes 2 ticket files, so it is a planning PR; a human must review and merge it
+- Hold: Ticket has Auto-merge: no set (requires developer approval)
+- Check 7 hold: New test(s) passed on base code: tests/test_59_readme_and_docs.py::test_historical_adrs_keep_the_old_bot_name (runtime: 3.05s)
+```
+Decision needed: Add `Deletes tests: test_docs_adr_is_unmodified` to ticket 150 on `master` (or merge this draft PR manually after reviewing the Check 2 assertion-count difference, since the ticket specifies collecting all misses and asserting once).
