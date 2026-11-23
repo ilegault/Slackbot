@@ -1,6 +1,6 @@
 # 147: The health screen shows whether the Log link is set, and SETUP.md documents it
 
-**Status:** blocked
+**Status:** done
 
 **Runner:** any
 
