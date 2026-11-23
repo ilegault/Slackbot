@@ -28,6 +28,11 @@ admin) behind Fill in details, This needs an EPIF and Switch to EPIF.
 Ticket 66 / ADR 0010 Decision 4:
 Unified stage permission check can_update_request: authorises the assigned buyer,
 any admin, or any approver. An unassigned request returns False.
+
+Ticket 147 / ADR 0021 Decision 4:
+get_system_health and build_health_blocks report whether PURCHASING_LOG_URL is set via
+text_rules.log_link_url ("Log link: set" / "Log link: not set") outside the storage
+section so admins can verify restarts without exposing the URL or adding a 7th storage path.
 """
 import logging
 import os
@@ -42,11 +47,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from . import config, queue_worker, roster
+    from . import config, queue_worker, roster, text_rules
 except ImportError:
     import config
     import queue_worker
     import roster
+    import text_rules  # type: ignore[no-redef]
 
 log = logging.getLogger("p-bot.admin")
 
@@ -273,6 +279,7 @@ def get_system_health() -> Dict[str, Any]:
         "disk": disk_str,
         "memory": mem_str,
         "storage": storage_list,
+        "log_link_set": text_rules.log_link_url(getattr(config, "PURCHASING_LOG_URL", "")) is not None,
         "queue": q_status,
         "bot_version": config.BOT_VERSION,
     }
@@ -368,6 +375,13 @@ def build_health_blocks(health: Optional[Dict[str, Any]] = None) -> List[Dict[st
             "type": "divider",
         },
         *storage_blocks,
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Log link: set" if h.get("log_link_set") else "Log link: not set",
+            },
+        },
         {
             "type": "section",
             "fields": [

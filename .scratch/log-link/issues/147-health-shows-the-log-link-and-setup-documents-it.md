@@ -1,6 +1,6 @@
 # 147: The health screen shows whether the Log link is set, and SETUP.md documents it
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -52,11 +52,11 @@ does; set the link only with `monkeypatch.setattr(config, "PURCHASING_LOG_URL", 
 `admin.get_system_health`, `admin.build_health_blocks` and `text_rules.log_link_url` must
 be the real ones; read the real `docs/SETUP.md` from the repo.
 
-- [ ] `test_health_says_log_link_set` — with `https://example.org/log?e=1`, the text of the blocks from `admin.build_health_blocks(admin.get_system_health())` contains `"Log link: set"`, does not contain `"Log link: not set"`, and does not contain `example.org` anywhere.
-- [ ] `test_health_says_log_link_not_set` — parametrized over `""`, `"www.example.com/log"`, `"https://exa mple.com"`: the block text contains `"Log link: not set"`.
-- [ ] `test_log_link_line_sits_outside_storage` — with a good URL, the block whose text is `"Log link: set"` is not one of the blocks containing `"Storage & OneDrive Directory Health"` or any storage setting name, and the storage text still names every setting in `config.STORAGE_SETTINGS` and not `PURCHASING_LOG_URL`.
-- [ ] `test_hand_built_health_dict_still_renders` — `admin.build_health_blocks(h)` for a dict with the keys `host, os, uptime, disk, memory, bot_version`, `storage=[]`, `queue={"pending_count": 0}` and no `log_link_set` returns blocks containing `"Log link: not set"` and raises nothing.
-- [ ] `test_setup_documents_purchasing_log_url` — `docs/SETUP.md` contains `PURCHASING_LOG_URL=https://`, contains `### Purchasing Log link (optional)`, contains a table row starting `| **PURCHASING_LOG_URL** |` that includes `Not a storage path`, and the five original storage rows (`PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR`, `QUOTES_DIR`, `BOMS_DIR`) are still present.
+- [x] `test_health_says_log_link_set` — with `https://example.org/log?e=1`, the text of the blocks from `admin.build_health_blocks(admin.get_system_health())` contains `"Log link: set"`, does not contain `"Log link: not set"`, and does not contain `example.org` anywhere.
+- [x] `test_health_says_log_link_not_set` — parametrized over `""`, `"www.example.com/log"`, `"https://exa mple.com"`: the block text contains `"Log link: not set"`.
+- [x] `test_log_link_line_sits_outside_storage` — with a good URL, the block whose text is `"Log link: set"` is not one of the blocks containing `"Storage & OneDrive Directory Health"` or any storage setting name, and the storage text still names every setting in `config.STORAGE_SETTINGS` and not `PURCHASING_LOG_URL`.
+- [x] `test_hand_built_health_dict_still_renders` — `admin.build_health_blocks(h)` for a dict with the keys `host, os, uptime, disk, memory, bot_version`, `storage=[]`, `queue={"pending_count": 0}` and no `log_link_set` returns blocks containing `"Log link: not set"` and raises nothing.
+- [x] `test_setup_documents_purchasing_log_url` — `docs/SETUP.md` contains `PURCHASING_LOG_URL=https://`, contains `### Purchasing Log link (optional)`, contains a table row starting `| **PURCHASING_LOG_URL** |` that includes `Not a storage path`, and the five original storage rows (`PURCHASING_LOG_PATH`, `EPIFS_DIR`, `CONFIRMATIONS_DIR`, `QUOTES_DIR`, `BOMS_DIR`) are still present.
 
 No existing test is deleted, skipped or marked xfail. If an existing health test breaks,
 fix the code, not the test.
@@ -76,4 +76,23 @@ screen. Rewording other parts of `docs/SETUP.md`. Editing `docs/adr/`, `CONTEXT.
 `AGENTS.md`.
 
 ## Comments
+
+2026-11-20: Added `text_rules` import, `log_link_set` in `admin.get_system_health()` (via `text_rules.log_link_url`), and the `Log link: set` / `Log link: not set` section block in `admin.build_health_blocks()` outside the storage section; documented `PURCHASING_LOG_URL` in `docs/SETUP.md`. All five criteria are covered by the same-named tests in `tests/test_147_log_link_health_and_setup.py`. No bench/deploy step; ticket 148 owns setting `PURCHASING_LOG_URL` on the server.
+
+## Escalation — 2026-11-20
+Repo: Slackbot   Ticket: 147 The health screen shows whether the Log link is set, and SETUP.md documents it   Branch: ticket/log-link-147-health-shows-the-log-link-and-setup-documents-it
+Goal: Show `Log link: set` / `Log link: not set` on `@Purchasing health` outside the storage section and document `PURCHASING_LOG_URL` in `docs/SETUP.md`.
+Attempt 1: Implemented `src/admin.py` and `docs/SETUP.md` and wrote `tests/test_147_log_link_health_and_setup.py` (all 7 tests failed before implementation and passed after; 151 selected tests, `ruff`, `check_tests_first.py`, and `type_gate.py` all green). Ran `ticket_engine.integrity_runner --local` → failed Check 7 / Check 9 because `test_setup_documents_purchasing_log_url` passed on base `src/`.
+Attempt 2: Switched `test_setup_documents_purchasing_log_url` to read `docs/SETUP.md` via `os.getcwd()` and re-ran `integrity_runner --local` → same Check 7 / Check 9 failure. Inspected `ticket_engine/integrity_runner.py` (`temporary_base_source`): Check 7 swaps only `source_paths` (`("src",)`) to `base_ref` and leaves `docs/` on the PR branch, so a named test asserting on `docs/SETUP.md` always passes against base `src/`.
+Failing output (exact, trimmed to the relevant lines):
+```
+## Integrity Gate Verdict: FAIL
+
+**Verdict:** `fail`
+
+### Reasons:
+- Check 7 hold: New test(s) passed on base code: tests/test_147_log_link_health_and_setup.py::test_setup_documents_purchasing_log_url (runtime: 16.46s)
+- Check 9 fail: `test_setup_documents_purchasing_log_url` (criterion "`test_setup_documents_purchasing_log_url` — `docs/SETUP.md` ") did not fail on the base code, so it does not prove the criterion
+```
+Decision needed: `test_setup_documents_purchasing_log_url` is a named test in ticket 147 that asserts only on `docs/SETUP.md`, which `integrity_runner`'s `temporary_base_source` does not swap to `base_ref`. Should `docs/` be included in `source_paths` for `integrity_runner`, should `test_setup_documents_purchasing_log_url` be tagged `(no test: ...)` in the ticket on `master`, or should this PR be merged manually by the developer?
 
