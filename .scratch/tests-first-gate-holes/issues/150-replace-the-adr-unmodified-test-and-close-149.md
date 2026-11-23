@@ -1,6 +1,6 @@
 # 150: Replace `test_docs_adr_is_unmodified` with a test that holds everywhere, and close 149
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
