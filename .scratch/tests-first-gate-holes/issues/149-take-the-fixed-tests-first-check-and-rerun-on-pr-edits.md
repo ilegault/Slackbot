@@ -127,3 +127,12 @@ FAILED tests/test_59_readme_and_docs.py::test_docs_adr_is_unmodified - Assert...
 1 failed, 929 passed, 31 skipped in 39.94s
 ```
 Decision needed: `test_docs_adr_is_unmodified` in `tests/test_59_readme_and_docs.py` was written for Ticket 59 ("No file under docs/ outside docs/adr/ contains @p-bot or P-Bot; docs/adr/ is untouched") but permanently asserts in git that `docs/adr/` is never modified relative to master. Should `test_docs_adr_is_unmodified` be removed or adapted so ADRs (such as ADR 0001) can be amended as required by Ticket 149?
+
+## Decision — 2026-11-13
+
+The developer reviewed the escalation. `test_docs_adr_is_unmodified` is a broken test, not a
+real failure. It turned ticket 59's one-time "this rename leaves `docs/adr/` alone" check into
+a permanent ban on ADR changes. It also cannot fail in CI: the `test` job's depth-1 checkout
+has no `master`, `origin/master` or `HEAD^1`, so the diff half is skipped, which is why PR 182
+went green. 149's own changes are correct and are on master. The decided fix is ticket 150:
+replace the test with one that the historical ADRs still name P-Bot, then mark this ticket `done`.
