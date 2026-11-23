@@ -137,4 +137,4 @@ has no `master`, `origin/master` or `HEAD^1`, so the diff half is skipped, which
 went green. 149's own changes are correct and are on master. The decided fix is ticket 150:
 replace the test with one that the historical ADRs still name P-Bot, then mark this ticket `done`.
 
-- 2026-11-23: Closed by ticket 150 (PR for `ticket/tests-first-gate-holes-150-replace-the-adr-unmodified-test-and-close-149`).
+- 2026-11-23: Closed by ticket 150 (PR #191).

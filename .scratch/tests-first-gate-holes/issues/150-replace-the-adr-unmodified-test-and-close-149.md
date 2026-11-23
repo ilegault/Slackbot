@@ -1,10 +1,12 @@
 # 150: Replace `test_docs_adr_is_unmodified` with a test that holds everywhere, and close 149
 
-**Status:** blocked
+**Status:** done
 
 **Runner:** any
 
 **Auto-merge:** no
+
+**Deletes tests:** tests/test_59_readme_and_docs.py::test_docs_adr_is_unmodified
 
 **Blocked by:** None (can start immediately)
 
@@ -147,3 +149,5 @@ Failing output (exact, trimmed to the relevant lines):
 - Check 7 hold: New test(s) passed on base code: tests/test_59_readme_and_docs.py::test_historical_adrs_keep_the_old_bot_name (runtime: 3.05s)
 ```
 Decision needed: Add `Deletes tests: test_docs_adr_is_unmodified` to ticket 150 on `master` (or merge this draft PR manually after reviewing the Check 2 assertion-count difference, since the ticket specifies collecting all misses and asserting once).
+
+- 2026-11-23: Unblocked. Master's copy of this ticket now carries the `Deletes tests:` line, and ticket 149 was closed on master, so this PR changes only this ticket file.
