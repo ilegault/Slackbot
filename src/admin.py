@@ -52,7 +52,7 @@ except ImportError:
     import config
     import queue_worker
     import roster
-    import text_rules
+    import text_rules  # type: ignore[no-redef]
 
 log = logging.getLogger("p-bot.admin")
 
