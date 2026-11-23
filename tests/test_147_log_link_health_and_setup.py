@@ -128,7 +128,7 @@ def test_hand_built_health_dict_still_renders():
 
 def test_setup_documents_purchasing_log_url():
     """docs/SETUP.md documents PURCHASING_LOG_URL as an optional browser link, keeping all 5 storage rows."""
-    setup_path = os.path.join(os.getcwd(), "docs", "SETUP.md")
+    setup_path = os.path.join(PROJECT_ROOT, "docs", "SETUP.md")
     with open(setup_path, "r", encoding="utf-8") as f:
         text = f.read()
 
